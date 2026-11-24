@@ -325,6 +325,9 @@ fn observed_payload(observed: Observed, workbench: Option<&str>) -> Payload {
                     SourceSetStale::NewerRevision { version, .. } => {
                         format!("DAT revision {version} is newer than its latest audit's")
                     }
+                    SourceSetStale::DatChanged { from, .. } => {
+                        format!("its DAT changed since its latest audit, which was against {from}")
+                    }
                 })
                 .collect();
             (

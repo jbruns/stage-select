@@ -497,6 +497,61 @@ fn set_add_and_set_edit_say_and_switch_whether_stage_select_may_change_a_source_
 }
 
 #[test]
+fn set_edit_dat_binds_a_source_set_to_another_dat_and_says_what_changed() {
+    let (f, dat) = pong_fixture();
+    let other = write_dat_as(
+        f.dat_dir.path(),
+        &Dat {
+            file: "other.dat",
+            name: "Test - Other",
+            ..Dat::default()
+        },
+        &[("Pong (USA)", vec![rom("Pong (USA).bin", b"pong")])],
+    );
+    let root = f.set.path().parent().unwrap();
+    let rel = f.set.path().file_name().unwrap().to_str().unwrap();
+    let store = f.dat_dir.path().join("store");
+    let ts = || {
+        let mut cmd = stage_select();
+        cmd.env("STAGE_SELECT_STORE", &store);
+        cmd
+    };
+    run_ok(ts().args(["root", "register", "sets"]).arg(root));
+    run_ok(ts().args(["dat", "import"]).arg(&dat));
+    run_ok(ts().args(["dat", "import"]).arg(&other));
+    run_ok(ts().args(["set", "add", "sets", rel, "--dat", "No-Intro/Test - System"]));
+
+    let changed = run_ok(ts().args(["set", "edit", rel, "--dat", "No-Intro/Test - Other"]));
+    assert!(
+        changed
+            .contains("now bound to No-Intro/Test - Other, was No-Intro/Test - System. Audit it"),
+        "{changed}"
+    );
+    let same = ts()
+        .args(["set", "edit", rel, "--dat", "No-Intro/Test - Other"])
+        .output()
+        .unwrap();
+    assert!(!same.status.success());
+    let said = String::from_utf8_lossy(&same.stderr);
+    assert!(
+        said.contains("already bound to No-Intro/Test - Other"),
+        "{said}"
+    );
+    let both = ts()
+        .args([
+            "set",
+            "edit",
+            rel,
+            "--dat",
+            "No-Intro/Test - System",
+            "--read-only",
+        ])
+        .output()
+        .unwrap();
+    assert!(!both.status.success(), "the two conflict");
+}
+
+#[test]
 fn version_prints_the_pinned_clone_list_commit() {
     let pins = include_str!("../../../../third_party/clone-lists/pins.toml");
     let commits: Vec<&str> = pins

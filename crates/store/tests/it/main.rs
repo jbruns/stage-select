@@ -14,6 +14,7 @@ mod builds;
 mod calibration;
 mod chd;
 mod coverage;
+mod dat_change;
 mod dat_deletion;
 mod discs;
 mod disks;

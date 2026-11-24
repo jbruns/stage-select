@@ -867,7 +867,7 @@ SHA-256.
 ```sh
 stage-select set add <root> [<relative path>] --dat <provider>/<name> [--template <path template>]
   [--coverage-preset <preset>]... [--coverage-region <region>]... [--clone-lists <dir>] [--read-only] [--create]
-stage-select set edit <source set> [--may-change | --read-only]
+stage-select set edit <source set> [--may-change | --read-only | --dat <provider>/<name>]
 stage-select set coverage <source set> [--preset <preset>]... [--region <region>]... [--clone-lists <dir>]
 stage-select set coverage <source set> --clear
 stage-select set list
@@ -891,7 +891,8 @@ can't go together. The new source set is empty, so its first audit counts every 
 it from your ingest folders. The source set records who had its folder created and when, and the service's log says
 so. `set edit` prints whether Stage Select may change a
 source set; `--may-change` or `--read-only` switches it, as on its overview in the workbench, and lists each approved
-plan the switch voided (see "Roots"). `set coverage` prints a source set's coverage. With `--preset` or
+plan the switch voided (see "Roots"). `set edit --dat` binds the source set to another imported DAT of the same
+DAT format, in place, as **Change DAT…** does in the workbench (see "Changing a source set's DAT"). `set coverage` prints a source set's coverage. With `--preset` or
 `--region`, both repeatable, it sets the coverage to those regions instead, and `--clear` covers every game again; it
 moves no file and needs no new audit. Region and preset names are checked against the clone lists, `--clone-lists`
 or as for `select`, so setting a coverage needs them; clearing one doesn't. `set list` prints each source set with the DAT revision it was last verified against:
@@ -906,7 +907,8 @@ stage-select audit --set <source set> [--revision <sha256 prefix>] [--evidence <
 
 Audits a registered source set, read-only, and records it. Unlike the stateless audit, it does not follow a symlink
 that resolves outside the root: such a file or folder is an unreadable entry with that reason. Without `--revision`,
-the DAT revision is the latest audit's, else the newest revision of the bound DAT, so a newer DAT revision is
+the DAT revision is the latest audit's, else the newest revision of the bound DAT (also when the latest audit was
+against a DAT the source set is no longer bound to), so a newer DAT revision is
 adopted only when you name it. The entries and game statuses are written in one transaction when the audit finishes,
 and the report below is generated from them. Afterwards, audits beyond the number your retention setting keeps are pruned to a
 one-row summary; the latest audit, and any audit cited as provenance, are never pruned.
@@ -1171,8 +1173,8 @@ the token is refused or the service cannot be reached.
 
 ### Stale source sets
 
-A source set is stale when its latest audit may no longer describe it. Two things make it stale, and its next audit
-clears both:
+A source set is stale when its latest audit may no longer describe it. Three things make it stale, and its next audit
+clears each:
 
 - **Files changed.** A check for changes, a job of kind `stat_walk`, walks the source set and compares each file's
   size and times with its latest audit, by the change test an incremental audit uses. It reads no payload and writes
@@ -1188,6 +1190,30 @@ clears both:
   Following never starts an audit; you choose when to audit against the new revision. A source set you don't follow
   never goes stale on a newer revision. Its history keeps each revision that made it stale, after an audit clears it
   or you stop following.
+- **DAT changed.** You bound it to another DAT since its latest audit (see "Changing a source set's DAT"). Its next
+  audit, against the new DAT, clears it.
+
+### Changing a source set's DAT
+
+A source set registered against the wrong DAT, such as an Atari 7800 set of headerless `.bin` files registered against
+the headered (A78) DAT, can be bound to the right one in place: `set edit <source set> --dat <provider>/<name>`, or
+**Change DAT…** under the more actions menu of its page, which shows what the change does before you confirm it
+(`GET /source-sets/{name}/dat-change?dat=`). Its name, root, path, history, kept files and marker stay, and every
+earlier audit, selection and build keeps the DAT revision it used. Then audit it, a full audit is best, and a repair
+against the new DAT can fix its files, such as repacking loose files to your storage policy.
+
+- **What's refused.** Only a DAT of the same DAT format: a MAME ListXML's source set can't take a Logiqx DAT, or the
+  other way round. It's refused, saying why and changing nothing, while a job of the source set or its library folders
+  is queued or running, a repair of it has started, an ingest plan is still moving files into it, or any of its games
+  is placed in a library folder under single copy: send them back first, or turn single copy off.
+- **What it voids.** Each approved plan not yet started that was made from the old DAT: queued builds of its library
+  folders and approved repairs of it. Each fails, having changed nothing, as when a root stops being writable.
+- **Coverage.** It keeps its coverage when it still covers any game of the new DAT's newest revision, a World game
+  included, and otherwise clears it, so it covers every game. Checking needs the clone lists when it has a coverage.
+- **Staleness.** It is stale, as "DAT changed", until its next audit. A repair waits for that audit: one planned
+  from an audit against the old DAT is refused. Each library folder built from it is stale, as "DAT changed", until it
+  builds a selection of the new DAT; a plan built from a selection of the old DAT can't be approved. The games you
+  removed from those folders stay removed, by name, as the names of a set's games usually carry across its DATs.
 
 ### Coverage
 
@@ -2077,7 +2103,7 @@ What these versions promise you:
 | `POST /api/v1/support-files`                       | import a MAME support file: multipart `source_url`?, `file`; 201 when it's new, 400 when its header names no support file or MAME version |
 | `GET /api/v1/fetch`                                | each provider fetching knows (`redump`, `mame`): `enabled`, `running`, its latest `release` check, and each system a source set follows with its `dat`, `source_sets` and `artifacts` (`dat`, `cues`, `sbi`), each with its `last_attempt`, `last_success` and `next_at`; for `mame`, `support` too, while a source set is bound to a ListXML DAT: its `source_sets`, the `listxml` revision they are fetched for, `fetched_for_listxml`, `artifacts` (`support_commit`, `catver`, `languages`, `bestgames`), and `next_at`, when they are next fetched if they are owed but must wait |
 | `POST /api/v1/fetch/{provider}`                    | fetch what is due now from `redump` or `mame`: the status above, `200` when the fetch ended within 2 seconds and `202` while it runs on; `400` when it is off, follows nothing or nothing is due, `409` while it is already fetching |
-| `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against, `follow`, and `stale`: why each is stale, each `{"kind": "files_changed", "walk", "found_at", "changed", "added", "removed"}` or `{"kind": "newer_revision", "sha256", "version", "imported_at"}`, `coverage`: the regions it covers, absent when it covers every game, `repairs_may_change`: whether Stage Select may change it (repairs, and single copy placing its games), as its root's `writable_paths` list its path, and `folder_created`: `{"by", "at"}`, when Stage Select created its folder |
+| `GET /api/v1/source-sets`                          | the source sets, with the DAT revision last verified against, `follow`, and `stale`: why each is stale, each `{"kind": "files_changed", "walk", "found_at", "changed", "added", "removed"}` or `{"kind": "newer_revision", "sha256", "version", "imported_at"}` or `{"kind": "dat_changed", "from", "changed_at"}`, `coverage`: the regions it covers, absent when it covers every game, `repairs_may_change`: whether Stage Select may change it (repairs, and single copy placing its games), as its root's `writable_paths` list its path, and `folder_created`: `{"by", "at"}`, when Stage Select created its folder |
 | `GET /api/v1/path-templates`                       | the default path templates: `{"source_set", "library_folder"}` |
 | `POST /api/v1/source-sets`                         | register one: `{"root", "path"?, "template"?, "dat", "coverage"?, "repairs_may_change"?}`; with no `path`, the path `template`, else the default, proposes; `coverage` is a list of region names, by default every game; `repairs_may_change`, by default `true`, adds its path to its root's `writable_paths` in the same transaction; `"create": true` creates its folder, and the missing folders above it in the root, when it is missing, refused unless `repairs_may_change` is `true` and the folder resolves inside the root |
 | `GET /api/v1/source-set-summaries`                 | each source set with its latest audit (with `claimed`, its entries on claim evidence) and its open repair, if any: what the list of source sets shows. With a coverage, the latest audit's `games` counts only the games it covers, `outside_coverage` (`{"games", "unknown_region"}`) counts the rest by game status and how many of them have the region `Unknown`, and `covered_entries` (`{"findings", "claimed"}`) counts the entries its status ranks on, those of covered games and of no game, while `latest.findings` and `latest.claimed` still count every entry; `coverage_unavailable` is `true` when the coverage couldn't be applied, and its counts are then whole |
@@ -2088,6 +2114,8 @@ What these versions promise you:
 | `GET /api/v1/source-sets/{name}/ingests`           | approved ingest plans that changed it, newest first: DAT imports that queued an audit of it, and additions to its DAT's additions set |
 | `PUT /api/v1/source-sets/{name}/follow`            | follow its DAT, or stop: `{"follow"}`; returns the source set |
 | `PUT /api/v1/source-sets/{name}/repairs-may-change` | let Stage Select change it, or stop: `{"repairs_may_change"}`; adds or removes its path in its root's `writable_paths`. Returns `{"source_set", "voided"?}`, each approved plan, not yet started, that stopping voided, as for `PUT /roots/{name}`; `409` while unfinished work writing to it stands in the way |
+| `GET /api/v1/source-sets/{name}/dat-change?dat=<provider>/<name>` | what binding it to that DAT would do, changing nothing: `{"source_set", "from", "to", "cleared_coverage"?, "voided"?, "library_folders"?}`, the coverage it would clear, each approved plan it would void, as for `PUT /roots/{name}`, and each library folder with a current build that would become stale, `{"id", "root", "path"}`; `404` for an unknown DAT, `409` when it would be refused, `503` to check a coverage without the clone lists |
+| `PUT /api/v1/source-sets/{name}/dat`               | bind it to another DAT of the same DAT format, in place: `{"dat"}`; returns what it did, as for `GET …/dat-change`. Its history, kept files and marker stay, and it is stale until its next audit; `404`, `409` and `503` as for the preview |
 | `PUT /api/v1/source-sets/{name}/coverage`          | set its coverage: `{"coverage": [region]}`, or `{"coverage": null}` to cover every game; returns the source set, its regions in the vocabulary's order. Moves no file and needs no new audit; `400` for an unknown region or an empty list, `409` while an approved repair of it hasn't finished, `503` to set regions without the clone lists |
 | `GET /api/v1/source-sets/{name}/placements`        | where it keeps its games under single copy: `{"holding_folder", "placed"?, "review_flags"?}`, the id of the library folder that holds its placed games (`null` when several are bound and you chose none), each library folder its games are placed in now with how many, `{"library_folder", "games"}`, and the games a build found need review, `{"game", "path", "reason", "build", "raised_at"}` |
 | `PUT /api/v1/source-sets/{name}/holding-folder`    | choose the library folder that holds its placed games: `{"folder": id}`, or `{"folder": null}` for none; returns its placements. Moves no file: the next builds return and place its games. `400` for a folder bound to another source set, `404` for no such folder, `409` while a build placing or returning its games is queued or running |
@@ -2126,7 +2154,7 @@ What these versions promise you:
 | `GET /api/v1/selections/{id}/releases`             | games, paged, with availability; `?outcome=`, `?group=`      |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection, or `null` for the first; `?against=` |
-| `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, for a MAME ListXML's folder `built_for`, the MAME version its build was selected for, and `disk_folders`, the folders it holds disks in, `removed`, the games you removed from it, each `{"name", "removed_at", "action", "plan"}`, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}`, or `{"kind": "coverage_changed", "built", "latest"}`, each a list of regions or `null` for every game |
+| `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, for a MAME ListXML's folder `built_for`, the MAME version its build was selected for, and `disk_folders`, the folders it holds disks in, `removed`, the games you removed from it, each `{"name", "removed_at", "action", "plan"}`, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}`, or `{"kind": "coverage_changed", "built", "latest"}`, each a list of regions or `null` for every game, or `{"kind": "dat_changed", "built"}`, the DAT its current build's selection was of, after its source set was bound to another DAT |
 | `POST /api/v1/libraries`                           | register one: `{"root", "path"?, "template"?, "source_set", "profile"}`; `201` |
 | `GET /api/v1/libraries/{id}`                       | one library folder                                           |
 | `PATCH /api/v1/libraries/{id}`                     | rebind it: `{"source_set"?, "profile"?}`                     |
@@ -2565,7 +2593,7 @@ Its screens:
   shows no **Edit coverage**: its **Coverage** section says in one line why it has none. **Library folders** lists its
   library folders with their status. **Additions** shows
   its DAT's additions set. **History** is one timeline of its audits, repairs, ingests into it, builds from it and
-  what made it stale (checks that found changes and newer revisions of the DAT it follows), newest first; a past audit opens read-only. **Kept files** lists what its repairs set aside, where you pick some
+  what made it stale (checks that found changes and newer revisions of the DAT it follows), newest first; **Change DAT…**, under its more actions menu, binds it to another DAT of the same DAT format, showing what that changes first; a past audit opens read-only. **Kept files** lists what its repairs set aside, where you pick some
   and approve deleting them. **Repair** shows while a repair is under way, or when a link names a plan.
 - **DATs** (`/dats`) lists every DAT revision, newest first within each DAT, with its name, provider ("Unknown" when
   its header doesn't show one), version, date, whether its file is kept and how many source sets use its DAT. Its

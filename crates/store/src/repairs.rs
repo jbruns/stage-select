@@ -881,6 +881,22 @@ impl Store {
             .into_iter()
             .next()
             .ok_or_else(|| Error::Refused(format!("audit {name} before you repair it")))?;
+        let audited: Option<String> = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT d.provider || '/' || d.name FROM audits a JOIN dat_revisions r ON r.id = a.dat_revision_id
+                 JOIN dats d ON d.id = r.dat_id WHERE a.id = ?1 AND r.dat_id <> ?2",
+                params![audit.id, set.dat_id],
+                |r| r.get(0),
+            )
+            .optional()?)
+        })?;
+        if let Some(audited) = audited {
+            return Err(Error::Refused(format!(
+                "source set {name}'s latest audit was against {audited}, but it is now bound to {}; audit it \
+                 against {} before you repair it",
+                record.dat, record.dat
+            )));
+        }
         let report = self.report(audit.id)?;
         let dat = Dat::read(&self.blob_path(&report.dat_revision.sha256))
             .map_err(|e| Error::Io(e.to_string()))?;
@@ -1430,6 +1446,19 @@ impl Store {
                 return Err(Error::Conflict(format!(
                     "source set {} was audited again since the plan was made; plan the repair again from the \
                      latest audit",
+                    content.source_set
+                )));
+            }
+            let bound: bool = tx.query_row(
+                "SELECT r.dat_id = s.dat_id FROM audits a JOIN dat_revisions r ON r.id = a.dat_revision_id
+                 JOIN source_sets s ON s.id = a.source_set_id WHERE a.id = ?1",
+                [content.audit],
+                |r| r.get(0),
+            )?;
+            if !bound {
+                return Err(Error::Conflict(format!(
+                    "source set {} was bound to another DAT since the plan was made; nothing was changed. Audit it \
+                     against its DAT and plan the repair again",
                     content.source_set
                 )));
             }

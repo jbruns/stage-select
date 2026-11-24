@@ -20,6 +20,7 @@
 //! | `ingest_reaudits.sha256`                    | not fulfilled                                                   | history   |
 //! | `followed_revisions.dat_revision_id`        | never                                                           | history   |
 //! | `fetches.dat_revision_id`                   | never                                                           | history   |
+//! | `source_set_dat_changes.from_dat_id`, `to_dat_id` | never                                                     | history   |
 //!
 //! A deleted revision that history still names keeps its row, hidden by `deleted_at` and holding no blob, so that the
 //! history keeps its identity and every foreign key still holds; one that nothing names is deleted outright, and so

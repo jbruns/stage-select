@@ -1244,6 +1244,19 @@ fn rank<'a>(c: &Candidate<'a>) -> (bool, bool, &'a str, Option<&'a str>) {
 fn compute(roots: &crate::roots::Roots, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
     let mut blockers = Vec::new();
     let usable_audit = match &inputs.audit {
+        // A Selection of the DAT its Source Set was bound to before is built no more; removing every built file
+        // still is.
+        _ if inputs.revision.dat != inputs.folder.system && !inputs.choices.remove_all => {
+            blockers.push(blocker(
+                BlockerKind::RevisionMismatch,
+                format!(
+                    "the selection is of {}, but source set {} is now bound to {}; audit it, select it again and \
+                     build that selection",
+                    inputs.revision.dat, inputs.folder.source_set, inputs.folder.system
+                ),
+            ));
+            None
+        }
         None => {
             blockers.push(blocker(
                 BlockerKind::NoAudit,

@@ -86,7 +86,11 @@ fn registration(c: &Connection, kind: RegistrationKind, id: i64) -> Result<Regis
 }
 
 /// Every string the first column of `sql`, run with `params`, returns.
-fn strings(c: &Connection, sql: &str, params: impl rusqlite::Params) -> Result<Vec<String>> {
+pub(crate) fn strings(
+    c: &Connection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> Result<Vec<String>> {
     let mut stmt = c.prepare(sql)?;
     let rows = stmt.query_map(params, |r| r.get::<_, String>(0))?;
     Ok(rows.collect::<Result<_, _>>()?)

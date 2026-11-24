@@ -368,7 +368,7 @@ fn timestamp(s: &str) -> Result<jiff::Timestamp> {
 }
 
 /// The DAT Revision an Audit of `set` uses: the one whose SHA-256 starts with `prefix`; else the latest
-/// Audit's; else the newest revision of the bound DAT.
+/// Audit's, while that was against the bound DAT; else the newest revision of the bound DAT, as after its DAT changed.
 pub(super) fn choose_revision(
     c: &Connection,
     set: &SourceSetRow,
@@ -406,9 +406,10 @@ pub(super) fn choose_revision(
             &format!(
                 "{base} WHERE r.id = (SELECT dat_revision_id FROM audits
                                       WHERE source_set_id = ?1 AND status = 'finished'
-                                      ORDER BY finish_seq DESC LIMIT 1)"
+                                      ORDER BY finish_seq DESC LIMIT 1)
+                   AND r.dat_id = ?2"
             ),
-            [set.id],
+            params![set.id, set.dat_id],
             revision_from_row,
         )
         .optional()?;

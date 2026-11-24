@@ -302,10 +302,15 @@ impl Status for GameFlag {
 pub enum StaleCause {
     FilesChanged,
     NewerRevision,
+    DatChanged,
 }
 
 impl Status for StaleCause {
-    const ALL: &'static [Self] = &[StaleCause::FilesChanged, StaleCause::NewerRevision];
+    const ALL: &'static [Self] = &[
+        StaleCause::FilesChanged,
+        StaleCause::NewerRevision,
+        StaleCause::DatChanged,
+    ];
 
     fn look(self) -> Look {
         match self {
@@ -320,6 +325,12 @@ impl Status for StaleCause {
                 Tone::Review,
                 "Newer DAT revision",
                 "You follow its DAT, and a revision newer than its latest audit's was imported.",
+            ),
+            StaleCause::DatChanged => look(
+                Glyph::Replace,
+                Tone::Review,
+                "DAT changed",
+                "You bound it to another DAT since its latest audit, which was against its old one.",
             ),
         }
     }

@@ -248,8 +248,8 @@ fn plan_open(c: &Connection, row: &FolderRow) -> Result<bool> {
     )?)
 }
 
-/// What changed since the folder's current Build: a rebinding to another Source Set or Profile, or else a newer
-/// Audit of its Source Set that found something other than the Build's did, a Coverage of its Source Set other than
+/// What changed since the folder's current Build: a rebinding to another Source Set or Profile, or else its Source
+/// Set's binding to another DAT, a newer Audit of its Source Set that found something other than the Build's did, a Coverage of its Source Set other than
 /// the one the Build's Selection was made under, or a version of its Profile newer than the Build's Selection's.
 fn stale(c: &Connection, row: &FolderRow) -> Result<Vec<Stale>> {
     let Some(build) = row.current_build else {
@@ -298,6 +298,16 @@ fn stale(c: &Connection, row: &FolderRow) -> Result<Vec<Stale>> {
         });
     }
     if set_id == row.source_set_id {
+        let built: Option<String> = c.query_row(
+            "SELECT CASE WHEN r.dat_id <> ?2 THEN d.provider || '/' || d.name END
+             FROM builds b JOIN dat_revisions r ON r.id = b.dat_revision_id JOIN dats d ON d.id = r.dat_id
+             WHERE b.id = ?1",
+            params![build, row.dat_id],
+            |r| r.get(0),
+        )?;
+        if let Some(built) = built {
+            stale.push(Stale::DatChanged { built });
+        }
         let latest = coverage_of(c, set_id)?;
         if !same_coverage(built_coverage.as_deref(), latest.as_deref()) {
             stale.push(Stale::CoverageChanged {

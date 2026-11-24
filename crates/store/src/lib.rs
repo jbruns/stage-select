@@ -11,6 +11,7 @@ pub mod ceilings;
 mod checks;
 mod coverage;
 mod cue_packs;
+mod dat_change;
 mod dat_deletion;
 mod dats;
 mod exports;

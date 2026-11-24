@@ -12,9 +12,9 @@ use stage_select_api::build::{BuildSummary, LibraryFolder};
 use stage_select_api::ingest::IngestPlan;
 use stage_select_api::repair::RepairPlan;
 use stage_select_api::{
-    AuditEvidence, AuditSummary, Dat, FollowedRevision, Job, OutsideCoverage, Placements,
-    SetFollow, SetHoldingFolder, SetRepairsMayChange, SourceSetChanged, SourceSetRecord,
-    SourceSetSummary, StartAudit, StatWalk,
+    AuditEvidence, AuditSummary, Dat, DatChange, FollowedRevision, Job, OutsideCoverage,
+    Placements, SetDat, SetFollow, SetHoldingFolder, SetRepairsMayChange, SourceSetChanged,
+    SourceSetRecord, SourceSetSummary, StartAudit, StatWalk,
 };
 
 use crate::api;
@@ -200,6 +200,7 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
             .collect::<Vec<_>>()
     });
     let options = RwSignal::new(false);
+    let changing_dat = RwSignal::new(false);
     let audited =
         Memo::new(move |_| good.with(|g| g.as_ref().is_some_and(|(s, _)| s.latest.is_some())));
     let follows = Memo::new(move |_| good.with(|g| g.as_ref().is_some_and(|(s, _)| s.set.follow)));
@@ -312,6 +313,10 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                     label="New library folder"
                     on_select=Callback::new(move |()| navigate.run(new_library_href(&name.get_value())))
                 />
+                <MenuItem
+                    label="Change DAT…"
+                    on_select=Callback::new(move |()| changing_dat.set(true))
+                />
             </Menu>
         </div>
         <Said said />
@@ -373,6 +378,16 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                 .get()
                 .then(|| view! { <CoverageDrawer name=name.get_value() open=editing coverage refresh said /> })
         }}
+        <Drawer open=changing_dat title="Change DAT">
+            // Mounted as it opens, so each opening previews afresh.
+            {move || {
+                changing_dat.get().then(|| {
+                    good.get_untracked().map(|(s, _)| {
+                        view! { <ChangeDat set=s.set open=changing_dat refresh said /> }
+                    })
+                })
+            }}
+        </Drawer>
         <Drawer open=options title="Audit with options">
             // Read once as it opens: a job settling while it's open keeps the form, and the outcome under it.
             {move || {
@@ -521,6 +536,115 @@ fn Overview(
             .filter(|a| !a.pruned)
             .map(|a| view! { <ExportMissing name=set.name.clone() latest=a coverage_set=set.coverage.is_some() unavailable /> })}
         <SetLifecycle name=set.name.clone() />
+    }
+}
+
+/// Binding the source set to another DAT of its format: a choice of DAT, what the change would do or why it's
+/// refused, and a confirmation.
+#[component]
+fn ChangeDat(
+    set: SourceSetRecord,
+    open: RwSignal<bool>,
+    refresh: RwSignal<u64>,
+    said: RwSignal<Option<Result<String, String>>>,
+) -> impl IntoView {
+    let name = StoredValue::new(set.name.clone());
+    let current = set.dat.clone();
+    let dats = LocalResource::new(|| api::get::<Vec<Dat>>("/dats"));
+    let choices = Memo::new(move |_| {
+        dats.get()
+            .and_then(Result::ok)
+            .map(|dats| model::dat_choices(&dats, &current))
+    });
+    let chosen = RwSignal::new(String::new());
+    Effect::new(move || {
+        if chosen.get_untracked().is_empty()
+            && let Some(first) = choices.get().and_then(|c| c.into_iter().next())
+        {
+            chosen.set(first);
+        }
+    });
+    let preview = LocalResource::new(move || {
+        let dat = chosen.get();
+        let path = format!(
+            "/source-sets/{}/dat-change?dat={}",
+            api::segment(&name.get_value()),
+            api::segment(&dat)
+        );
+        async move {
+            if dat.is_empty() {
+                return None;
+            }
+            Some(api::get::<DatChange>(&path).await)
+        }
+    });
+    let busy = RwSignal::new(false);
+    let problem = RwSignal::new(None::<String>);
+    let confirm = move |ev: leptos::ev::SubmitEvent| {
+        ev.prevent_default();
+        let request = SetDat {
+            dat: chosen.get_untracked(),
+        };
+        busy.set(true);
+        problem.set(None);
+        leptos::task::spawn_local(async move {
+            let path = format!("/source-sets/{}/dat", api::segment(&name.get_value()));
+            let changed = api::put::<_, DatChange>(&path, &request).await;
+            busy.set(false);
+            match changed {
+                Ok(change) => {
+                    said.set(Some(Ok(model::dat_changed_said(&change))));
+                    refresh.update(|n| *n += 1);
+                    open.set(false);
+                }
+                Err(message) => problem.set(Some(format!("Couldn't change its DAT: {message}"))),
+            }
+        });
+    };
+    view! {
+        <p>{format!("Bound to {}.", set.dat)}</p>
+        {move || match choices.get() {
+            None => view! { <Loading what="the DATs" /> }.into_any(),
+            Some(choices) if choices.is_empty() => view! {
+                <p class="note">"No other DAT of its DAT format is imported. Import the DAT you want first."</p>
+            }
+            .into_any(),
+            Some(choices) => view! {
+                <form class="form" on:submit=confirm>
+                    <label>
+                        "Bind it to"
+                        <select required prop:value=chosen on:change=move |ev| chosen.set(event_target_value(&ev))>
+                            {choices
+                                .into_iter()
+                                .map(|d| view! { <option value=d.clone()>{d.clone()}</option> })
+                                .collect_view()}
+                        </select>
+                    </label>
+                    {move || match preview.get().flatten() {
+                        None => view! { <p class="note">"Checking what it would change…"</p> }.into_any(),
+                        Some(Err(message)) => view! { <Problem message /> }.into_any(),
+                        Some(Ok(change)) => view! {
+                            <ul>
+                                {model::dat_change_lines(&change)
+                                    .into_iter()
+                                    .map(|line| view! { <li>{line}</li> })
+                                    .collect_view()}
+                            </ul>
+                        }
+                        .into_any(),
+                    }}
+                    <button
+                        type="submit"
+                        class="primary"
+                        disabled=move || busy.get() || !matches!(preview.get().flatten(), Some(Ok(_)))
+                    >
+                        "Change DAT"
+                    </button>
+                </form>
+            }
+            .into_any(),
+        }}
+        {move || problem.get().map(|message| view! { <Problem message /> })}
     }
 }
 
