@@ -11,7 +11,7 @@ use ureq::http::Uri;
 pub const USER_AGENT: &str = concat!(
     "stage-select/",
     env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/jbruns/title-select)"
+    " (+https://github.com/jbruns/stage-select)"
 );
 
 /// The domains no request may address, nor any of their subdomains. No-Intro sanctions no automated access.
