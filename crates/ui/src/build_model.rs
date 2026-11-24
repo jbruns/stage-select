@@ -410,12 +410,18 @@ pub fn folder_deletion_notice(content: &PlanContent) -> Option<FolderDeletionNot
         .collect();
     let kept: Vec<u64> = deletion.kept.iter().map(|k| k.file.size).collect();
     let total = bytes(built.iter().chain(&kept).sum());
+    let how = match (built.len(), kept.len()) {
+        (0, k) => format!("{} you kept aside before", files(k)),
+        (b, 0) => format!("{} built, set aside first", files(b)),
+        (b, k) => format!(
+            "{} built, set aside first, and {} you kept aside before",
+            files(b),
+            files(k)
+        ),
+    };
     let deletes = format!(
-        "Approving deletes {} Stage Select wrote here ({total}) for good: {} built, set aside first, and {} you kept \
-         aside before.",
+        "Approving deletes {} Stage Select wrote here ({total}) for good: {how}.",
         files(built.len() + kept.len()),
-        files(built.len()),
-        files(kept.len()),
     );
     let games: usize = content.returns.iter().map(|r| r.games.len()).sum();
     let returns = (games > 0).then(|| match games {

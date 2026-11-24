@@ -1361,13 +1361,13 @@ fn DiskFolders(folders: Vec<String>) -> impl IntoView {
     }
 }
 
-/// Removing the folder's built files, moving it, or unregistering it.
+/// Removing the folder's built files, deleting it, moving it, or unregistering it.
 #[component]
 fn FolderLifecycle(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView {
     let id = folder.id;
     let base = format!("/libraries/{id}");
     view! {
-        <LifecycleSection>
+        <LifecycleSection title="Unregister, delete, set aside or move">
             <PlanAction
                 label="Remove built files"
                 explain="This plans to move every file the folder's builds wrote into its kept files, renamed in \

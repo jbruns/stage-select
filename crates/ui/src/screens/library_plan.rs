@@ -868,7 +868,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                             <p>{d.folder}</p>
                             <Leftovers left=d.left />
                         </Message>
-                        <div class="form">
+                        <p>
                             <label class="inline">
                                 <input
                                     type="checkbox"
@@ -877,7 +877,7 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                                 />
                                 {build_model::DELETE_FOLDER_CONFIRM}
                             </label>
-                        </div>
+                        </p>
                     })}
                     {single_copy()}
                     {partial()}

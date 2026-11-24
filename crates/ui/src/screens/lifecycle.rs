@@ -512,11 +512,15 @@ fn Forget(record: UnregisteredRecord, refresh: RwSignal<u64>) -> impl IntoView {
 }
 
 /// The lifecycle actions of a registration, folded away under a heading so that they are found but not in the way.
+/// `title` names them when they aren't the usual ones.
 #[component]
-pub fn LifecycleSection(children: Children) -> impl IntoView {
+pub fn LifecycleSection(
+    children: Children,
+    #[prop(optional)] title: Option<&'static str>,
+) -> impl IntoView {
     view! {
         <details class="lifecycle">
-            <summary>"Unregister, set aside or move"</summary>
+            <summary>{title.unwrap_or("Unregister, set aside or move")}</summary>
             {children()}
         </details>
     }

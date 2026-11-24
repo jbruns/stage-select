@@ -40,7 +40,9 @@ target/screenshots/.work/<label>/:
 - kept files: play/atari-2600-spare, built, then two strays set aside from it by an approved cleanup, with a plan to
   delete them waiting for approval; and a file discarded from `drop` through an approved plan;
 - removed games: play/atari-2600-removed, built, then one game set aside through an approved plan, so its overview
-  lists it, and a plan to delete another waiting for approval.
+  lists it, and a plan to delete another waiting for approval;
+- a folder deletion: play/atari-2600-old, built, then given a file Stage Select didn't write, with a plan to delete
+  the folder waiting for approval.
 
 It doesn't seed curation, cue packs, RomM, notifications, a stale library folder, a
 DAT fetch, kept files from an approved repair, or a running or interrupted job. The activity-running
@@ -49,8 +51,9 @@ stream, and the Service never sees it. A step the Service
 refuses (as an older ref may) is reported and skipped, and so is any screen whose route needs what it would have
 made.
 
-Eight screens aren't a route alone. library-remove checks two of play/atari-2600-removed's built files and opens
-the drawer that removes their games, with Delete chosen. root-register and source-set-register open the Register drawer of Roots and of
+Nine screens aren't a route alone. library-remove checks two of play/atari-2600-removed's built files and opens
+the drawer that removes their games, with Delete chosen. library-delete opens play/atari-2600-old's lifecycle fold
+and asks to delete the folder. root-register and source-set-register open the Register drawer of Roots and of
 Source sets, the latter with "Only some regions" chosen, and capture the drawer whole; root-edit opens the root
 sets' Edit drawer, and source-set-about opens the "About it" fold of a source set's overview. Three are captured at 1440px
 only. row-states checks the DATs list's fourth row, then
@@ -114,6 +117,8 @@ SCREENS = {
     "library-removed": "/libraries/{removed_library}",
     "library-removal-plan": "/libraries/{removed_library}?tab=plan",
     "library-remove": "/libraries/{removed_library}",
+    "library-folder-deletion": "/libraries/{deleting_library}?tab=plan",
+    "library-delete": "/libraries/{deleting_library}",
     "build": "/builds/{build}",
     "additions": "/additions",
     "source-set-additions": "/source-sets/{additions_set}?tab=additions",
@@ -273,8 +278,18 @@ def library_remove(page):
     return Drawer(page)
 
 
+def library_delete(page):
+    """A library folder's lifecycle fold open, asking you to confirm making the plan that deletes the folder."""
+    fold = page.locator("details.lifecycle")
+    fold.locator("summary").click()
+    fold.get_by_role("button", name="Delete library folder…").click()
+    page.wait_for_timeout(300)
+    return page
+
+
 DRIVEN = {
     "library-remove": library_remove,
+    "library-delete": library_delete,
     "row-states": row_states,
     "messages": messages,
     "root-register": root_register,
@@ -690,6 +705,15 @@ def seed(api, data):
 
     if ATARI in selections:
         step("removed games in play/atari-2600-removed, a deletion planned", removed_library)
+
+    def deleting_library():
+        # Built, then given a file Stage Select didn't write, and its deletion planned: the plan lists what it leaves.
+        made["deleting_library"], _ = library(ATARI, "atari-2600-old", True)
+        (play / "atari-2600-old" / "notes.txt").write_bytes(payload("a note of yours"))
+        api.post(f"/libraries/{made['deleting_library']}/folder-deletions")
+
+    if ATARI in selections:
+        step("play/atari-2600-old, its deletion planned", deleting_library)
     return made, failures
 
 

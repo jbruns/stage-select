@@ -2711,9 +2711,11 @@ Its screens:
   parent game and where it came from. You rename an addition, set or clear its parent, retire or restore it, and
   check the additions set for drift. Each set lists its kept files, which you pick, review and approve deleting, and
   any found entries a stop left.
-- **Unregister, set aside or move**, at the foot of a source set's overview, a library folder's overview, an
-  additions set and an ingest folder, says what holds it, or asks you to confirm before unregistering it. A source
-  set's "Set aside…" and a library folder's "Remove built files…" make a plan and open it for your review; an
+- **Unregister, set aside or move**, at the foot of a source set's overview, a library folder's overview (where it
+  is **Unregister, delete, set aside or move**), an additions set and an ingest folder, says what holds it, or asks
+  you to confirm before unregistering it. A source set's "Set aside…" and a library folder's "Remove built files…"
+  and "Delete library folder…" make a plan and open it for your review; a plan that deletes the folder says what it
+  deletes, returns and leaves, and waits for you to tick "Delete these files for good" before you approve it; an
   additions set's lists the additions it retires before you approve; a library folder's "Move…" shows where it goes
   before you approve. A selection profile's page retires or restores it; a retired profile isn't offered in the
   pickers.
