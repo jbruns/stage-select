@@ -199,6 +199,11 @@ pub struct PlanChoices {
     /// selection hadn't selected them, and approving it adds them to the folder's removed games.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub remove: Vec<GameRemoval>,
+    /// With `remove_all`: delete the folder instead of keeping its files. Once the build has kept aside every built
+    /// file and returned every placed game, the files it kept aside and the folder's other kept files are deleted, the
+    /// folder itself is removed when nothing else is left in it, and then it is unregistered.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub delete_folder: bool,
 }
 
 /// What removing a game from a Library Folder does with its files.
@@ -793,6 +798,46 @@ pub struct PlanContent {
     /// a plan whose pack is no longer the system's is stale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sbi_pack: Option<String>,
+    /// For a plan that deletes the folder: the kept files it deletes besides the files it keeps aside, and what it
+    /// would leave in the folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_deletion: Option<FolderDeletion>,
+}
+
+/// What deleting a Library Folder deletes besides the built files its plan keeps aside, and what it leaves.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FolderDeletion {
+    /// The folder's kept files now, each deleted as an approved deletion of kept files is.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kept: Vec<KeptFile>,
+    /// What the folder would still hold once every file Stage Select wrote is gone: the folder is left, with them,
+    /// while there is any.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left: Vec<FolderLeftover>,
+}
+
+/// An entry left in a Library Folder that deleting the folder doesn't delete.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FolderLeftover {
+    /// Relative to the folder.
+    pub name: String,
+    pub why: String,
+}
+
+/// What deleting a Library Folder did, once its plan is approved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FolderDeletionOutcome {
+    /// When it finished; absent while it waits on its build, or on the service's next start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<String>,
+    /// Whether the folder itself is gone.
+    pub removed: bool,
+    /// What was left in the folder, when it was left.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub left: Vec<FolderLeftover>,
+    /// Why it was left, or what else to know.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 impl PlanChoices {
@@ -880,6 +925,9 @@ pub struct Plan {
     /// The check of the folder made with the plan.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check: Option<i64>,
+    /// For an approved plan that deletes the folder: what deleting it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_deleted: Option<FolderDeletionOutcome>,
 }
 
 impl Plan {

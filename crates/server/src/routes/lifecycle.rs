@@ -36,6 +36,10 @@ pub(super) fn routes() -> Router<AppState> {
             post(unregister_library_folder),
         )
         .route("/libraries/{id}/removals", post(plan_library_removal))
+        .route(
+            "/libraries/{id}/folder-deletions",
+            post(plan_folder_deletion),
+        )
         .route("/libraries/{id}/game-removals", post(plan_game_removal))
         .route("/libraries/{id}/game-restorations", post(restore_games))
         .route("/libraries/{id}/moves", post(plan_library_folder_move))
@@ -155,6 +159,19 @@ async fn plan_library_removal(
 ) -> ApiResult<(StatusCode, Json<Plan>)> {
     let Path(id) = id?;
     let plan = blocking(&state, move |store| store.plan_library_removal(id)).await?;
+    Ok((StatusCode::CREATED, Json(plan)))
+}
+
+/// Plans deleting a Library Folder: every built file kept aside and each placed game returned to its source set; once
+/// the build that carries it out succeeds, what it kept aside and the folder's other kept files are deleted, the
+/// folder is removed unless something Stage Select didn't write is left in it, and it is Unregistered. Approved as any
+/// plan is.
+async fn plan_folder_deletion(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<(StatusCode, Json<Plan>)> {
+    let Path(id) = id?;
+    let plan = blocking(&state, move |store| store.plan_folder_deletion(id)).await?;
     Ok((StatusCode::CREATED, Json(plan)))
 }
 

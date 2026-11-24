@@ -13,8 +13,8 @@ use leptos_router::components::A;
 use stage_select_api::Job;
 use stage_select_api::additions::NewAddition;
 use stage_select_api::build::{
-    ApprovePlan, BlockerKind, BuildDetail, BuildSummary, FolderCheck, KeptFile, LibraryFolder,
-    Plan, PlanChoices, PlanCleanup, PlanContent, RETENTION, RemovalKind,
+    ApprovePlan, BlockerKind, BuildDetail, BuildSummary, FolderCheck, FolderLeftover, KeptFile,
+    LibraryFolder, Plan, PlanChoices, PlanCleanup, PlanContent, RETENTION, RemovalKind,
 };
 
 use crate::api;
@@ -703,11 +703,14 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
             .map(|r| (r.key.clone(), r.chosen))
             .collect(),
     );
+    let deleting = build_model::folder_deletion_notice(&plan.content);
+    // Deleting the folder waits on your ticking that you mean it.
+    let confirmed = RwSignal::new(deleting.is_none());
     let approval = {
         let planned = planned.clone();
         Signal::derive(move || Approval {
             changed: chooser.map_or(0, |c| c.changed(&planned)),
-            blocked: !approvable,
+            blocked: !approvable || !confirmed.get(),
             // A refused approval or a blocker fixed elsewhere is planned again from here.
             stale: !approvable || approver.problem.with(Option::is_some),
         })
@@ -819,7 +822,11 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
             }
         })
     };
-    let label = approve_label(&plan.summary, Placing::of(&plan.content));
+    let label = if deleting.is_some() {
+        "Approve and delete the folder".to_string()
+    } else {
+        approve_label(&plan.summary, Placing::of(&plan.content))
+    };
     let space = space_lines(&plan.summary, Placing::of(&plan.content));
     let changes_set =
         !plan.content.returns.is_empty() || plan.content.items.iter().any(|i| i.changes_source_set);
@@ -841,6 +848,10 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
         })
     };
     let removing = build_model::removal_notice(&plan.content.choices);
+    let deleted = plan
+        .folder_deleted
+        .as_ref()
+        .map(|o| (build_model::folder_deletion_outcome(o), o.left.clone()));
     let job = plan.job;
     // Approve sits above the list, with what it waits on; once approved, the plan's build job takes its place.
     let approve = {
@@ -849,6 +860,24 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                 {open.then(|| view! {
                     {removing.clone().map(|said| view! {
                         <Message kind=MessageKind::NOTICE live=MessageLive::Off><p>{said}</p></Message>
+                    })}
+                    {deleting.clone().map(|d| view! {
+                        <Message kind=MessageKind::NOTICE live=MessageLive::Off>
+                            <p>{d.deletes}</p>
+                            {d.returns.map(|r| view! { <p>{r}</p> })}
+                            <p>{d.folder}</p>
+                            <Leftovers left=d.left />
+                        </Message>
+                        <div class="form">
+                            <label class="inline">
+                                <input
+                                    type="checkbox"
+                                    prop:checked=move || confirmed.get()
+                                    on:change=move |ev| confirmed.set(event_target_checked(&ev))
+                                />
+                                {build_model::DELETE_FOLDER_CONFIRM}
+                            </label>
+                        </div>
                     })}
                     {single_copy()}
                     {partial()}
@@ -861,6 +890,24 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                     />
                 })}
                 {job.map(|job| view! { <JobOutcome job cancel=true /> })}
+                {deleted.clone().map(|(said, left)| match said {
+                    None => view! {
+                        <Message kind=MessageKind::NOTICE live=MessageLive::Off>
+                            <p>"The folder is deleted once its build finishes."</p>
+                        </Message>
+                    }
+                    .into_any(),
+                    Some((done, said)) => view! {
+                        <Message
+                            kind=if done { MessageKind::DONE } else { MessageKind::NOTICE }
+                            live=MessageLive::Off
+                        >
+                            <p>{said}</p>
+                            <Leftovers left />
+                        </Message>
+                    }
+                    .into_any(),
+                })}
                 {approver.problem()}
             }
         }
@@ -923,6 +970,21 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
             />
         </section>
     }
+}
+
+/// What deleting a folder leaves in it, each with why.
+#[component]
+fn Leftovers(left: Vec<FolderLeftover>) -> impl IntoView {
+    (!left.is_empty()).then(|| {
+        view! {
+            <ul class="plain">
+                {left
+                    .into_iter()
+                    .map(|l| view! { <li><code>{l.name}</code>{format!(": {}", l.why)}</li> })
+                    .collect_view()}
+            </ul>
+        }
+    })
 }
 
 /// A cleanup of what the latest check of folder `folder` found, not yet planned: every candidate, left as it is, for

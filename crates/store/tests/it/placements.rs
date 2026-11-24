@@ -2673,3 +2673,153 @@ fn removing_a_game_is_refused_where_its_files_have_nowhere_to_go() {
         "{restore:?}"
     );
 }
+
+/// The names of the built files `plan` keeps aside, and the kept files and leftovers deleting the folder lists.
+fn deletion_of(plan: &stage_select_api::build::Plan) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let deletion = plan.content.folder_deletion.clone().unwrap();
+    let kept_aside = plan
+        .content
+        .removals
+        .iter()
+        .filter(|r| r.keep.is_some())
+        .map(|r| r.target.clone())
+        .collect();
+    (
+        kept_aside,
+        deletion.kept.into_iter().map(|k| k.name).collect(),
+        deletion.left.into_iter().map(|l| l.name).collect(),
+    )
+}
+
+#[test]
+fn deleting_the_folder_returns_its_placed_games_deletes_every_file_it_wrote_and_removes_it() {
+    let env = Env::new();
+    env.build_games(&["Pong (USA)", "Combat (USA)", "Yars (USA)"]);
+    // Combat is kept aside by a later build: a kept file of the folder.
+    env.build_games(&["Pong (USA)", "Yars (USA)"]);
+    env.take_as_placed("Pong (USA)");
+
+    let plan = env.store.plan_folder_deletion(env.folder.id).unwrap();
+
+    let choices = &plan.content.choices;
+    assert!(choices.remove_all && choices.delete_folder, "{choices:?}");
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    assert_eq!(
+        deletion_of(&plan),
+        (
+            vec!["Yars (USA).zip".to_owned()],
+            vec!["Combat (USA).zip".to_owned()],
+            vec![]
+        )
+    );
+    assert_eq!(plan.content.returns[0].games, ["Pong (USA)"]);
+    assert!(plan.folder_deleted.is_none(), "nothing is deleted yet");
+    env.run_plan(&plan);
+
+    assert!(!env.library().exists(), "the folder itself is gone");
+    assert!(env.store.library_folders().unwrap().is_empty());
+    assert!(env.store.kept_files(env.folder.id).unwrap().is_empty());
+    let outcome = env.store.plan(plan.id).unwrap().folder_deleted.unwrap();
+    assert!(
+        outcome.removed && outcome.finished_at.is_some(),
+        "{outcome:?}"
+    );
+    assert!(outcome.left.is_empty());
+    // The placed game went back to its source set, never deleted.
+    assert!(env.set().join("Pong (USA).zip").is_file());
+    assert!(env.store.placed_files(SET).unwrap().is_empty());
+    assert_eq!(
+        Env::statuses(&env.audit(AuditEvidence::Full))["Pong (USA)"],
+        GameStatus::Complete
+    );
+}
+
+#[test]
+fn deleting_a_folder_holding_files_stage_select_did_not_write_leaves_them_and_the_folder() {
+    let env = Env::new();
+    env.build_games(&["Pong (USA)"]);
+    std::fs::create_dir_all(env.library().join("saves")).unwrap();
+    std::fs::write(env.library().join("saves/pong.sav"), b"mine").unwrap();
+    std::fs::create_dir_all(env.library().join("empty")).unwrap();
+
+    let plan = env.store.plan_folder_deletion(env.folder.id).unwrap();
+
+    let left = plan.content.folder_deletion.clone().unwrap().left;
+    assert_eq!(left.len(), 1, "an empty folder is not left: {left:?}");
+    assert_eq!(left[0].name, "saves/pong.sav");
+    assert!(left[0].why.contains("didn't write"), "{left:?}");
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    env.run_plan(&plan);
+
+    assert_eq!(
+        Env::files_under(&env.library()),
+        ["saves/pong.sav"],
+        "the file you put there is left, and nothing Stage Select wrote"
+    );
+    assert!(env.store.library_folders().unwrap().is_empty());
+    let outcome = env.store.plan(plan.id).unwrap().folder_deleted.unwrap();
+    assert!(
+        !outcome.removed && outcome.finished_at.is_some(),
+        "{outcome:?}"
+    );
+    assert_eq!(outcome.left, left);
+}
+
+#[test]
+fn deleting_the_folder_is_finished_when_the_service_next_starts_if_it_stopped_first() {
+    for fault in [Fault::FolderDeleting, Fault::FolderRemoving] {
+        let env = Env::new();
+        env.build_games(&["Pong (USA)", "Combat (USA)"]);
+        env.build_games(&["Pong (USA)"]);
+        let plan = env.store.plan_folder_deletion(env.folder.id).unwrap();
+        let job = env
+            .store
+            .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
+        env.store.inject_fault(Some(fault));
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            env.store.run_build_job(job.id, None)
+        }));
+        assert!(ran.is_err(), "{fault:?}: {ran:?}");
+        env.store.inject_fault(None);
+        assert!(env.library().exists(), "{fault:?}");
+
+        let Env { tmp, store, folder } = env;
+        let path = store.dir().to_path_buf();
+        drop(store);
+        let store = Store::open(&path).unwrap();
+        store.recover_jobs(WORKERS).unwrap();
+        assert!(store.recover_builds().unwrap().is_empty());
+        assert!(store.recover_kept_deletions().unwrap().is_empty());
+        assert!(store.recover_removal_deletions().unwrap().is_empty());
+        assert!(store.recover_folder_deletions().unwrap().is_empty());
+        let env = Env { tmp, store, folder };
+
+        assert!(!env.library().exists(), "{fault:?}");
+        assert!(env.store.library_folders().unwrap().is_empty());
+        assert!(env.store.kept_files(env.folder.id).unwrap().is_empty());
+        let outcome = env.store.plan(plan.id).unwrap().folder_deleted.unwrap();
+        assert!(outcome.removed, "{fault:?}: {outcome:?}");
+        assert!(env.store.recover_folder_deletions().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn deleting_the_folder_is_refused_when_the_folder_changed_since_you_reviewed_it() {
+    let env = Env::new();
+    env.build_games(&["Pong (USA)"]);
+    let plan = env.store.plan_folder_deletion(env.folder.id).unwrap();
+    std::fs::write(env.library().join("notes.txt"), b"mine").unwrap();
+
+    let approved = env
+        .store
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS);
+
+    assert!(
+        matches!(&approved, Err(Error::Conflict(why)) if why.contains("changed since you reviewed")),
+        "{approved:?}"
+    );
+    assert!(env.library().join("Pong (USA).zip").is_file());
+    assert_eq!(env.store.library_folders().unwrap().len(), 1);
+}

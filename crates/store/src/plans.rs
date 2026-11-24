@@ -1399,6 +1399,7 @@ fn compute(roots: &crate::roots::Roots, inputs: &Inputs, dat: Option<&Dat>) -> P
             storage: inputs.storage,
             notes,
             sbi_pack: inputs.sbi.as_ref().map(|p| p.sha256.clone()),
+            folder_deletion: None,
         },
         previous,
         changes,
@@ -2903,8 +2904,10 @@ fn changes(inputs: &Inputs, previous: &Previous) -> Vec<PlanChange> {
 
 const PLAN_QUERY: &str =
     "SELECT p.id, p.digest, p.created_at, p.content, p.previous_selection_id, p.changes,
-            a.digest, a.actor, a.approved_at, (SELECT max(j.id) FROM jobs j WHERE j.plan_id = p.id), p.check_id
-     FROM plans p LEFT JOIN plan_approvals a ON a.plan_id = p.id";
+            a.digest, a.actor, a.approved_at, (SELECT max(j.id) FROM jobs j WHERE j.plan_id = p.id), p.check_id,
+            fd.plan_id, fd.finished_at, fd.removed, fd.left, fd.detail
+     FROM plans p LEFT JOIN plan_approvals a ON a.plan_id = p.id
+     LEFT JOIN folder_deletions fd ON fd.plan_id = p.id";
 
 fn plan_from_row(r: &Row) -> rusqlite::Result<Plan> {
     let content: PlanContent = json(r, 3)?;
@@ -2927,6 +2930,7 @@ fn plan_from_row(r: &Row) -> rusqlite::Result<Plan> {
         approval,
         job: r.get(9)?,
         check: r.get(10)?,
+        folder_deleted: crate::folder_deletion::outcome_from_row(r, 11)?,
     })
 }
 
@@ -3082,6 +3086,14 @@ impl Store {
                 ));
             }
         }
+        if choices.delete_folder {
+            planned.content.folder_deletion = Some(self.folder_deletion_of(
+                &inputs.folder.root,
+                &inputs.folder.path,
+                folder,
+                &planned.content,
+            )?);
+        }
         if dat.is_none() && !choices.remove_all {
             planned.content.blockers.push(blocker(
                 BlockerKind::RevisionMismatch,
@@ -3113,6 +3125,11 @@ impl Store {
     /// running, the check is not stored and nothing it found is recorded.
     pub fn plan_build_with(&self, folder: i64, request: &PlanBuild) -> Result<Plan> {
         let mut choices = request.choices.clone();
+        if choices.delete_folder && !choices.remove_all {
+            return Err(Error::Refused(
+                "deleting the folder removes every built file in it; choose both".into(),
+            ));
+        }
         crate::removed::normalize(&mut choices.remove, choices.remove_all)?;
         if !choices.remove.is_empty() {
             // A multi-disc release's name stands for its discs, the games its Selection keeps.
@@ -3235,6 +3252,9 @@ impl Store {
             if let Some(busy) = deletion_active(tx, content.folder)? {
                 return Err(Error::Conflict(busy));
             }
+            if let Some(busy) = crate::folder_deletion::unfinished(tx, content.folder)? {
+                return Err(Error::Conflict(busy));
+            }
             // A kept file an Addition is still being added from is not put back until its Additions Job ends.
             for restore in content.cleanup.iter().flat_map(|c| &c.restores) {
                 if let Some(why) = crate::additions::managed_kept_reserved(tx, restore.kept.id)? {
@@ -3265,6 +3285,9 @@ impl Store {
                 params![id, plan.digest, actor, now()],
             )?;
             crate::removed::record_removals(tx, folder.id, id, actor, &content.choices.remove)?;
+            if content.choices.delete_folder {
+                crate::folder_deletion::record(tx, folder.id, id, actor)?;
+            }
             tx.execute(
                 "INSERT INTO jobs (state, kind, source_set_id, dat_revision_id, actor, readers, hashers, created_at,
                                    library_folder_id, plan_id)

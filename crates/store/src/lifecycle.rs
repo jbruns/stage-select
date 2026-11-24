@@ -341,7 +341,7 @@ pub(crate) fn unregister_in(tx: &Transaction, kind: RegistrationKind, id: i64) -
 
 /// Removes the marker `dir` holds when it reads as this store's marker of registration `id` of `kind`. Returns why
 /// it was left, if it was; nothing at all is not a reason.
-fn remove_own_marker(
+pub(crate) fn remove_own_marker(
     dir: &FolderDir,
     store: &str,
     kind: RegistrationKind,
@@ -391,7 +391,7 @@ fn remove_own_marker(
 }
 
 /// Removes every empty directory under `dir`, never a file. Whether `dir` is left empty.
-fn remove_empty_dirs(dir: &FolderDir) -> bool {
+pub(crate) fn remove_empty_dirs(dir: &FolderDir) -> bool {
     let Ok(entries) = dir.entries() else {
         return false;
     };
@@ -554,7 +554,11 @@ impl Store {
     }
 
     /// As [`Store::settle_marker`], with the lifecycle lock already held.
-    fn settle_marker_in(&self, kind: RegistrationKind, id: i64) -> Result<Option<String>> {
+    pub(crate) fn settle_marker_in(
+        &self,
+        kind: RegistrationKind,
+        id: i64,
+    ) -> Result<Option<String>> {
         let roots = &*self.roots();
         let (reg, kept, store) = self.read(|c| {
             Ok((

@@ -7,9 +7,10 @@ use stage_select_api::SelectionRecord;
 use stage_select_api::build::BuildSummary;
 use stage_select_api::build::{
     Blocker, BlockerKind, BuildDetail, BuildItem, BuildState, Cause, CleanupAction, DriftEntry,
-    DriftKind, FileOutcome, IncompleteCounts, IncompleteReason, ItemKind, ItemState, KeepReason,
-    LibraryFolder, PlaceHow, PlanChoices, PlanContent, PlanItem, PlanPlace, PlanRemoval,
-    PlanSummary, RemovalKind, RemoveAction, RestoreKind, ReturnHow, UnfinishedBuild,
+    DriftKind, FileOutcome, FolderDeletionOutcome, FolderLeftover, IncompleteCounts,
+    IncompleteReason, ItemKind, ItemState, KeepReason, LibraryFolder, PlaceHow, PlanChoices,
+    PlanContent, PlanItem, PlanPlace, PlanRemoval, PlanSummary, RemovalKind, RemoveAction,
+    RestoreKind, ReturnHow, UnfinishedBuild,
 };
 
 use crate::activity_model::bytes;
@@ -376,6 +377,105 @@ pub fn removal_notice(choices: &PlanChoices) -> Option<String> {
         );
     }
     Some(said)
+}
+
+/// "1 file" or "N files".
+fn files(n: usize) -> String {
+    match n {
+        1 => "1 file".to_owned(),
+        n => format!("{n} files"),
+    }
+}
+
+/// What a plan that deletes its folder does, for you to read, and confirm, before you approve it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderDeletionNotice {
+    /// What it deletes, in counts and sizes.
+    pub deletes: String,
+    /// The games it returns to your source set instead, if any.
+    pub returns: Option<String>,
+    /// Whether the folder itself is removed, or why it stays.
+    pub folder: String,
+    /// What it leaves in the folder.
+    pub left: Vec<FolderLeftover>,
+}
+
+/// What approving plan `content` deletes, returns and leaves, when it deletes its folder; none for any other plan.
+pub fn folder_deletion_notice(content: &PlanContent) -> Option<FolderDeletionNotice> {
+    let deletion = content.folder_deletion.as_ref()?;
+    let built: Vec<u64> = content
+        .removals
+        .iter()
+        .filter_map(|r| r.keep.as_ref().map(|k| k.file.size))
+        .collect();
+    let kept: Vec<u64> = deletion.kept.iter().map(|k| k.file.size).collect();
+    let total = bytes(built.iter().chain(&kept).sum());
+    let deletes = format!(
+        "Approving deletes {} Stage Select wrote here ({total}) for good: {} built, set aside first, and {} you kept \
+         aside before.",
+        files(built.len() + kept.len()),
+        files(built.len()),
+        files(kept.len()),
+    );
+    let games: usize = content.returns.iter().map(|r| r.games.len()).sum();
+    let returns = (games > 0).then(|| match games {
+        1 => "1 game placed here under single copy goes back to your source set first. It isn't deleted.".to_owned(),
+        n => format!("{n} games placed here under single copy go back to your source set first. They aren't deleted."),
+    });
+    let folder = match deletion.left.len() {
+        0 => "Then the folder itself is removed, and unregistered.".to_owned(),
+        n => format!(
+            "The folder itself stays, with {} below left in it: Stage Select deletes only what it wrote. It is still \
+             unregistered.",
+            match n {
+                1 => "the file".to_owned(),
+                n => format!("the {n} files"),
+            }
+        ),
+    };
+    Some(FolderDeletionNotice {
+        deletes,
+        returns,
+        folder,
+        left: deletion.left.clone(),
+    })
+}
+
+/// What you tick to confirm you mean to delete a folder before approving.
+pub const DELETE_FOLDER_CONFIRM: &str = "Delete these files for good";
+
+/// What deleting the folder did, once it finished: whether it is an outcome to report as done, and what to say. None
+/// while it waits on its build.
+pub fn folder_deletion_outcome(outcome: &FolderDeletionOutcome) -> Option<(bool, String)> {
+    outcome.finished_at.as_ref()?;
+    let detail = outcome
+        .detail
+        .as_deref()
+        .map(|d| {
+            format!(
+                " {}{}.",
+                d[..1].to_uppercase(),
+                d[1..].trim_end_matches('.')
+            )
+        })
+        .unwrap_or_default();
+    Some(match (outcome.removed, outcome.left.len()) {
+        (true, _) => (
+            true,
+            format!(
+                "Deleted the folder and every file Stage Select wrote in it, and unregistered it.{detail}"
+            ),
+        ),
+        (false, 0) => (false, format!("The folder wasn't removed.{detail}")),
+        (false, n) => (
+            false,
+            format!(
+                "Deleted every file Stage Select wrote and unregistered the folder. The folder stays, holding {} \
+                 Stage Select didn't delete:{detail}",
+                files(n)
+            ),
+        ),
+    })
 }
 
 /// A build plan's one-line summary in numbers: its rows by what each does, in the order of their kinds.
@@ -1206,6 +1306,7 @@ mod tests {
             keep_aside: vec!["Combat.zip".into()],
             remove_all: false,
             remove: vec![],
+            delete_folder: false,
         };
         let picked = BTreeMap::from([
             ("Combat.zip".to_string(), ConflictChoice::Adopt),
@@ -1686,6 +1787,86 @@ mod tests {
         assert_eq!(
             plan_line(&content(Vec::new(), Vec::new())),
             "Changes nothing"
+        );
+    }
+
+    #[test]
+    fn deleting_a_folder_says_what_it_deletes_returns_and_leaves() {
+        let mut plan = content(Vec::new(), Vec::new());
+        assert_eq!(folder_deletion_notice(&plan), None);
+        let kept: KeepAside = serde_json::from_value(serde_json::json!({
+            "reason": "removal", "name": "Pong.zip",
+            "file": { "size": 1024, "mtime_ns": 0 }, "identity": { "dev": 1, "ino": 2 },
+        }))
+        .unwrap();
+        plan.removals = vec![PlanRemoval {
+            target: "Pong.zip".into(),
+            game: "Pong".into(),
+            kind: RemovalKind::Keep,
+            reason: String::new(),
+            keep: Some(kept),
+            converts_to: None,
+        }];
+        plan.folder_deletion = Some(serde_json::from_value(serde_json::json!({
+            "kept": [{
+                "id": 1, "folder": 1, "generation": 1, "name": "Combat.zip", "kept_name": "Combat.zip.kept",
+                "reason": "removal", "build": 1, "file": { "size": 2048, "mtime_ns": 0 },
+                "identity": { "dev": 1, "ino": 3 }, "kept_at": "t",
+            }],
+        })).unwrap());
+        let said = folder_deletion_notice(&plan).unwrap();
+        assert_eq!(
+            said.deletes,
+            "Approving deletes 2 files Stage Select wrote here (3.0 KiB) for good: 1 file built, set aside first, and \
+             1 file you kept aside before."
+        );
+        assert_eq!(said.returns, None);
+        assert!(said.folder.contains("removed"), "{}", said.folder);
+
+        plan.folder_deletion.as_mut().unwrap().left = vec![FolderLeftover {
+            name: "saves/pong.sav".into(),
+            why: "Stage Select didn't write it".into(),
+        }];
+        let said = folder_deletion_notice(&plan).unwrap();
+        assert!(
+            said.folder
+                .starts_with("The folder itself stays, with the file below"),
+            "{}",
+            said.folder
+        );
+        assert_eq!(said.left.len(), 1);
+    }
+
+    #[test]
+    fn a_finished_folder_deletion_says_whether_the_folder_is_gone() {
+        let mut outcome = FolderDeletionOutcome {
+            finished_at: None,
+            removed: true,
+            left: vec![],
+            detail: None,
+        };
+        assert_eq!(
+            folder_deletion_outcome(&outcome),
+            None,
+            "waits on its build"
+        );
+        outcome.finished_at = Some("t".into());
+        let (done, said) = folder_deletion_outcome(&outcome).unwrap();
+        assert!(done && said.starts_with("Deleted the folder"), "{said}");
+        outcome.removed = false;
+        outcome.left = vec![FolderLeftover {
+            name: "notes.txt".into(),
+            why: "Stage Select didn't write it".into(),
+        }];
+        let (done, said) = folder_deletion_outcome(&outcome).unwrap();
+        assert!(!done && said.contains("holding 1 file"), "{said}");
+        outcome.left.clear();
+        outcome.detail =
+            Some("its build didn't finish, so nothing of the folder was deleted".into());
+        let (_, said) = folder_deletion_outcome(&outcome).unwrap();
+        assert_eq!(
+            said,
+            "The folder wasn't removed. Its build didn't finish, so nothing of the folder was deleted."
         );
     }
 

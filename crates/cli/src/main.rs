@@ -389,6 +389,11 @@ enum LibraryCommand {
         #[arg(long, value_enum, default_value_t = RemoveActionArg::SetAside)]
         action: RemoveActionArg,
     },
+    /// Plan deleting a play library folder, from the selection it was last built from: games placed in it under
+    /// single copy go back to their source set, every other file Stage Select wrote there is deleted, the folder is
+    /// removed unless files Stage Select didn't write are left in it, and then it is unregistered. Nothing changes
+    /// until you approve the plan in the workbench.
+    Delete { id: i64 },
     /// Restore games you removed from a play library folder: the next build puts them back.
     Restore {
         id: i64,
@@ -1366,6 +1371,23 @@ fn run(cli: Cli) -> Result<(), String> {
                 "planned removing them as plan {}; review and approve it in the workbench",
                 plan.id
             );
+            Ok(())
+        }
+        Command::Library {
+            command: LibraryCommand::Delete { id },
+        } => {
+            let plan = open_store(store)?
+                .plan_folder_deletion(id)
+                .map_err(|e| e.to_string())?;
+            println!(
+                "planned deleting the folder as plan {}; review and approve it in the workbench",
+                plan.id
+            );
+            if let Some(deletion) = &plan.content.folder_deletion {
+                for left in &deletion.left {
+                    println!("left\t{}\t{}", left.name, left.why);
+                }
+            }
             Ok(())
         }
         Command::Library {

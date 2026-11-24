@@ -968,6 +968,7 @@ stage-select additions holds|unregister <system>
 stage-select ingest holds|unregister <ingest root>
 stage-select library remove <library folder id> <game>... [--action send-back|set-aside|delete]
 stage-select library restore <library folder id> <game>...
+stage-select library delete <library folder id>
 stage-select root holds <root>
 stage-select profile retire|restore <selection profile>
 stage-select unregistered list
@@ -983,7 +984,8 @@ list` lists what you unregistered with the history the store still holds for it,
 history (its audits, selections, builds and jobs) by the id `list` prints, and `unregistered forget` removes it.
 `library remove` plans removing games from a library folder, set aside unless you choose another action, for you to
 review and approve in the workbench; `library restore` restores them, so the folder's next build puts them back. See
-"Library folders and builds".
+"Library folders and builds". `library delete` plans deleting a library folder, for you to review and approve in the
+workbench, and lists anything it would leave in the folder; see "Unregistering".
 
 ## Service
 
@@ -2011,6 +2013,15 @@ Instead of unregistering in place, you can:
 - **Remove the built files** of a library folder: a build plan, which you review and approve, that moves every file
   its builds wrote into its kept files, and returns each game placed there under single copy to its source set.
   Then unregister it, or delete the kept files.
+- **Delete** a library folder (`POST /libraries/{id}/folder-deletions`): a build plan, which you review and approve,
+  that returns each game placed there under single copy to its source set, never deleting it, and deletes every
+  other file Stage Select wrote there: each built file, set aside first, and the folder's kept files, each only while
+  it is still the file that was kept, as deleting kept files does. Then it removes the folder itself and its marker,
+  but only once nothing else is in it: a file Stage Select didn't write, a built file that changed since it was built,
+  or a kept folder (Stage Select never deletes one) leaves the folder where it is, with those files in it. The plan
+  lists each of them, and so does its outcome. Empty folders inside it are removed. The library folder is unregistered
+  last, either way, and RomM is told of the change as it is after a build. If the service stops part way, it finishes
+  when it next starts. A folder nothing was built in has nothing to delete: unregister it instead.
 - **Move or rename** a library folder within its root: a plan that renames the folder in place, files and all, never
   copying them. You approve it with its digest; if the service stops part way, it finds where the folder ended up
   when it starts again.
@@ -2181,6 +2192,7 @@ What these versions promise you:
 | `GET /api/v1/additions-set/set-aside?system=`      | the plan to set it aside: `{"system", "set", "additions", "digest"}` |
 | `POST /api/v1/additions-set/set-aside?system=`     | approve it: `{"digest"}`; retires every addition and unregisters the set |
 | `POST /api/v1/libraries/{id}/removals`             | plan moving every built file into its kept files: a build plan, `201` |
+| `POST /api/v1/libraries/{id}/folder-deletions`     | plan deleting the folder: a build plan, `201`, with `folder_deletion` (the kept files it deletes and what it would leave); once approved, the plan's `folder_deleted` says what it did |
 | `POST /api/v1/libraries/{id}/moves`                | plan moving or renaming it in its root: `{"path"}`; `201`    |
 | `GET /api/v1/library-moves/{id}`                   | a move, with its digest and outcome                          |
 | `POST /api/v1/library-moves/{id}/approval`         | approve it: `{"digest"}`; renames the folder in place        |

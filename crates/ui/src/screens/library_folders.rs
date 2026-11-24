@@ -1379,6 +1379,17 @@ fn FolderLifecycle(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoVi
                 href=Callback::new(move |_| tab_href(id, FolderTab::Plan))
                 refresh
             />
+            <PlanAction
+                label="Delete library folder"
+                explain="This plans to return each game placed here under single copy to your source set, delete \
+                    every other file Stage Select wrote here, including the folder's kept files, then remove the \
+                    folder and unregister it. If the folder holds files Stage Select didn't write, they stay and so \
+                    does the folder: the plan lists them. You review the plan before anything is deleted."
+                    .to_string()
+                path=format!("{base}/folder-deletions")
+                href=Callback::new(move |_| tab_href(id, FolderTab::Plan))
+                refresh
+            />
             <MoveFolderAction folder=id from=location(&folder) refresh />
             <UnregisterAction
                 what=format!("the library folder {}", location(&folder))
