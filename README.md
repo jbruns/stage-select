@@ -1,13 +1,118 @@
 # Stage Select
 
-Audits ROM collections against DAT files, and records exactly what was verified and against which DAT revision.
+**ROM organizer**
 
-Status: early pilot. You get a headless audit command; a store of DAT revisions, source sets and audits; the Service,
-a JSON API that runs audits, selections and builds as durable jobs; and a headless selection command. A build writes a
-selection into a library folder for your front end, as TorrentZips or loose as your storage policy says, once you
-approve its change plan. Removing and
-replacing built files follow.
-The words used here are defined in [GLOSSARY.md](GLOSSARY.md).
+Stage Select puts the choice of game titles and releases at the heart of your collection. Arcade, console, handheld
+and other game systems are all in scope, including MAME collections. It preserves the source sets you've curated, and
+builds play libraries from them for a device, a purpose or a preference.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/source-sets-dark.png">
+  <img alt="The Source sets screen: four source sets with their status, games found, coverage, DAT and latest audit" src="docs/images/source-sets-light.png">
+</picture>
+
+What it does, in the order you'll meet it:
+
+- **Audit.** An audit reads every file of a source set and checks it against a DAT, recording what matched, by which
+  check, against which DAT revision. It never changes your files. Verified means matched to that DAT by a stated
+  check, not that a game plays; an unmatched file is unresolved, not damaged.
+- **Select.** A selection profile says which release of each game you want: your regions and languages, and what to
+  leave out. A selection picks one release of each game group, with every file that release needs, and tells you why.
+  What it leaves out stays in your source set.
+- **Build.** A build writes a selection into a library folder for your front end, once you approve its change plan.
+  Your source set stays as it is.
+- **Repair and ingest.** A repair proposes how to fix a source set from files you drop into an ingest folder, and
+  changes nothing until you approve it.
+
+Stage Select runs as a service on your own machine or server, with a browser interface, the workbench, and a JSON API.
+It reads only the folders you register, and writes only where you let it. The words used here are defined in
+[GLOSSARY.md](GLOSSARY.md).
+
+## Quick start
+
+You need a container runtime such as Docker or Podman on a linux/amd64 machine, a folder of game files, and a DAT
+file that describes them. No-Intro DATs you download yourself; Redump and MAME DATs Stage Select can also fetch for
+you once you turn fetching on.
+
+The image is `ghcr.io/jbruns/stage-select`, tagged with each release, such as `0.13.0`, and with `0.13` for the latest
+`0.13` release. This runs it on the machine you're sitting at, with a store for its records, your games mounted
+read-only, and a folder for the play libraries it builds:
+
+```sh
+docker volume create stage-select-store
+docker run -d --name stage-select --restart unless-stopped \
+  --network host --read-only \
+  -e STAGE_SELECT_LISTEN=127.0.0.1:8080 \
+  -e STAGE_SELECT_DEV_IDENTITY=me \
+  -v stage-select-store:/store \
+  -v /path/to/your/games:/data/games:ro \
+  -v /path/to/your/libraries:/data/libraries \
+  ghcr.io/jbruns/stage-select:0.13.0
+```
+
+Then open `http://127.0.0.1:8080/`.
+
+- **The store** (`/store`) keeps everything Stage Select records and every setting you make. Back up this volume.
+- **Your games** go under `/data`, read-only. The workbench suggests the folders it finds under `/data`, `/mnt`,
+  `/media` and `/srv`. It can only see what you mount, so mount read-only what it must never write.
+- **Your libraries** go under `/data` too, writable. The container runs as user and group 65532, so that user must
+  be able to write to the folder: for example, `chown 65532:65532 /path/to/your/libraries`.
+- **`STAGE_SELECT_LISTEN=127.0.0.1:8080`** with `--network host` keeps the service on this machine's loopback
+  address, where nothing else on your network can reach it. Docker Desktop may need host networking turned on in its
+  settings first.
+- **`STAGE_SELECT_DEV_IDENTITY=me`** signs in every request from this machine as `me`, so the browser needs no
+  credential. The service refuses it on any address but loopback. On a server, reach it through an SSH tunnel
+  (`ssh -L 8080:127.0.0.1:8080 <server>`), or sign in through an authenticating reverse proxy instead; see "Image".
+
+If the service doesn't start, `docker logs stage-select` says which setting to fix. Every setting the service
+starts with is in "Starting the service"; everything else you set in the workbench.
+
+### First run
+
+While you have no roots, the workbench opens **Set up Stage Select**, five steps from an empty store to your first
+audit. You can skip any of them and come back later.
+
+1. **Register a root.** A root is a folder Stage Select may work in. Register `/data/games` as a read-only root, and
+   `/data/libraries` as a writable one. Stage Select reads nothing until you do.
+2. **Import a DAT.** Choose your DAT file. Stage Select keeps each import as a DAT revision.
+3. **Register a source set:** the folder in your read-only root that holds the games of that DAT. Registering it
+   reads no file yet.
+4. **Audit it.** The audit reads each file and checks it against the DAT. When it finishes, open it to see what it
+   found: games complete, incomplete or missing, and every file matched, mismatched or unmatched, with the evidence
+   for each.
+5. **Make a library folder** in your writable root, for the games you select to be built into.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/audit-dark.png">
+  <img alt="An audit: counts of complete, incomplete and missing games, of matched, mismatched and unmatched files, and the entries with the evidence for each" src="docs/images/audit-light.png">
+</picture>
+
+### The workbench
+
+The top bar takes you to each part of your collection:
+
+- **Source sets:** each source set with its status and latest audit. From here you audit, check for changes,
+  propose a repair, preview a selection or make a library folder.
+- **Library folders:** the play libraries Stage Select builds, with any drift from what was built.
+- **Ingest:** the files arriving in your ingest folders, each assessed against your DATs, waiting on your decision.
+- **DATs:** every DAT revision you've imported or fetched.
+- **Profiles:** your selection profiles.
+- **Activity:** every job, live, with what failed and why.
+- **Settings:** your roots, storage policy and operations settings.
+
+Most lists have a strip of counts that filter them, and a row opens with its reasons beside it. Nothing that changes a
+file happens until you approve a change plan that lists every change. The workbench follows your system's light or
+dark setting, and the theme button at the top right overrides it. "Workbench" below describes every screen.
+
+### Reference
+
+The rest of this README is the reference:
+
+- the commands: "Audit", "Selection", "Store", "Configuration" and "Commands";
+- the service, its API and its image: "Service", with "Auth", "HTTP API", "Image", "Health" and "Notifications and
+  metrics";
+- the workbench screen by screen: "Workbench", and "Using with RomM";
+- how to build and develop Stage Select: "Development".
 
 ## Audit
 
@@ -486,6 +591,7 @@ one. There is no configuration file. A change takes effect when you restart the 
 | `--listen` | `STAGE_SELECT_LISTEN` | the address the service listens on | `127.0.0.1:8080`; the image's is `0.0.0.0:8080` |
 | `--ui` | `STAGE_SELECT_UI` | the workbench's built bundle, served at `/`; see "Workbench" | none; the image's is `/ui` |
 | `--clone-lists` | `STAGE_SELECT_CLONE_LISTS` | the clone lists selection reads | `/opt/clone-lists` |
+| none | `STAGE_SELECT_CURATED_LIST` | the curated list an arcade selection can keep to; see "Selection" | `/opt/curated-list` |
 | `--token-file` | `STAGE_SELECT_OPERATOR_TOKEN_FILE` | the file holding your operator token; see "Auth" | none |
 | `--identity-header` | `STAGE_SELECT_IDENTITY_HEADER` | the header your authenticating reverse proxy names you in; see "Auth" | none |
 | `--trusted-proxies` | `STAGE_SELECT_TRUSTED_PROXIES` | the proxies that header is trusted from, as comma-separated CIDRs; see "Auth" | none |
@@ -2076,10 +2182,11 @@ the token is refused or the Service cannot be reached.
 ### Image
 
 `ghcr.io/jbruns/stage-select` is a static binary, the workbench's bundle (at `/ui`), the pinned clone lists and
-metadata selection reads (at `/opt/clone-lists`), and chdman (at `/usr/local/bin/chdman`, from a pinned MAME release)
-on `gcr.io/distroless/cc-debian12:nonroot`, for linux/amd64. The licence texts the About page shows are at
-`/ui/licences`: Stage Select's, that of the project selection is derived from, the clone lists and metadata's, MAME's,
-which chdman is part of, and the Lucide icons'. It runs `serve` on `0.0.0.0:8080` as the nonroot user, with the store at the volume
+metadata selection reads (at `/opt/clone-lists`), the pinned curated list arcade selection reads (at
+`/opt/curated-list`), and chdman (at `/usr/local/bin/chdman`, from a pinned MAME release) on
+`gcr.io/distroless/cc-debian12:nonroot`, for linux/amd64. The licence texts the About page shows are at
+`/ui/licences`: Stage Select's, that of the project selection is derived from, the clone lists and metadata's, the
+curated list's, MAME's, which chdman is part of, and the Lucide icons'; the fonts' are beside them in `/ui/fonts`. It runs `serve` on `0.0.0.0:8080` as the nonroot user, with the store at the volume
 `/store`, and serves the workbench at `/`. It needs nothing else writable but your writable roots, not even `/tmp`, so you can
 run it with a read-only root filesystem. You set it up with environment variables alone (see "Starting the
 service"), and register your roots in the workbench once it runs:
@@ -2087,7 +2194,7 @@ service"), and register your roots in the workbench once it runs:
 ```sh
 docker run --read-only -p 8080:8080 -v stage-select-store:/store \
   -v /path/to/token:/run/operator-token:ro -e STAGE_SELECT_OPERATOR_TOKEN_FILE=/run/operator-token \
-  -v /data/source-sets:/data/source-sets:ro ghcr.io/jbruns/stage-select:sha-<commit>
+  -v /data/source-sets:/data/source-sets:ro ghcr.io/jbruns/stage-select:0.13.0
 ```
 
 With Docker Compose:
@@ -2095,7 +2202,7 @@ With Docker Compose:
 ```yaml
 services:
   stage-select:
-    image: ghcr.io/jbruns/stage-select:sha-<commit>
+    image: ghcr.io/jbruns/stage-select:0.13.0
     read_only: true
     ports:
       - "8080:8080"
@@ -2109,8 +2216,9 @@ volumes:
   stage-select-store:
 ```
 
-Both sign you in with your operator token alone. To sign in through an authenticating reverse proxy instead, give the
-service the header the proxy names you in, and trust it only from the proxy's own address. Every peer inside
+Both accept your operator token alone, which the API and the headless audit send; a browser has no way to send it,
+so the workbench's requests get `401`. To use the workbench on the same machine, see "Quick start". To
+sign in through an authenticating reverse proxy instead, give the service the header the proxy names you in, and trust it only from the proxy's own address. Every peer inside
 `STAGE_SELECT_TRUSTED_PROXIES` can claim any identity, so list the proxy alone, never a whole network such as Docker's
 bridge range, and keep the service off networks other containers share. Here the proxy and the service share a
 network of their own, the proxy has a fixed address on it, and only the proxy publishes a port:
@@ -2125,7 +2233,7 @@ services:
       stage-select:
         ipv4_address: 10.89.0.2
   stage-select:
-    image: ghcr.io/jbruns/stage-select:sha-<commit>
+    image: ghcr.io/jbruns/stage-select:0.13.0
     read_only: true
     environment:
       STAGE_SELECT_IDENTITY_HEADER: Remote-User
@@ -2149,8 +2257,8 @@ Your proxy must also remove any `Remote-User` header a client sends before it se
 The container's mounts bound what Stage Select can reach: the workbench can register any folder the container can
 see as a root, so mount read-only what it must never write.
 
-CI publishes `sha-<commit>` (the full commit SHA) for each push to `main`, and `<version>` and `<major>.<minor>` for
-each `v<version>` tag.
+Each release is published as `<version>`, such as `0.13.0`, and `<major>.<minor>`, such as `0.13`, which follows
+that minor release's latest. CI also publishes `sha-<commit>` (the full commit SHA) for each push to `main`.
 
 ### Memory
 
@@ -2638,7 +2746,6 @@ exclude:
 ```
 
 **What Stage Select does in RomM.** With RomM turned on, Stage Select:
-**What Stage Select does in RomM.** With RomM turned on, Stage Select:
 
 - asks RomM for a quick scan of a platform when a build, a library cleanup or a restore of a kept file changes its
   library folder, and shows how the scan went on the job; see "The scan after a build";
@@ -2651,7 +2758,9 @@ exclude:
 It changes nothing else in RomM. It never edits a game's name, metadata or match, and never writes into your library
 for RomM. A RomM that is down or refuses a request leaves a warning on the job, never a failure.
 
-go workspace: `crates/api` (the API's and the report's types), `crates/engine` (the Audit), `crates/store`
+## Development
+
+Decisions are recorded in [docs/adr/](docs/adr/). A Cargo workspace: `crates/api` (the API's and the report's types), `crates/engine` (the Audit), `crates/store`
 (the store and configuration), `crates/server` (the Service), `crates/cli` (the `stage-select` binary) and
 `crates/ui` (the workbench). The workbench's filtering, sorting, derived states and Job event handling are plain Rust,
 tested on the host with `cargo test`; `cargo clippy --package stage-select-ui --target wasm32-unknown-unknown` checks
@@ -2716,6 +2825,11 @@ The tests fail, rather than skip, without it.
 
 MIT. See [LICENSE](LICENSE). The Selection engine is a port of Retool, which is BSD-3-Clause
 ([third_party/retool/LICENSE](third_party/retool/LICENSE)), as are Retool's test fixtures kept beside it; the image
-ships the clone lists and metadata with their BSD-3-Clause licence beside them. The workbench's icons are vendored from Lucide, ISC
-([crates/ui/assets/licences/lucide.txt](crates/ui/assets/licences/lucide.txt)). The image's chdman is built from MAME's
-source, GPL-2.0, at the release the Dockerfile pins. The image ships all five licence texts under `/ui/licences`, where the workbench's About page shows them.
+ships the clone lists and metadata with their BSD-3-Clause licence beside them, and the curated MAME arcade romset
+list, Unlicense, with its licence. The workbench's icons are vendored from Lucide, ISC
+([crates/ui/assets/licences/lucide.txt](crates/ui/assets/licences/lucide.txt)). Its fonts are Chakra Petch and IBM
+Plex Sans and Mono, subset and renamed Stage Sans and Stage Mono, all under the SIL Open Font License, each licence
+beside its fonts in [crates/ui/assets/fonts/](crates/ui/assets/fonts/). The Stage Select emblem and artwork are Stage
+Select's own, drawn by [docs/brand-kit/make-artwork.py](docs/brand-kit/make-artwork.py), and MIT like the rest. The
+image's chdman is built from MAME's source, GPL-2.0, at the release the Dockerfile pins. The image ships every licence
+text under `/ui/licences` and `/ui/fonts`, and the workbench's About page lists them all.
