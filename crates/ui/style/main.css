@@ -1030,6 +1030,40 @@ label.inline {
   gap: var(--space-2);
 }
 
+/* A choice (parts::choice): the control and its name on one line, even inside a .form, whose labels stack, and the
+   note on its own line under the name, indented to line up with it. */
+.choice {
+  --choice-control: 1rem;
+  margin: 0 0 var(--space-3);
+}
+
+.checks .choice {
+  margin: 0;
+}
+
+.choice > label.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--type-body);
+  line-height: var(--line-body);
+  color: var(--color-text);
+}
+
+.choice > label > input {
+  flex: none;
+  width: var(--choice-control);
+  height: var(--choice-control);
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.choice-note {
+  margin: var(--space-1) 0 0;
+  padding-inline-start: calc(var(--choice-control) + var(--space-2));
+}
+
 label.stacked {
   display: block;
   margin: var(--space-2) 0 var(--space-1);
@@ -1743,15 +1777,17 @@ details.dependencies > summary {
   list-style: none;
 }
 
+/* A step's status sits at the top right of its box. */
 .step h2 {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: var(--space-3);
   margin: 0 0 var(--space-2);
 }
 
 .step h2 .status {
+  flex: none;
   font-size: var(--type-meta);
   font-weight: 400;
 }

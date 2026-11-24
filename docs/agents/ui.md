@@ -89,6 +89,7 @@ pure logic there too.
 | How the last request went              | `Said { said }`, an `Option<Result<String, String>>`   | `message`   |
 | A job you started, until it ends       | `JobOutcome { job, seed?, cancel? }` (see Outcomes)    | `outcome`   |
 | What starting jobs or a request made   | `ShowReports { reports }` of a `Reports`               | `outcome`   |
+| A radio button or checkbox, with a note| `Choice { checked, on_change, radio?, note?, .. }` around its name | `choice` |
 | Longer help under a one-line summary   | `Help { summary }` around the explanation              | `help`      |
 | A slow request                         | `ActionPending { action, status }` around its content  | `pending`   |
 | A slow load or any busy flag           | `Pending { pending, status, problem? }`                | `pending`   |
@@ -115,6 +116,15 @@ logic in `summary_model`; with `covered`, its Games counts open the games with `
 opening its plan is `screens::source_sets::propose_repair(name)` then `repair_plan_href(name, id)`; as a button, use
 `Proposal` with `RepairNow { proposal, name, title, secondary? }` and `ProposalStatus { proposal }`, which await the
 plan before opening it and refuse a second click while it is made.
+
+### Choices
+
+A radio button or checkbox with a note is a `Choice`, its name the children, and so is any choice inside a `.form`,
+whose other labels stack: `Choice` keeps the control and name on one line there. `radio` (the group's name) makes it
+a radio button, otherwise it is a checkbox, with optional `disabled` and `indeterminate`. A note about one choice is
+its `note`, never a loose `.note` beside or after it: the note sits on its own line under the name, lined up with
+it, and the control's `aria-describedby` names it. A note about a whole group goes above the group. A list's row
+checkbox is the list's own (`List`).
 
 ### Icons
 
