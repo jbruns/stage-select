@@ -32,6 +32,11 @@ fn games() -> Vec<(&'static str, Vec<RomSpec>)> {
         ("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")]),
         ("Combat (USA)", vec![rom("Combat (USA).a26", b"combat")]),
         ("Yars (USA)", vec![rom("Yars (USA).a26", b"yars")]),
+        // Its ROM is Combat's: a placed Combat is the only copy of it.
+        (
+            "Combat (USA) (Rev 1)",
+            vec![rom("Combat (USA) (Rev 1).a26", b"combat")],
+        ),
         (
             "Joust (USA)",
             vec![
@@ -255,6 +260,7 @@ fn an_audit_verifies_a_placed_game_where_it_is_placed_and_reports_it_missing_onc
         BTreeMap::from([
             ("Pong (USA)".to_owned(), GameStatus::Complete),
             ("Combat (USA)".to_owned(), GameStatus::Complete),
+            ("Combat (USA) (Rev 1)".to_owned(), GameStatus::Missing),
             ("Yars (USA)".to_owned(), GameStatus::Missing),
             ("Joust (USA)".to_owned(), GameStatus::Missing),
         ]),
@@ -2553,6 +2559,74 @@ fn a_game_removed_to_delete_is_kept_aside_then_deleted_and_a_placed_one_never_go
         Env::statuses(&env.audit(AuditEvidence::Full))["Pong (USA)"],
         GameStatus::Missing
     );
+}
+
+#[test]
+fn files_kept_aside_to_delete_are_deleted_when_the_service_next_starts_if_it_stopped_first() {
+    let env = Env::new();
+    env.build_games(&["Pong (USA)", "Combat (USA)"]);
+    let plan = env.remove(&["Pong (USA)"], RemoveAction::Delete);
+    let job = env
+        .store
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
+    // Stopped once the build succeeded, before the files it kept aside are deleted.
+    env.store.inject_fault(Some(Fault::RemovedKept));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.store.run_build_job(job.id, None)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    let kept = env.store.kept_files(env.folder.id).unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(kept[0].name, "Pong (USA).zip");
+
+    let Env { tmp, store, folder } = env;
+    let path = store.dir().to_path_buf();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    store.recover_jobs(WORKERS).unwrap();
+    assert!(store.recover_builds().unwrap().is_empty());
+    assert!(store.recover_kept_deletions().unwrap().is_empty());
+    assert!(store.recover_removal_deletions().unwrap().is_empty());
+    let env = Env { tmp, store, folder };
+
+    assert!(
+        env.store.kept_files(env.folder.id).unwrap().is_empty(),
+        "the kept file is deleted"
+    );
+    assert_eq!(
+        Env::files_under(&env.library().join(".stage-select/retained")),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        env.removed(),
+        [("Pong (USA)".to_owned(), RemoveAction::Delete)]
+    );
+    // Finished: a later start deletes nothing more.
+    assert!(env.store.recover_removal_deletions().unwrap().is_empty());
+}
+
+#[test]
+fn a_placed_game_whose_roms_another_game_needs_is_never_deleted_but_can_be_sent_back() {
+    let env = Env::new();
+    env.build_games(&["Pong (USA)", "Combat (USA)"]);
+    env.take_as_placed("Combat (USA)");
+
+    let refused = env.store.plan_game_removal(
+        env.folder.id,
+        &RemoveGames {
+            games: vec!["Combat (USA)".into()],
+            action: RemoveAction::Delete,
+        },
+    );
+    assert!(
+        matches!(&refused, Err(Error::Refused(why)) if why.contains("Combat (USA) (Rev 1) also need its ROMs")),
+        "{refused:?}"
+    );
+    env.run_plan(&env.remove(&["Combat (USA)"], RemoveAction::SendBack));
+    assert!(env.set().join("Combat (USA).zip").is_file());
 }
 
 #[test]

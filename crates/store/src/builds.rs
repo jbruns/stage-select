@@ -2058,7 +2058,8 @@ impl Store {
             // The files of the games it removed to delete are deleted once it has kept them aside; any it couldn't
             // delete stay kept.
             if let Some(build) = self.build_of_job(id)? {
-                match self.delete_removed(&plan, build.id, &job.actor) {
+                self.fault_point(Fault::RemovedKept);
+                match self.delete_removed(&plan, build.id) {
                     Ok(()) | Err(Error::Conflict(_) | Error::Refused(_)) => {}
                     Err(err) => return Err(err),
                 }

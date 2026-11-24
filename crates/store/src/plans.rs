@@ -218,6 +218,9 @@ struct Inputs {
     copy_across: bool,
     /// The games removed from the folder, and those this plan removes, with what becomes of their files.
     removed: BTreeMap<String, RemoveAction>,
+    /// The games this plan removes that its Selection or Additions would otherwise build, so removing them leaves
+    /// something out.
+    left_out: BTreeSet<String>,
 }
 
 fn load(
@@ -277,6 +280,17 @@ fn load(
     };
     removed.extend(choices.remove.iter().map(|r| (r.game.clone(), r.action)));
     let mut selection = read_selection(c, selection_id)?;
+    let mut left_out: BTreeSet<String> = choices
+        .remove
+        .iter()
+        .filter(|r| {
+            selection
+                .groups
+                .iter()
+                .any(|g| g.kept.iter().any(|w| w.title == r.game))
+        })
+        .map(|r| r.game.clone())
+        .collect();
     for group in &mut selection.groups {
         group.kept.retain(|w| !removed.contains_key(&w.title));
     }
@@ -367,6 +381,12 @@ fn load(
         true => crate::additions::active_additions(c, folder.dat_id)?,
         false => Vec::new(),
     };
+    left_out.extend(
+        additions
+            .iter()
+            .filter(|a| choices.remove.iter().any(|r| r.game == a.addition.name))
+            .map(|a| a.addition.name.clone()),
+    );
     additions.retain(|a| !removed.contains_key(&a.addition.name));
     for addition in &additions {
         selected
@@ -379,6 +399,7 @@ fn load(
     }
     Ok(Inputs {
         removed,
+        left_out,
         storage,
         set_storage,
         additions,
@@ -2965,6 +2986,12 @@ impl Store {
             if let Some(why) = crate::removed::refusal(removal, built, placed) {
                 return Err(Error::Refused(why));
             }
+            if !inputs.left_out.contains(&removal.game) {
+                return Err(Error::Refused(format!(
+                    "{} isn't a game this folder's selection builds, so removing it leaves nothing out",
+                    removal.game
+                )));
+            }
         }
         inputs.copy_across = self.across_filesystems(None);
         if inputs.storage.sbi {
@@ -2976,6 +3003,18 @@ impl Store {
         } else {
             None
         };
+        for removal in &choices.remove {
+            let placed = inputs.placed.iter().any(|p| p.game == removal.game);
+            if removal.action == RemoveAction::Delete && placed {
+                let sharing = dat
+                    .as_ref()
+                    .map(|d| crate::removed::sharing(d, &removal.game));
+                if let Some(why) = crate::removed::shared_refusal(&removal.game, sharing.as_deref())
+                {
+                    return Err(Error::Refused(why));
+                }
+            }
+        }
         let mut planned = compute(roots, &inputs, dat.as_ref());
         for game in inputs.removed.keys() {
             if !choices.remove.iter().any(|r| r.game == *game) {
@@ -3075,6 +3114,19 @@ impl Store {
     pub fn plan_build_with(&self, folder: i64, request: &PlanBuild) -> Result<Plan> {
         let mut choices = request.choices.clone();
         crate::removed::normalize(&mut choices.remove, choices.remove_all)?;
+        if !choices.remove.is_empty() {
+            // A multi-disc release's name stands for its discs, the games its Selection keeps.
+            let titles: BTreeSet<String> = self.read(|c| {
+                Ok(read_selection(c, request.selection)?
+                    .groups
+                    .into_iter()
+                    .flat_map(|g| g.kept.into_iter().map(|w| w.title))
+                    .collect())
+            })?;
+            choices.remove =
+                crate::removed::expand_releases(std::mem::take(&mut choices.remove), &titles);
+            crate::removed::normalize(&mut choices.remove, choices.remove_all)?;
+        }
         choices.adopt.sort();
         choices.adopt.dedup();
         choices.keep_aside.sort();
@@ -3212,7 +3264,7 @@ impl Store {
                 "INSERT INTO plan_approvals (plan_id, digest, actor, approved_at) VALUES (?1, ?2, ?3, ?4)",
                 params![id, plan.digest, actor, now()],
             )?;
-            crate::removed::record_removals(tx, folder.id, id, &content.choices.remove)?;
+            crate::removed::record_removals(tx, folder.id, id, actor, &content.choices.remove)?;
             tx.execute(
                 "INSERT INTO jobs (state, kind, source_set_id, dat_revision_id, actor, readers, hashers, created_at,
                                    library_folder_id, plan_id)

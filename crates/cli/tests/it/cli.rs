@@ -1005,6 +1005,9 @@ fn library_remove_and_restore_say_why_they_are_refused() {
         "send-back",
     ]);
     assert!(why.contains("nothing was built"), "{why}");
+    // Without --action it sets the games aside: refused for the folder, not for the missing option.
+    let why = refused(&["library", "remove", &folder, "Pong (USA)"]);
+    assert!(why.contains("nothing was built"), "{why}");
     let why = refused(&["library", "restore", &folder, "Pong (USA)"]);
     assert!(why.contains("Pong (USA) isn't removed"), "{why}");
     let why = refused(&[

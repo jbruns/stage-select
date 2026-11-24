@@ -170,6 +170,12 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
              stay recorded, and plans for the folder are blocked, until it is finished when the service next starts"
         );
     }
+    for (plan, reason) in store.recover_removal_deletions()? {
+        eprintln!(
+            "stage-select: the files plan {plan} kept aside of games removed to be deleted are not deleted yet: \
+             {reason}. They stay kept, and are deleted when the service next starts"
+        );
+    }
     for (id, reason) in store.recover_library_folder_moves()? {
         eprintln!(
             "stage-select: move {id} of a play library folder stopped and was not finished: {reason}. The folder \

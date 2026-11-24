@@ -1521,8 +1521,12 @@ and choose how (`POST /libraries/{id}/game-removals`, `{"games": [game], "action
 for a game placed there under single copy, returns it to your source set as a build returns a placed game; **Set
 aside** makes its files kept files; **Delete** makes them kept files, then deletes them once the build has set them
 aside, as deleting kept files does. A game placed there that you delete is lost: it isn't returned to your source set,
-and the workbench says so before you plan it. Setting a placed game aside is refused, as its file is your source set's
-only copy, and so is sending back a game that isn't placed, or removing one with no file built there. Each removal is
+and the workbench says so before you plan it. Deleting a placed game is refused when other games in its DAT need its
+ROMs, such as its clones, as its file is their only copy too; the refusal names them, and you can send it back instead.
+Setting a placed game aside is refused, as its file is your source set's only copy, and so is sending back a game that
+isn't placed, or removing one with no file built there or that its selection doesn't build. A multi-disc game's name,
+or its `.m3u` file, stands for each of its discs. If the service stops before a build deletes the files it set aside,
+it deletes them when it next starts. Each removal is
 a build plan, made from the folder's current build's selection, that you review and approve; approving it adds the
 games to the folder's removed games, and a plan you don't approve adds nothing. Every later build leaves a removed
 game out, as if its selection didn't select it, and its plan says you removed it. Restore a game from the folder's

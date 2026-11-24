@@ -2601,3 +2601,77 @@ fn assert_recorded_as_metered(env: &Env, job: &stage_select_api::Job) {
         "nothing is recorded after it ends"
     );
 }
+
+#[test]
+fn removing_a_multi_disc_release_by_its_name_removes_each_of_its_discs() {
+    use stage_select_api::build::{GameRemoval, PlanChoices, RemoveAction, RemoveGames};
+    let env = Env::new(StorageFormat::LooseFolder);
+    let folder = env.folder();
+    let selection = env.selection(&ALL);
+    env.built(&folder, selection);
+
+    let plan = env
+        .store
+        .plan_game_removal(
+            folder.id,
+            &RemoveGames {
+                games: vec!["Saga (USA)".into()],
+                action: RemoveAction::SetAside,
+            },
+        )
+        .unwrap();
+    let games: Vec<&str> = plan
+        .content
+        .choices
+        .remove
+        .iter()
+        .map(|r| r.game.as_str())
+        .collect();
+    assert_eq!(games, SAGA);
+    env.build(&plan);
+    assert!(
+        env.files().iter().all(|f| !f.starts_with(MULTIDISC)),
+        "{:?}",
+        env.files()
+    );
+    let removed: Vec<String> = env
+        .store
+        .library_folder(folder.id)
+        .unwrap()
+        .removed
+        .into_iter()
+        .map(|g| g.name)
+        .collect();
+    assert_eq!(removed, SAGA);
+
+    // A game the selection doesn't build is refused, though the folder holds its files: removing it leaves nothing out.
+    let restored = env
+        .store
+        .restore_games(
+            folder.id,
+            &stage_select_api::build::RestoreGames {
+                games: SAGA.map(String::from).to_vec(),
+            },
+        )
+        .unwrap();
+    assert!(restored.removed.is_empty());
+    env.built(&folder, selection);
+    let fewer = env.selection(&[CD]);
+    let refused = env.store.plan_build_with(
+        folder.id,
+        &PlanBuild {
+            choices: PlanChoices {
+                remove: vec![GameRemoval {
+                    game: SAGA[0].into(),
+                    action: RemoveAction::SetAside,
+                }],
+                ..Default::default()
+            },
+            ..PlanBuild::new(fewer)
+        },
+    );
+    assert!(
+        matches!(&refused, Err(stage_select_store::Error::Refused(why)) if why.contains("leaves nothing out")),
+        "{refused:?}"
+    );
+}

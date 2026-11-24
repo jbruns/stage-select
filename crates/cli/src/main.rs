@@ -382,7 +382,7 @@ enum LibraryCommand {
         #[arg(required = true)]
         games: Vec<String>,
         /// What becomes of their files.
-        #[arg(long, value_enum)]
+        #[arg(long, value_enum, default_value_t = RemoveActionArg::SetAside)]
         action: RemoveActionArg,
     },
     /// Restore games you removed from a play library folder: the next build puts them back.
@@ -393,7 +393,7 @@ enum LibraryCommand {
     },
 }
 
-#[derive(Clone, Copy, clap::ValueEnum)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, clap::ValueEnum)]
 enum RemoveActionArg {
     /// Return a game placed here under single copy to its source set.
     SendBack,

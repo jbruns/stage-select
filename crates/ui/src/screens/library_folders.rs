@@ -2440,8 +2440,11 @@ fn BuiltFiles(folder: i64, busy: Signal<bool>, refresh: RwSignal<u64>) -> impl I
                 RemoveAction::Delete => Glyph::FileX,
             };
             ToolAction::checked(glyph, removal_label(a), move |picked: Selected<FileRow>| {
-                chosen.set(ChosenGames::of(
+                let all = rows.get_untracked();
+                let all: Vec<_> = all.iter().map(|r| (r.0.game.as_str(), r.1)).collect();
+                chosen.set(ChosenGames::of_checked(
                     picked.rows.iter().map(|r| (r.0.game.as_str(), r.1)),
+                    &all,
                 ));
                 action.set(a);
                 removing.set(true);

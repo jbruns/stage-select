@@ -4,13 +4,16 @@
 //! removed games in the transaction that approves the plan removing it, and leaves them when the Operator restores it:
 //! the next Build puts it back.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use stage_select_api::build::{
     GameRemoval, LibraryFolder, Plan, PlanBuild, PlanKeptDeletion, RemoveAction, RemoveGames,
     RemovedGame, RestoreGames,
 };
+
+use stage_select_api::storage::release_of;
+use stage_select_engine::dat::{Dat, DumpStatus};
 
 use crate::folders::folder_by_id;
 use crate::{Error, Result, Store, now};
@@ -43,14 +46,23 @@ pub(crate) fn removed_actions(
         .collect())
 }
 
-/// Adds the games plan `plan` removes to Library Folder `folder`'s removed games, in the transaction that approves it.
+/// Adds the games plan `plan` removes to Library Folder `folder`'s removed games, in the transaction that approves it
+/// by `actor`, and records the deletion of the files of those it removes to delete, to carry out once its Build has
+/// kept them aside.
 pub(crate) fn record_removals(
     tx: &Transaction,
     folder: i64,
     plan: i64,
+    actor: &str,
     removals: &[GameRemoval],
 ) -> Result<()> {
     let at = now();
+    if removals.iter().any(|r| r.action == RemoveAction::Delete) {
+        tx.execute(
+            "INSERT INTO removal_deletions (plan_id, folder_id, actor) VALUES (?1, ?2, ?3)",
+            params![plan, folder, actor],
+        )?;
+    }
     for removal in removals {
         tx.execute(
             "INSERT INTO removed_games (folder_id, game, action, plan_id, removed_at) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -77,6 +89,102 @@ pub(crate) fn normalize(removals: &mut Vec<GameRemoval>, remove_all: bool) -> Re
         )));
     }
     Ok(())
+}
+
+/// The other games of `dat` that need ROMs `game` holds: its clones, and each game listing a ROM of the same content,
+/// by SHA-1, or by size and CRC where either has no SHA-1. A placed game's file is the only copy of its ROMs, and an
+/// Audit counts them for these games too, so deleting it would lose them as well.
+pub(crate) fn sharing(dat: &Dat, game: &str) -> Vec<String> {
+    let Some(index) = dat.game_index(game) else {
+        return Vec::new();
+    };
+    let dumped = |r: &&stage_select_engine::dat::Rom| r.status != DumpStatus::NoDump;
+    let held: Vec<&stage_select_engine::dat::Rom> = dat
+        .roms
+        .iter()
+        .filter(|r| r.game == index)
+        .filter(dumped)
+        .collect();
+    let same = |a: &stage_select_engine::dat::Rom, b: &stage_select_engine::dat::Rom| match (
+        &a.sha1, &b.sha1,
+    ) {
+        (Some(x), Some(y)) => x.eq_ignore_ascii_case(y),
+        _ => {
+            !a.disk
+                && a.size == b.size
+                && matches!((&a.crc, &b.crc), (Some(x), Some(y)) if x.eq_ignore_ascii_case(y))
+        }
+    };
+    let mut games: BTreeSet<&str> = dat
+        .roms
+        .iter()
+        .filter(|r| r.game != index)
+        .filter(dumped)
+        .filter(|r| held.iter().any(|h| same(h, r)))
+        .map(|r| dat.games[r.game].as_str())
+        .collect();
+    games.extend(
+        dat.cloneof
+            .iter()
+            .enumerate()
+            .filter(|(i, parent)| *i != index && parent.as_deref() == Some(game))
+            .map(|(i, _)| dat.games[i].as_str()),
+    );
+    games.remove(game);
+    games.into_iter().map(str::to_owned).collect()
+}
+
+/// Why deleting `game`, placed here as its source set's only copy, is refused when `sharing` are the other games that
+/// need its ROMs, or none when nothing does; `None` for `sharing` when that can't be read.
+pub(crate) fn shared_refusal(game: &str, sharing: Option<&[String]>) -> Option<String> {
+    let send_back = "send it back to its source set instead";
+    match sharing {
+        None => Some(format!(
+            "{game} is placed here as its source set's only copy, and its DAT can't be read to tell whether other \
+             games need its ROMs, so it can't be deleted; {send_back}"
+        )),
+        Some([]) => None,
+        Some(games) => {
+            let named = match games {
+                [one] => one.clone(),
+                [a, b] => format!("{a} and {b}"),
+                [a, b, c] => format!("{a}, {b} and {c}"),
+                [a, b, c, rest @ ..] => format!("{a}, {b}, {c} and {} more", rest.len()),
+                [] => unreachable!(),
+            };
+            Some(format!(
+                "{game} is placed here as its source set's only copy, and {named} also need its ROMs, so deleting \
+                 it would lose them too; {send_back}"
+            ))
+        }
+    }
+}
+
+/// `removals`, each of a multi-disc release's name that isn't itself one of `titles` replaced by its discs among them.
+pub(crate) fn expand_releases(
+    removals: Vec<GameRemoval>,
+    titles: &BTreeSet<String>,
+) -> Vec<GameRemoval> {
+    removals
+        .into_iter()
+        .flat_map(|removal| {
+            let discs: Vec<GameRemoval> = match titles.contains(&removal.game) {
+                true => Vec::new(),
+                false => titles
+                    .iter()
+                    .filter(|t| release_of(t) == removal.game && **t != removal.game)
+                    .map(|t| GameRemoval {
+                        game: t.clone(),
+                        action: removal.action,
+                    })
+                    .collect(),
+            };
+            match discs.is_empty() {
+                true => vec![removal],
+                false => discs,
+            }
+        })
+        .collect()
 }
 
 /// Why `removal` can't be planned for a game the folder holds `built` files of, `placed` there as its Source Set's
@@ -133,10 +241,72 @@ impl Store {
         self.plan_build_with(folder, &plan)
     }
 
-    /// Deletes the files plan `plan`'s Build `build` kept aside of the games the plan removed to delete, as an
-    /// approved deletion of kept files by `actor`: each only while it still reads as it was just read. A file that
-    /// doesn't, or that can't be deleted, stays kept, where you can delete it yourself.
-    pub(crate) fn delete_removed(&self, plan: &Plan, build: i64, actor: &str) -> Result<()> {
+    /// Carries out the deletion plan `plan`'s approval recorded, of the files its Build `build` kept aside of the
+    /// games it removed to delete, unless it is finished: an approved deletion of kept files by whoever approved the
+    /// plan, of each only while it is still the file that was kept and reads as it was. A file that doesn't, or that
+    /// can't be deleted, stays kept, where you can delete it yourself. Left unfinished, to try again when the service
+    /// next starts, while another change to the folder's kept files is under way.
+    pub(crate) fn delete_removed(&self, plan: &Plan, build: i64) -> Result<()> {
+        let pending: Option<String> = self.read(|c| {
+            Ok(c.query_row(
+                "SELECT actor FROM removal_deletions WHERE plan_id = ?1 AND finished_at IS NULL",
+                [plan.id],
+                |r| r.get(0),
+            )
+            .optional()?)
+        })?;
+        let Some(actor) = pending else {
+            return Ok(());
+        };
+        match self.delete_kept_removals(plan, build, &actor) {
+            Ok(()) | Err(Error::Refused(_)) => self.finish_removal_deletion(plan.id),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn finish_removal_deletion(&self, plan: i64) -> Result<()> {
+        self.write(|tx| {
+            tx.execute(
+                "UPDATE removal_deletions SET finished_at = ?2 WHERE plan_id = ?1",
+                params![plan, now()],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Run when the service starts, after [`Store::recover_kept_deletions`]: carries out each deletion of removed
+    /// games' files the service stopped before carrying out, once its plan's Build succeeded; one whose Build
+    /// didn't, which kept nothing to delete, is finished as it is, and one whose Build is still to run is left to it.
+    /// Returns, for each left unfinished, its plan and why.
+    pub fn recover_removal_deletions(&self) -> Result<Vec<(i64, String)>> {
+        let pending: Vec<(i64, Option<i64>, Option<String>)> = self.read(|c| {
+            let mut stmt = c.prepare(
+                "SELECT d.plan_id, b.id, j.state FROM removal_deletions d
+                 LEFT JOIN jobs j ON j.plan_id = d.plan_id AND j.kind = 'build'
+                 LEFT JOIN builds b ON b.job_id = j.id AND b.state = 'succeeded'
+                 WHERE d.finished_at IS NULL ORDER BY d.plan_id",
+            )?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            Ok(rows.collect::<rusqlite::Result<_>>()?)
+        })?;
+        let mut unfinished = Vec::new();
+        for (plan, build, job) in pending {
+            match (build, job.as_deref()) {
+                (Some(build), _) => match self.delete_removed(&self.plan(plan)?, build) {
+                    Ok(()) => {}
+                    Err(Error::Conflict(why)) => unfinished.push((plan, why)),
+                    Err(err) => return Err(err),
+                },
+                (None, Some("queued" | "running")) => {}
+                (None, _) => self.finish_removal_deletion(plan)?,
+            }
+        }
+        Ok(unfinished)
+    }
+
+    /// Approves deleting the files plan `plan`'s Build `build` kept aside of the games it removed to delete, by
+    /// `actor`.
+    fn delete_kept_removals(&self, plan: &Plan, build: i64, actor: &str) -> Result<()> {
         let content = &plan.content;
         let deleted: Vec<&str> = content
             .choices
@@ -155,7 +325,7 @@ impl Store {
             .filter(|r| {
                 deleted
                     .iter()
-                    .any(|g| *g == r.game || stage_select_api::storage::release_of(g) == r.game)
+                    .any(|g| *g == r.game || release_of(g) == r.game)
             })
             .map(|r| r.target.as_str())
             .collect();
@@ -229,6 +399,72 @@ mod tests {
             refusal(&delete, false, false)
                 .unwrap()
                 .contains("no file built")
+        );
+    }
+
+    #[test]
+    fn a_placed_game_whose_roms_other_games_need_is_never_deleted() {
+        let xml = br#"<?xml version="1.0"?>
+<datafile>
+  <header><name>Arcade</name><description>Arcade</description><version>1</version></header>
+  <game name="parent"><rom name="a.bin" size="4" crc="11111111"/><rom name="b.bin" size="4" crc="22222222"/></game>
+  <game name="clone" cloneof="parent" romof="parent"><rom name="c.bin" size="4" crc="33333333"/></game>
+  <game name="sharer"><rom name="x.bin" size="4" crc="22222222"/></game>
+  <game name="alone"><rom name="d.bin" size="4" crc="44444444"/><rom name="e.bin" size="0" status="nodump"/></game>
+  <game name="nodumps"><rom name="f.bin" size="0" status="nodump"/></game>
+</datafile>"#;
+        let dat = Dat::parse(xml, std::path::Path::new("arcade.dat")).unwrap();
+        assert_eq!(sharing(&dat, "parent"), ["clone", "sharer"]);
+        assert_eq!(sharing(&dat, "sharer"), ["parent"]);
+        assert!(sharing(&dat, "alone").is_empty());
+        assert!(sharing(&dat, "clone").is_empty());
+
+        let named = shared_refusal("parent", Some(&sharing(&dat, "parent"))).unwrap();
+        assert!(
+            named.contains("clone and sharer also need its ROMs"),
+            "{named}"
+        );
+        assert!(named.contains("send it back"), "{named}");
+        assert_eq!(shared_refusal("alone", Some(&[])), None);
+        assert!(
+            shared_refusal("alone", None)
+                .unwrap()
+                .contains("can't be deleted")
+        );
+        let many: Vec<String> = ["a", "b", "c", "d", "e"].map(String::from).into();
+        assert!(
+            shared_refusal("p", Some(&many))
+                .unwrap()
+                .contains("a, b, c and 2 more")
+        );
+    }
+
+    #[test]
+    fn a_release_name_stands_for_its_discs_unless_it_is_a_game_itself() {
+        let titles: BTreeSet<String> = [
+            "Saga (USA) (Disc 1)",
+            "Saga (USA) (Disc 2)",
+            "Orbit (USA)",
+            "Orbit (USA) (Disc 1)",
+        ]
+        .map(String::from)
+        .into();
+        let expanded = expand_releases(
+            vec![
+                removal("Saga (USA)", RemoveAction::Delete),
+                removal("Orbit (USA)", RemoveAction::SetAside),
+                removal("Nothing (USA)", RemoveAction::SetAside),
+            ],
+            &titles,
+        );
+        assert_eq!(
+            expanded,
+            [
+                removal("Saga (USA) (Disc 1)", RemoveAction::Delete),
+                removal("Saga (USA) (Disc 2)", RemoveAction::Delete),
+                removal("Orbit (USA)", RemoveAction::SetAside),
+                removal("Nothing (USA)", RemoveAction::SetAside),
+            ]
         );
     }
 

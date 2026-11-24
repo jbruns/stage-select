@@ -3,6 +3,7 @@
 
 use stage_select_api::build::{LibraryFolder, RemoveAction, Stale};
 use stage_select_api::selection::ARCADE_COVERAGE_REFUSAL;
+use stage_select_api::storage::release_of;
 use stage_select_api::{Job, JobKind, JobState, SelectionRecord, SourceSetSystem};
 
 use crate::coverage_model::label_in_sentence;
@@ -325,6 +326,25 @@ impl ChosenGames {
         chosen.games.sort();
         chosen.placed.sort();
         chosen
+    }
+
+    /// As [`ChosenGames::of`], each checked file of a multi-disc release's own, such as its generated `.m3u`, standing
+    /// for its discs: the games among `all` the folder's built files whose release it is.
+    pub fn of_checked<'a>(
+        checked: impl IntoIterator<Item = (&'a str, Option<Placement>)>,
+        all: &[(&'a str, Option<Placement>)],
+    ) -> ChosenGames {
+        ChosenGames::of(checked.into_iter().flat_map(|(game, placement)| {
+            let discs: Vec<(&str, Option<Placement>)> = all
+                .iter()
+                .filter(|(other, _)| *other != game && release_of(other) == game)
+                .copied()
+                .collect();
+            match discs.is_empty() {
+                true => vec![(game, placement)],
+                false => discs,
+            }
+        }))
     }
 
     fn built_only(&self) -> Vec<&str> {
@@ -926,6 +946,22 @@ mod tests {
 
     fn chosen(files: &[(&str, Option<Placement>)]) -> ChosenGames {
         ChosenGames::of(files.iter().map(|(g, p)| (*g, *p)))
+    }
+
+    #[test]
+    fn a_checked_m3u_stands_for_its_releases_discs() {
+        let all = [
+            ("Saga (USA)", None),
+            ("Saga (USA) (Disc 1)", None),
+            ("Saga (USA) (Disc 2)", Some(Placement::Placed)),
+            ("Pong", None),
+        ];
+        let c = ChosenGames::of_checked([("Saga (USA)", None), ("Pong", None)], &all);
+        assert_eq!(
+            c.games,
+            ["Pong", "Saga (USA) (Disc 1)", "Saga (USA) (Disc 2)"]
+        );
+        assert_eq!(c.placed, ["Saga (USA) (Disc 2)"]);
     }
 
     #[test]
