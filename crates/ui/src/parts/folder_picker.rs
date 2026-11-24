@@ -179,6 +179,26 @@ enum Shown {
     Refused(String),
 }
 
+/// A listing's answer, with the path and `hidden` it was asked for.
+#[derive(Debug, Clone)]
+struct Answer {
+    path: String,
+    hidden: bool,
+    result: Result<FolderListing, String>,
+}
+
+/// What to show for the folder at `at`: an answer for another path or `hidden` is stale, so it shows as loading,
+/// with no rows to click and nothing to choose until the folder's own answer arrives.
+fn shown_for(answer: Option<&Answer>, at: &str, hidden: bool) -> Shown {
+    match answer {
+        Some(a) if a.path == at && a.hidden == hidden => match &a.result {
+            Ok(l) => Shown::Listed(l.clone()),
+            Err(why) => Shown::Refused(why.clone()),
+        },
+        _ => Shown::Loading,
+    }
+}
+
 /// A **Browse…** button for a path field, named for `field` ("the root's path"). It opens a drawer at the field's
 /// `value`, else at the top: `/`, or within `within`'s Root, where it returns a path relative to the Root.
 /// `on_choose` gets the folder you choose.
@@ -236,13 +256,17 @@ fn FolderBrowser(start: String, within: Option<Within>, choose: Callback<String>
                 api::segment(&path),
                 if hidden { "&hidden=true" } else { "" }
             );
-            api::get::<FolderListing>(&query).await
+            let result = api::get::<FolderListing>(&query).await;
+            Answer {
+                path,
+                hidden,
+                result,
+            }
         }
     });
-    let shown = Memo::new(move |_| match listing.get() {
-        None => Shown::Loading,
-        Some(Ok(l)) => Shown::Listed(l),
-        Some(Err(why)) => Shown::Refused(why),
+    let shown = Memo::new(move |_| {
+        let (at, hidden) = (at.get(), hidden.get());
+        listing.with(|answer| shown_for(answer.as_ref(), &at, hidden))
     });
     let fallback_at = fallback.clone();
     Effect::new(move || match shown.get() {
@@ -610,6 +634,35 @@ mod tests {
             count_line(&listing, Some(&Within::new("/mnt", "sets"))),
             "The first 2 folders in sets"
         );
+    }
+
+    #[test]
+    fn an_answer_for_another_folder_or_another_hidden_shows_as_loading() {
+        let listing = FolderListing {
+            path: "/mnt".into(),
+            ..FolderListing::default()
+        };
+        let answer = Answer {
+            path: "/mnt".into(),
+            hidden: false,
+            result: Ok(listing.clone()),
+        };
+        assert_eq!(
+            shown_for(Some(&answer), "/mnt", false),
+            Shown::Listed(listing)
+        );
+        assert_eq!(shown_for(Some(&answer), "/mnt/roms", false), Shown::Loading);
+        assert_eq!(shown_for(Some(&answer), "/mnt", true), Shown::Loading);
+        assert_eq!(shown_for(None, "/mnt", false), Shown::Loading);
+        let refused = Answer {
+            result: Err("no".into()),
+            ..answer
+        };
+        assert_eq!(
+            shown_for(Some(&refused), "/mnt", false),
+            Shown::Refused("no".into())
+        );
+        assert_eq!(shown_for(Some(&refused), "/", false), Shown::Loading);
     }
 
     #[test]

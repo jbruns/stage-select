@@ -1066,13 +1066,13 @@ impl Store {
         out
     }
 
-    /// The folders in the folder at the absolute `path`, to browse for a path: any folder the Service can see. It
-    /// reads names only, never a file. Each folder is listed by name, case-insensitively, with whether the Service
-    /// can write to it and the deepest Root it is in. A symlink to a folder is listed as a link at its own path; any
-    /// other file is left out, as are hidden folders (a leading dot, and `lost+found`) unless `hidden`. The listing
-    /// is bounded, as a folder may be a large or slow share: it reads at most [`READ_PER_FOLDER`] entries and lists
-    /// at most [`FOLDERS_LISTED`] folders, and says when it stopped short. A relative path, a `..` step, and a path
-    /// that isn't a folder are refused.
+    /// The folders in the folder at the absolute `path`, to browse for a path: any folder the Service can see. It reads
+    /// names only, never a file. Each folder is listed by name, case-insensitively, with whether the Service can write
+    /// to it and the deepest Root it resolves into, following links. A symlink to a folder is listed as a link at its
+    /// own path; any other file is left out, as are hidden folders (a leading dot, and `lost+found`) unless `hidden`.
+    /// The listing is bounded, as a folder may be a large or slow share: it reads at most [`READ_PER_FOLDER`] entries
+    /// and lists at most [`FOLDERS_LISTED`] folders, and says when it stopped short. A relative path, a `..` step, and
+    /// a path that isn't a folder are refused.
     pub fn folders(&self, path: &str, hidden: bool) -> Result<FolderListing> {
         if !path.starts_with('/') {
             return Err(Error::Refused(format!(
@@ -1099,13 +1099,19 @@ impl Store {
         }
         let entries = std::fs::read_dir(&at)
             .map_err(|e| Error::Refused(format!("the service can't read {shown}: {e}")))?;
-        let roots = self.roots();
+        // Membership follows links, as the Host would (see `beneath`): each Root and folder is compared canonical.
+        let roots: Vec<(PathBuf, String)> = self
+            .roots()
+            .iter()
+            .filter_map(|r| Some((r.path.canonicalize().ok()?, r.name.clone())))
+            .collect();
         let root_of = |folder: &Path| {
+            let folder = folder.canonicalize().ok()?;
             roots
                 .iter()
-                .filter(|r| folder.starts_with(&r.path))
-                .max_by_key(|r| r.path.components().count())
-                .map(|r| r.name.clone())
+                .filter(|(path, _)| folder.starts_with(path))
+                .max_by_key(|(path, _)| path.components().count())
+                .map(|(_, name)| name.clone())
         };
         let mut out = FolderListing {
             path: shown,

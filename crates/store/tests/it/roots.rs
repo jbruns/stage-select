@@ -508,6 +508,44 @@ mod browsing {
     }
 
     #[test]
+    fn a_link_is_in_the_root_it_leads_into_not_the_one_it_sits_in() {
+        let env = Env::new();
+        let sets = env.dir("sets");
+        env.dir("sets/snes");
+        let outside = env.dir("outside");
+        env.register(&RootSpec::new("sets", &sets)).unwrap();
+        std::os::unix::fs::symlink(&outside, sets.join("out")).unwrap();
+        std::os::unix::fs::symlink(sets.join("snes"), outside.join("into")).unwrap();
+        let listed = |path: &std::path::Path| {
+            env.store
+                .folders(&path.display().to_string(), false)
+                .unwrap()
+                .folders
+                .into_iter()
+                .map(|f| (f.name, f.path, f.root))
+                .collect::<Vec<_>>()
+        };
+        let text = |p: std::path::PathBuf| p.display().to_string();
+        assert_eq!(
+            listed(&sets),
+            [
+                ("out".into(), text(sets.join("out")), None),
+                ("snes".into(), text(sets.join("snes")), Some("sets".into())),
+            ],
+            "a link out of the root is in none"
+        );
+        assert_eq!(
+            listed(&outside),
+            [(
+                "into".into(),
+                text(outside.join("into")),
+                Some("sets".into())
+            )],
+            "a link into the root is in it, and keeps its own path"
+        );
+    }
+
+    #[test]
     fn a_full_folder_is_cut_short_and_says_so() {
         let env = Env::new();
         let mnt = env.dir("mnt");
