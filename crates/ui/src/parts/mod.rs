@@ -11,6 +11,7 @@
 //! - `outcome`: `JobOutcome`, a job's outcome wherever you start one, linking onward once it ends, and `Reports`
 //!   with `ShowReports` for what a screen's actions said.
 //! - `meter`: `ProgressMeter` and `GamesMeter`, the segmented meter for "how much of a whole".
+//! - `choice`: `Choice`, a radio button or checkbox with its name and the note under it.
 //! - `help`: `Help`, a one-line summary with longer help folded beneath it.
 //! - `overlay`: `Tooltip`, `Menu` and `Drawer`, hosted in a `<Portal>`, stacked by `layers`.
 //! - `theme`: the light and dark themes and `ThemeToggle`.
@@ -18,6 +19,7 @@
 //! - `layout`: `SplitView`, `DetailPane` and the `Crumbs` above a page below a list.
 //! - `tabs`: `Tabs`, `RouteTabs` and `use_tab`, the one row of tabs, whose open tab is always in the URL.
 
+pub mod choice;
 pub mod help;
 pub mod icon;
 pub mod layers;

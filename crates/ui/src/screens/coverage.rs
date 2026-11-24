@@ -11,6 +11,7 @@ use stage_select_api::{
 use crate::api;
 use crate::app::Loading;
 use crate::coverage_model::{self as model, Draft, Tick};
+use crate::parts::choice::Choice;
 use crate::parts::icon::Glyph;
 use crate::parts::message::Problem;
 use crate::parts::overlay::Drawer;
@@ -48,18 +49,13 @@ pub fn CoverageEditor(draft: RwSignal<Draft>, order: RwSignal<Vec<String>>) -> i
                 let tick = move || draft.with(|d| d.tick(preset));
                 view! {
                     <li>
-                        <label class="inline">
-                            <input
-                                type="checkbox"
-                                prop:checked=move || tick() == Tick::All
-                                prop:indeterminate=move || tick() == Tick::Some
-                                on:change=move |ev| {
-                                    let on = event_target_checked(&ev);
-                                    draft.update(|d| d.set_preset(preset, on));
-                                }
-                            />
+                        <Choice
+                            checked=Signal::derive(move || tick() == Tick::All)
+                            indeterminate=Signal::derive(move || tick() == Tick::Some)
+                            on_change=Callback::new(move |on| draft.update(|d| d.set_preset(preset, on)))
+                        >
                             {preset.name}
-                        </label>
+                        </Choice>
                     </li>
                 }
             })
@@ -77,19 +73,16 @@ pub fn CoverageEditor(draft: RwSignal<Draft>, order: RwSignal<Vec<String>>) -> i
                         let region = StoredValue::new(region);
                         view! {
                             <li>
-                                <label class="inline">
-                                    <input
-                                        type="checkbox"
-                                        prop:checked=move || {
-                                            draft.with(|d| region.with_value(|r| d.regions.contains(r)))
-                                        }
-                                        on:change=move |ev| {
-                                            let on = event_target_checked(&ev);
-                                            draft.update(|d| region.with_value(|r| d.set_region(r, on)));
-                                        }
-                                    />
+                                <Choice
+                                    checked=Signal::derive(move || {
+                                        draft.with(|d| region.with_value(|r| d.regions.contains(r)))
+                                    })
+                                    on_change=Callback::new(move |on| {
+                                        draft.update(|d| region.with_value(|r| d.set_region(r, on)));
+                                    })
+                                >
                                     {shown}
-                                </label>
+                                </Choice>
                             </li>
                         }
                     })
@@ -112,26 +105,22 @@ pub fn CoverageEditor(draft: RwSignal<Draft>, order: RwSignal<Vec<String>>) -> i
             </p>
             <ul class="checks">
                 <li>
-                    <label class="inline">
-                        <input
-                            type="radio"
-                            name="coverage-every"
-                            prop:checked=move || !only()
-                            on:change=move |_| draft.update(|d| d.every = true)
-                        />
+                    <Choice
+                        radio="coverage-every"
+                        checked=Signal::derive(move || !only())
+                        on_change=Callback::new(move |_| draft.update(|d| d.every = true))
+                    >
                         "Every region"
-                    </label>
+                    </Choice>
                 </li>
                 <li>
-                    <label class="inline">
-                        <input
-                            type="radio"
-                            name="coverage-every"
-                            prop:checked=only
-                            on:change=move |_| draft.update(|d| d.every = false)
-                        />
+                    <Choice
+                        radio="coverage-every"
+                        checked=Signal::derive(only)
+                        on_change=Callback::new(move |_| draft.update(|d| d.every = false))
+                    >
                         "Only some regions"
-                    </label>
+                    </Choice>
                 </li>
             </ul>
             <Show when=only>

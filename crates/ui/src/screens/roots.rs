@@ -8,6 +8,7 @@ use stage_select_api::roots::{FolderSuggestions, RootEdited, RootKind, RootSpec}
 
 use crate::api;
 use crate::model::when;
+use crate::parts::choice::Choice;
 use crate::parts::help::Help;
 use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::overlay::Drawer;
@@ -242,18 +243,14 @@ pub(crate) fn RootForm(
     };
     let kind_choice = move |kind: RootKind| {
         view! {
-            <p>
-                <label class="inline">
-                    <input
-                        type="radio"
-                        name="root-kind"
-                        prop:checked=move || draft.with(|d| d.kind == kind)
-                        on:change=move |_| draft.update(|d| d.kind = kind)
-                    />
-                    {kind_label(kind)}
-                </label>
-                <span class="note small">" " {kind_note(kind)}</span>
-            </p>
+            <Choice
+                radio="root-kind"
+                checked=Signal::derive(move || draft.with(|d| d.kind == kind))
+                on_change=Callback::new(move |_| draft.update(|d| d.kind = kind))
+                note=move || kind_note(kind)
+            >
+                {kind_label(kind)}
+            </Choice>
         }
     };
     view! {
@@ -294,20 +291,13 @@ pub(crate) fn RootForm(
                 <legend>"Kind"</legend>
                 {RootKind::ALL.into_iter().map(kind_choice).collect_view()}
             </fieldset>
-            <p>
-                <label class="inline">
-                    <input
-                        type="checkbox"
-                        disabled=move || draft.with(RootDraft::writable_fixed)
-                        prop:checked=move || draft.with(RootDraft::is_writable)
-                        on:change=move |ev| {
-                            let on = event_target_checked(&ev);
-                            draft.update(|d| d.writable = on);
-                        }
-                    />
-                    "Writable"
-                </label>
-            </p>
+            <Choice
+                checked=Signal::derive(move || draft.with(RootDraft::is_writable))
+                disabled=Signal::derive(move || draft.with(RootDraft::writable_fixed))
+                on_change=Callback::new(move |on| draft.update(|d| d.writable = on))
+            >
+                "Writable"
+            </Choice>
             <Show when=move || !draft.with(RootDraft::is_writable)>
                 <label class="stacked" for="root-writable-paths">
                     "Paths repairs may write to, in the root, one to a line"

@@ -47,7 +47,9 @@ stream, and the Service never sees it. A step the Service
 refuses (as an older ref may) is reported and skipped, and so is any screen whose route needs what it would have
 made.
 
-Two screens aren't a route alone, and are captured at 1440px only. row-states checks the DATs list's fourth row, then
+Four screens aren't a route alone. root-register and source-set-register open the Register drawer of Roots and of
+Source sets, the latter with "Only some regions" chosen, and capture the drawer whole. Two are captured at 1440px
+only. row-states checks the DATs list's fourth row, then
 opens, checks, puts the keyboard cursor on and hovers its second row, and captures the list and its detail. It fails
 the run if its cursor row's brackets (their computed background-image) are missing while the grid has keyboard
 focus. messages sets every Repack item of the repair plan to Leave, a draft that changes nothing in the store, and
@@ -127,6 +129,8 @@ SCREENS = {
     "about": "/settings/about",
     "row-states": "/dats",
     "messages": "/source-sets/{findings_set}?tab=repair",
+    "root-register": "/settings/roots",
+    "source-set-register": "/source-sets",
 }
 
 # Screens that show a list in a state the route alone can't: each is driven by the pointer and keyboard and captured
@@ -184,7 +188,45 @@ def messages(page):
     return Top(page, page.get_by_text("since this plan was made"))
 
 
-DRIVEN = {"row-states": row_states, "messages": messages}
+class Drawer:
+    """An open drawer, whole: the window grows to hold the drawer's body for the screenshot, then shrinks back."""
+
+    def __init__(self, page):
+        self.page = page
+
+    def screenshot(self, path):
+        size = self.page.viewport_size
+        tall = self.page.evaluate("() => { const b = document.querySelector('.drawer-body'); return b.offsetTop + b.scrollHeight + 1; }")
+        self.page.set_viewport_size({"width": size["width"], "height": max(size["height"], tall)})
+        self.page.wait_for_timeout(300)
+        self.page.locator(".drawer").screenshot(path=path)
+        self.page.set_viewport_size(size)
+
+
+def root_register(page):
+    """The Roots screen's "Register a root" drawer: its Kind choices, each with its note."""
+    page.get_by_role("button", name="Register a root…").click()
+    page.locator(".drawer").wait_for()
+    return Drawer(page)
+
+
+def source_set_register(page):
+    """The source sets' Register drawer with "Only some regions" chosen, so its coverage shows the presets."""
+    page.get_by_role("button", name="Register", exact=True).click()
+    page.locator(".drawer").get_by_text("Only some regions").click()
+    page.wait_for_timeout(300)
+    return Drawer(page)
+
+
+DRIVEN = {
+    "row-states": row_states,
+    "messages": messages,
+    "root-register": root_register,
+    "source-set-register": source_set_register,
+}
+
+# Driven screens captured at 1440px only.
+WIDE_ONLY = {"row-states", "messages"}
 
 RUNNING = {"activity-running"}
 
@@ -740,7 +782,7 @@ def capture(url, screens, label, work):
                 page = context.new_page()
                 page.on("request", request)
                 for name, route in screens.items():
-                    if name in DRIVEN and width < 1100:
+                    if name in WIDE_ONLY and width < 1100:
                         continue
                     page.goto(url + route, wait_until="load")
                     page.evaluate(MASK, [str(work), SHOWN_AS])

@@ -14,6 +14,7 @@ use stage_select_api::{Dat, DatFormat};
 
 use crate::api;
 use crate::app::Loading;
+use crate::parts::choice::Choice;
 use crate::parts::help::Help;
 use crate::parts::message::{Message, MessageKind, Problem};
 use crate::parts::tabs::{Tab, Tabs, use_tab};
@@ -42,6 +43,14 @@ const DAMAGED_PLACED_NOTE: &str = "Because the CHD is your only copy, a damaged 
 fn PlaceConvertedNote() -> impl IntoView {
     view! {
         <p class="note small">{PLACE_CONVERTED_NOTE}</p>
+        <DamagedPlacedHelp/>
+    }
+}
+
+/// What happens to a placed game stored as CHD that is damaged, folded under its one-line summary.
+#[component]
+fn DamagedPlacedHelp() -> impl IntoView {
+    view! {
         <Help summary="If a placed CHD is damaged">
             <p>{DAMAGED_PLACED_NOTE}</p>
         </Help>
@@ -306,20 +315,15 @@ fn GlobalSettings(policy: RwSignal<StoragePolicy>) -> impl IntoView {
                                     .map(|&f| view! { <option value=f.as_str()>{format_label(f)}</option> })
                                     .collect_view()}
                             </select>
-                            <p>
-                                <label class="inline">
-                                    <input
-                                        type="checkbox"
-                                        prop:checked=move || policy.with(|p| p.scope(scope).delete_originals)
-                                        on:change=move |ev| {
-                                            let on = event_target_checked(&ev);
-                                            policy.update(|p| scope_mut(p, scope).delete_originals = on);
-                                        }
-                                    />
-                                    "Delete originals after conversion"
-                                </label>
-                            </p>
-                            <p class="note small">{DELETE_WARNING}</p>
+                            <Choice
+                                checked=Signal::derive(move || policy.with(|p| p.scope(scope).delete_originals))
+                                on_change=Callback::new(move |on| {
+                                    policy.update(|p| scope_mut(p, scope).delete_originals = on);
+                                })
+                                note=|| DELETE_WARNING
+                            >
+                                "Delete originals after conversion"
+                            </Choice>
                             {(scope == StorageScope::SourceSets)
                                 .then(|| {
                                     view! {
@@ -550,20 +554,15 @@ fn DiscSettings(policy: RwSignal<StoragePolicy>, system: String) -> impl IntoVie
                 .collect_view()}
         </select>
         <p class="note small">{LAYOUT_NOTE}</p>
-        <p>
-            <label class="inline">
-                <input
-                    type="checkbox"
-                    prop:checked=move || own().sbi == Some(true)
-                    on:change=move |ev| {
-                        let on = event_target_checked(&ev).then_some(true);
-                        update_own(policy, scope, &s.get_value(), |o| o.sbi = on);
-                    }
-                />
-                "Put SBI files beside discs"
-            </label>
-        </p>
-        <p class="note small">{SBI_NOTE}</p>
+        <Choice
+            checked=Signal::derive(move || own().sbi == Some(true))
+            on_change=Callback::new(move |on: bool| {
+                update_own(policy, scope, &s.get_value(), |o| o.sbi = on.then_some(true));
+            })
+            note=|| SBI_NOTE
+        >
+            "Put SBI files beside discs"
+        </Choice>
     }
 }
 
@@ -614,34 +613,21 @@ fn SystemSetLayout(policy: RwSignal<StoragePolicy>, system: String) -> impl Into
 fn GlobalSingleCopy(policy: RwSignal<StoragePolicy>) -> impl IntoView {
     let single = move || policy.with(|p| p.play_libraries.single_copy);
     view! {
-        <p>
-            <label class="inline">
-                <input
-                    type="checkbox"
-                    prop:checked=single
-                    on:change=move |ev| {
-                        let on = event_target_checked(&ev);
-                        policy.update(|p| p.play_libraries.single_copy = on);
-                    }
-                />
-                "Single copy"
-            </label>
-        </p>
-        <p class="note small">{SINGLE_COPY_NOTE}</p>
-        <p>
-            <label class="inline">
-                <input
-                    type="checkbox"
-                    prop:checked=move || policy.with(|p| p.play_libraries.place_converted)
-                    on:change=move |ev| {
-                        let on = event_target_checked(&ev);
-                        policy.update(|p| p.play_libraries.place_converted = on);
-                    }
-                />
-                "Place converted games"
-            </label>
-        </p>
-        <PlaceConvertedNote/>
+        <Choice
+            checked=Signal::derive(single)
+            on_change=Callback::new(move |on| policy.update(|p| p.play_libraries.single_copy = on))
+            note=|| SINGLE_COPY_NOTE
+        >
+            "Single copy"
+        </Choice>
+        <Choice
+            checked=Signal::derive(move || policy.with(|p| p.play_libraries.place_converted))
+            on_change=Callback::new(move |on| policy.update(|p| p.play_libraries.place_converted = on))
+            note=|| PLACE_CONVERTED_NOTE
+        >
+            "Place converted games"
+        </Choice>
+        <DamagedPlacedHelp/>
     }
 }
 
