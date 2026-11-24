@@ -782,6 +782,8 @@ pub(super) fn settle_kept(tx: &Transaction, id: i64) -> Result<()> {
         "DELETE FROM conversion_originals WHERE folder_id = ?1 AND target = ?2",
         params![folder, name],
     )?;
+    // A placed game you removed to delete is kept aside before it is: no longer placed, nor its Source Set's copy.
+    crate::placements::forget_placed(tx, folder, &name)?;
     tx.execute(
         "UPDATE build_items SET state = 'applied', error = NULL
          WHERE build_id = ?1 AND seq = ?2 AND kind IN ('remove', 'keep_aside')",

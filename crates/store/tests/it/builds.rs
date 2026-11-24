@@ -1290,6 +1290,7 @@ fn a_conflict_is_kept_aside_and_rebuilt_only_when_you_choose_it() {
             adopt: vec![],
             keep_aside: vec!["Combat (USA).zip".into()],
             remove_all: false,
+            remove: vec![],
         },
     );
     assert_ne!(keep.digest, left.digest);
@@ -1318,6 +1319,7 @@ fn a_conflict_is_kept_aside_and_rebuilt_only_when_you_choose_it() {
             adopt: vec![],
             keep_aside: vec!["Combat (USA).zip".into()],
             remove_all: false,
+            remove: vec![],
         },
     );
     assert_eq!(env.build(&keep).state, JobState::Succeeded);
@@ -1345,6 +1347,7 @@ fn a_conflict_is_kept_aside_and_rebuilt_only_when_you_choose_it() {
                 adopt: vec!["Combat (USA).zip".into()],
                 keep_aside: vec!["Combat (USA).zip".into()],
                 remove_all: false,
+                remove: vec![],
             },
         },
     );
@@ -3801,6 +3804,7 @@ fn building_resolved_groups_only_is_a_choice_the_digest_binds_and_leaves_the_res
             adopt: vec![],
             keep_aside: vec![],
             remove_all: false,
+            remove: vec![],
         },
     );
 
@@ -3881,6 +3885,7 @@ fn a_conflict_is_adopted_only_when_its_roms_match_the_dat_and_nothing_is_written
             adopt: vec!["Pong (USA).zip".into(), "Combat (USA).zip".into()],
             keep_aside: vec![],
             remove_all: false,
+            remove: vec![],
         },
     );
     assert_ne!(adopt.digest, left.digest);
@@ -4042,6 +4047,7 @@ fn an_unresolved_group_is_complete_only_when_its_built_file_still_holds_the_game
             adopt: vec![],
             keep_aside: vec![],
             remove_all: false,
+            remove: vec![],
         },
     );
     assert!(plan.approvable(), "{:?}", plan.content.blockers);
@@ -4107,6 +4113,7 @@ fn an_unresolved_group_whose_roms_the_newer_dat_revision_changed_is_incomplete()
             adopt: vec![],
             keep_aside: vec![],
             remove_all: false,
+            remove: vec![],
         },
     );
     assert!(plan.approvable(), "{:?}", plan.content.blockers);
@@ -5356,6 +5363,7 @@ fn an_interrupted_repack_of_a_file_no_longer_selected_leaves_the_folder_lacking_
             adopt: vec![],
             keep_aside: vec![],
             remove_all: false,
+            remove: vec![],
         },
     );
     assert!(partial.approvable(), "{:?}", partial.content.blockers);
@@ -5507,6 +5515,7 @@ fn a_loose_file_is_adopted_where_the_storage_policy_stores_its_game_loose() {
             adopt: vec!["Pong (USA).a26".into()],
             keep_aside: vec![],
             remove_all: false,
+            remove: vec![],
         },
     );
     assert_eq!(kinds(&plan)["Pong (USA)"], ItemKind::Adopt);

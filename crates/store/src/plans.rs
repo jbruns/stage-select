@@ -11,7 +11,7 @@ use stage_select_api::build::{
     Approval, Blocker, BlockerKind, Cause, CheckSummary, CleanupAction, ExpectedRom, FileIdentity,
     FileOutcome, FileStat, FolderCheck, GeneratedFile, GeneratedKind, ItemKind, KeepAside,
     KeepReason, Plan, PlanAddition, PlanBuild, PlanChange, PlanChoices, PlanContent, PlanItem,
-    PlanRemoval, PlanSource, RETENTION, RemovalKind, STAGING, STATE, invalid_name,
+    PlanRemoval, PlanSource, RETENTION, RemovalKind, RemoveAction, STAGING, STATE, invalid_name,
 };
 use stage_select_api::report::{Entry, EvidenceLevel, Finding};
 use stage_select_api::selection::{Outcome, ReleaseRow, Selection, SelectionProfile, diff_rows};
@@ -216,6 +216,8 @@ struct Inputs {
     placed_rows: HashMap<i64, (String, String)>,
     /// Whether a test has said to treat the Source Set and the folder as on different filesystems.
     copy_across: bool,
+    /// The games removed from the folder, and those this plan removes, with what becomes of their files.
+    removed: BTreeMap<String, RemoveAction>,
 }
 
 fn load(
@@ -267,7 +269,17 @@ fn load(
             "selection {selection_id} was pruned and only its summary is kept; make a new selection to build"
         )));
     }
-    let selection = read_selection(c, selection_id)?;
+    // A game removed from the folder, or that this plan removes, is left out as if the Selection hadn't selected it.
+    // Removing every built file removes them all alike.
+    let mut removed = match choices.remove_all {
+        true => BTreeMap::new(),
+        false => crate::removed::removed_actions(c, folder.id)?,
+    };
+    removed.extend(choices.remove.iter().map(|r| (r.game.clone(), r.action)));
+    let mut selection = read_selection(c, selection_id)?;
+    for group in &mut selection.groups {
+        group.kept.retain(|w| !removed.contains_key(&w.title));
+    }
     let rows = read_rows(c, selection_id)?;
     let (_, revision) = revision_by_id(c, revision_id)?;
     let set = set_by_id(c, set_id)?;
@@ -351,10 +363,11 @@ fn load(
         .ok()
         .and_then(|p| p.systems.get(&selection.system).map(|s| s.additions))
         .unwrap_or(false);
-    let additions = match opted {
+    let mut additions = match opted {
         true => crate::additions::active_additions(c, folder.dat_id)?,
         false => Vec::new(),
     };
+    additions.retain(|a| !removed.contains_key(&a.addition.name));
     for addition in &additions {
         selected
             .entry(
@@ -365,6 +378,7 @@ fn load(
             .or_insert_with(|| addition.addition.name.clone());
     }
     Ok(Inputs {
+        removed,
         storage,
         set_storage,
         additions,
@@ -704,8 +718,10 @@ fn removals(
             keep: None,
             converts_to: None,
         };
+        // A placed game you removed to delete is kept aside, then deleted, as any other built file.
         if let Some(placed) = inputs.placed.iter().find(|p| p.path == *target)
             && !targets.contains(target.as_str())
+            && removed_as(inputs, &placed.game) != Some(RemoveAction::Delete)
         {
             out.push(leave(match nothing.games.contains(&placed.game) {
                 true => format!(
@@ -848,9 +864,11 @@ fn removals(
             converts_to: None,
         };
         let outcome = checked.map(|c| c.outcome);
-        let gone = match generated {
-            true => format!("{target} is no longer needed"),
-            false => format!("{} is no longer selected", built.game),
+        let removed = removed_as(inputs, &built.game);
+        let gone = match (removed, generated) {
+            (Some(_), _) => format!("you removed {} from this folder", built.game),
+            (None, true) => format!("{target} is no longer needed"),
+            (None, false) => format!("{} is no longer selected", built.game),
         };
         // A generated file of a release the plan writes goes with the release's unit, so only once all of it can
         // be written. A release written as it was, or no longer selected, needs it no more.
@@ -881,8 +899,13 @@ fn removals(
                 )
         }) {
             removal.kind = RemovalKind::Keep;
-            removal.reason =
-                format!("{gone}; {target} is set aside in the folder's retention area");
+            removal.reason = format!(
+                "{gone}; {target} is set aside in the folder's retention area{}",
+                match removed {
+                    Some(RemoveAction::Delete) => ", then deleted",
+                    _ => "",
+                }
+            );
             removal.keep = Some(keep_of(
                 if replaced {
                     KeepReason::Replacement
@@ -905,6 +928,18 @@ fn removals(
         out.push(removal);
     }
     out
+}
+
+/// What becomes of the files of `game` if you removed it from the folder, or this plan removes it: by its name, or,
+/// for a file of a whole release, such as a playlist, by any of the release's games.
+fn removed_as(inputs: &Inputs, game: &str) -> Option<RemoveAction> {
+    inputs.removed.get(game).copied().or_else(|| {
+        inputs
+            .removed
+            .iter()
+            .find(|(g, _)| release_of(g) == game)
+            .map(|(_, a)| *a)
+    })
 }
 
 /// One Entry that holds a ROM's payload.
@@ -2917,6 +2952,13 @@ impl Store {
                 stage_select_api::selection::SOFTWARE_LIST_REFUSAL.to_owned(),
             ));
         }
+        for removal in &choices.remove {
+            let built = inputs.built.values().any(|b| b.game == removal.game);
+            let placed = inputs.placed.iter().any(|p| p.game == removal.game);
+            if let Some(why) = crate::removed::refusal(removal, built, placed) {
+                return Err(Error::Refused(why));
+            }
+        }
         inputs.copy_across = self.across_filesystems(None);
         if inputs.storage.sbi {
             inputs.sbi = self.latest_sbi_pack(&inputs.folder.system)?;
@@ -2928,6 +2970,13 @@ impl Store {
             None
         };
         let mut planned = compute(roots, &inputs, dat.as_ref());
+        for game in inputs.removed.keys() {
+            if !choices.remove.iter().any(|r| r.game == *game) {
+                planned.content.notes.push(format!(
+                    "you removed {game} from this folder, so it isn't built here; restore it to build it again"
+                ));
+            }
+        }
         // A Placed Game's file is its only copy: never a kept file of the folder. Removing every built file returns
         // each Placed Game to its Source Set's folder first, and is refused while one can't go.
         let games = |n: u64| match n {
@@ -3018,6 +3067,7 @@ impl Store {
     /// running, the check is not stored and nothing it found is recorded.
     pub fn plan_build_with(&self, folder: i64, request: &PlanBuild) -> Result<Plan> {
         let mut choices = request.choices.clone();
+        crate::removed::normalize(&mut choices.remove, choices.remove_all)?;
         choices.adopt.sort();
         choices.adopt.dedup();
         choices.keep_aside.sort();
@@ -3155,6 +3205,7 @@ impl Store {
                 "INSERT INTO plan_approvals (plan_id, digest, actor, approved_at) VALUES (?1, ?2, ?3, ?4)",
                 params![id, plan.digest, actor, now()],
             )?;
+            crate::removed::record_removals(tx, folder.id, id, &content.choices.remove)?;
             tx.execute(
                 "INSERT INTO jobs (state, kind, source_set_id, dat_revision_id, actor, readers, hashers, created_at,
                                    library_folder_id, plan_id)

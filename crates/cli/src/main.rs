@@ -374,6 +374,43 @@ enum LibraryCommand {
     Holds { id: i64 },
     /// Unregister a play library folder. What was built in it stays as files Stage Select no longer manages.
     Unregister { id: i64 },
+    /// Plan removing games from a play library folder, from the selection it was last built from. Nothing changes
+    /// until you approve the plan in the workbench; every later build then leaves the games out until you restore them.
+    Remove {
+        id: i64,
+        /// The games to remove, by their names in the DAT.
+        #[arg(required = true)]
+        games: Vec<String>,
+        /// What becomes of their files.
+        #[arg(long, value_enum)]
+        action: RemoveActionArg,
+    },
+    /// Restore games you removed from a play library folder: the next build puts them back.
+    Restore {
+        id: i64,
+        #[arg(required = true)]
+        games: Vec<String>,
+    },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum RemoveActionArg {
+    /// Return a game placed here under single copy to its source set.
+    SendBack,
+    /// Keep its files aside as kept files.
+    SetAside,
+    /// Keep its files aside, then delete them. A placed game is deleted too, and never returned to its source set.
+    Delete,
+}
+
+impl From<RemoveActionArg> for stage_select_api::build::RemoveAction {
+    fn from(arg: RemoveActionArg) -> Self {
+        match arg {
+            RemoveActionArg::SendBack => Self::SendBack,
+            RemoveActionArg::SetAside => Self::SetAside,
+            RemoveActionArg::Delete => Self::Delete,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -1299,6 +1336,39 @@ fn run(cli: Cli) -> Result<(), String> {
                     .unregister_library_folder(id)
                     .map_err(|e| e.to_string())?,
             );
+            Ok(())
+        }
+        Command::Library {
+            command: LibraryCommand::Remove { id, games, action },
+        } => {
+            let plan = open_store(store)?
+                .plan_game_removal(
+                    id,
+                    &stage_select_api::build::RemoveGames {
+                        games,
+                        action: action.into(),
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            println!(
+                "planned removing them as plan {}; review and approve it in the workbench",
+                plan.id
+            );
+            Ok(())
+        }
+        Command::Library {
+            command: LibraryCommand::Restore { id, games },
+        } => {
+            let folder = open_store(store)?
+                .restore_games(id, &stage_select_api::build::RestoreGames { games })
+                .map_err(|e| e.to_string())?;
+            println!(
+                "restored; the next build of play library folder {} puts them back",
+                folder.id
+            );
+            for game in &folder.removed {
+                println!("still removed\t{}", game.name);
+            }
             Ok(())
         }
         Command::Additions {

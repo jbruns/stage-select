@@ -9,7 +9,9 @@ use axum::routing::{delete, get, post};
 use axum::{Extension, Json, Router};
 use stage_select_api::ProfileRecord;
 use stage_select_api::additions::SystemQuery;
-use stage_select_api::build::{ApprovePlan, Plan, PlanKeptDeletion};
+use stage_select_api::build::{
+    ApprovePlan, LibraryFolder, Plan, PlanKeptDeletion, RemoveGames, RestoreGames,
+};
 use stage_select_api::lifecycle::{
     AdditionsSetAside, FolderMove, Forgotten, Holds, PlanFolderMove, RegistrationHistory,
     RegistrationKind, UnregisteredRecord, Unregistration,
@@ -34,6 +36,8 @@ pub(super) fn routes() -> Router<AppState> {
             post(unregister_library_folder),
         )
         .route("/libraries/{id}/removals", post(plan_library_removal))
+        .route("/libraries/{id}/game-removals", post(plan_game_removal))
+        .route("/libraries/{id}/game-restorations", post(restore_games))
         .route("/libraries/{id}/moves", post(plan_library_folder_move))
         .route("/library-moves/{id}", get(library_folder_move))
         .route(
@@ -152,6 +156,32 @@ async fn plan_library_removal(
     let Path(id) = id?;
     let plan = blocking(&state, move |store| store.plan_library_removal(id)).await?;
     Ok((StatusCode::CREATED, Json(plan)))
+}
+
+/// Plans removing chosen games from a Library Folder, each sent back, set aside or deleted; they join its removed
+/// games once the plan is approved, as any plan is.
+async fn plan_game_removal(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<RemoveGames>, JsonRejection>,
+) -> ApiResult<(StatusCode, Json<Plan>)> {
+    let Path(id) = id?;
+    let Json(request) = body?;
+    let plan = blocking(&state, move |store| store.plan_game_removal(id, &request)).await?;
+    Ok((StatusCode::CREATED, Json(plan)))
+}
+
+/// Restores games removed from a Library Folder: the next build puts them back.
+async fn restore_games(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<RestoreGames>, JsonRejection>,
+) -> ApiResult<Json<LibraryFolder>> {
+    let Path(id) = id?;
+    let Json(request) = body?;
+    Ok(Json(
+        blocking(&state, move |store| store.restore_games(id, &request)).await?,
+    ))
 }
 
 /// Plans moving or renaming a Library Folder within its Root; nothing moves until the plan is approved.
