@@ -90,3 +90,11 @@ skipped and the file stays. A Keep that comes before the only write of another i
 file in the way of a new one before a later Fill, can't wait for it, so the plan leaves its item. A conversion's writes
 come after, but each reads only its own originals, which stay until it is verified. An item's own Fill still comes
 after the Keep of a file in its way, as it did before this amendment.
+
+## Amendment (2026-11-25): a duplicate whole files already hold is set aside by default
+
+A file holding only copies of ROMs is kept aside by default when every ROM it holds is in a file that is there now and
+stays as it is, a Game's own file the plan leaves whole, and no applied item reads it: a duplicate of a Game under an
+older name, say. What makes it spare is no write of this Repair, which could fail, so the 2026-11-21 amendment's reason
+for leaving it doesn't apply. A file whose copies depend on a write of the Repair, or that an item reads, is still left
+by default, with the note that says so.

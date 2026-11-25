@@ -280,7 +280,11 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   the nearest of its ZIP and the folders above it that is named for a game, so `<game>/tracks/Track 02.bin` is in
   `<game>/`. An entry in `<other game>.zip` or `<other game>/` doesn't count towards this game, even when its `roms`
   name one of this game's ROMs, as a track two discs share often does when it is stored under an old title. A loose
-  file, or a member of a ZIP, in nothing named for a game still counts, misnamed or not.
+  file, or a member of a ZIP, in nothing named for a game still counts, misnamed or not. In a ZIP or folder named for
+  no game, such as a duplicate of a game under an older name, when the entries that match one game's ROMs alone all
+  match the same game, every entry of it counts towards that game alone: a track many discs share counts only for the
+  game the rest of the ZIP is. Its `roms` still name every ROM it matches. A loose file in the source set's own folder
+  counts towards every ROM it matches.
 - A game's ancestors' ZIPs and folders count as its own: its parent's (`cloneof`), and each one up its `romof` chain
   to its BIOS, because merged and split sets keep a family's shared files there. In its own and its ancestors' ZIPs
   and folders, an entry counts towards a ROM by its name or, failing that, by its checksums under another name, as
@@ -306,6 +310,9 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   in `disks` each disk it counts for, `{"game", "name"}`: a disk counts by one CHD, the first with the strongest
   evidence, which may be its parent's under another name, so a CHD's `disks` can name more than its `roms`, or fewer. A
   delta CHD's entry gives its parent's SHA-1 in `parent_sha1`.
+- An entry that counts towards one game alone, when another file named for that game makes it complete by its matched
+  entries alone, gives that game and file in `complete_in`, `{"game", "path"}`: the entry is a duplicate. The file is
+  a ZIP, a folder of loose files, or a loose file, its path relative to the source set's root as an entry's `path`.
 - `available_elsewhere` lists a game's missing ROMs whose checksums an entry in another game's ZIP or folder has, with
   the games whose ZIP or folder holds each, whatever that entry's name. They are still in `missing_roms`. A repair can
   fill the game from such an entry, such as a track stored under an old title, unless the entry is named for the other
@@ -1490,7 +1497,8 @@ ZIP that holds it, and a ZIP another game is written into is read but never set 
 layout no longer wants, such as a clone's under merged, is set aside only once every ZIP written from it is written and
 verified; if one of them fails, it stays. By default a repack only builds, renames, fills and converts: a file left
 holding only copies of ROMs that another file holds, or that the repair writes, stays where it is unless you choose to
-set it aside, and the item says so. A family is repacked whole: leaving one game of it as it is leaves the family's
+set it aside, and the item says so; one whose every ROM a correctly named file that stays as it is already holds is set
+aside by default (see "Repairs"). A family is repacked whole: leaving one game of it as it is leaves the family's
 other games too. A ZIP never holds two different ROMs under one name: the first the DAT lists for it wins, a game's own
 before its dependencies' and a parent's before its clones', the plan's notes say which ROM was left out, and the file
 that holds it stays where it is. Disks are never moved by the set layout: they stay in a folder named for the family's
@@ -1940,7 +1948,9 @@ approving approves the plan as it was made, so it waits while you have changes y
 - unmatched entries and extra members of a game's ZIP are set aside by default;
 - a file holding only copies of ROMs that another file holds, or that the repair writes, is left where it is by
   default. You can choose to set it aside: it's set aside only once every file the repair reads from it, or writes
-  with a copy of what it holds, is written and verified, and if one of them fails, it stays.
+  with a copy of what it holds, is written and verified, and if one of them fails, it stays. When correctly named
+  files that the repair leaves as they are already hold every ROM it holds, and nothing in the repair reads it, such as
+  a duplicate of a game under an older name, it's set aside by default.
 
 When the source set has a coverage, a repair fills only the games in it: a game outside it is renamed, repacked and
 converted like any other, but nothing fills it, and the plan's notes say so. The plan records the coverage it was

@@ -14,7 +14,7 @@ pub mod sevenz;
 pub mod torrentzip;
 pub mod zipdir;
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 pub use read::Pools;
@@ -618,6 +618,9 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         header_missing: vec![false; dat.games.len()],
         entries: Vec::new(),
         unnamed: Vec::new(),
+        strays: Vec::new(),
+        counts_for: Vec::new(),
+        matched: Vec::new(),
         dat: &dat,
     };
     for (items, mut reads) in segments {
@@ -696,6 +699,28 @@ struct Scan<'d> {
     /// The Entries in a Game's own ZIP or folder that may count for one of its ROMs by checksums alone, in walk
     /// order.
     unnamed: Vec<Unnamed>,
+    /// The Entries in a ZIP or folder named for no Game, counted once every Entry is in ([`Scan::settle`]).
+    strays: Vec<Stray>,
+    /// The Games each Entry counts towards, by its index in `entries`; none past the last that counts towards one.
+    counts_for: Vec<CountsFor>,
+    /// Each ROM a Matched Entry counts for, with the Entry's index and its [`Held::container`], in the order counted.
+    matched: Vec<(usize, usize, Option<usize>)>,
+}
+
+/// The Games an Entry counts towards.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum CountsFor {
+    #[default]
+    None,
+    One(usize),
+    Several,
+}
+
+/// An Entry in a ZIP or folder named for no Game: its file, the ZIP or the folder, and the ROMs its Finding gives.
+struct Stray {
+    file: String,
+    roms: Vec<usize>,
+    held: Held,
 }
 
 /// What an Entry tells of each ROM it counts for.
@@ -706,6 +731,8 @@ struct Held {
     has_header: bool,
     /// The Entry's index in [`Scan::entries`].
     entry: usize,
+    /// The Game whose ZIP or folder holds the Entry ([`Holders::container`]).
+    container: Option<usize>,
 }
 
 /// An Entry in a Game's own ZIP or folder that none of the Game's ROMs is named for, and those of the Game's ROMs whose
@@ -738,6 +765,7 @@ impl Scan<'_> {
             reason: Some(reason),
             disks: Vec::new(),
             parent_sha1,
+            complete_in: None,
         });
     }
 
@@ -760,6 +788,7 @@ impl Scan<'_> {
                     reason: Some(why.clone()),
                     disks: Vec::new(),
                     parent_sha1: None,
+                    complete_in: None,
                 });
                 return;
             }
@@ -793,7 +822,12 @@ impl Scan<'_> {
         // name, as MAME searches (ADR 0025), such as a clone's ROM that its parent lists under another name. In the
         // Game's own, an Entry counts only for the ROMs it is named for or, failing that, for one ROM with its
         // checksums that nothing else counts for, settled once every Entry is in ([`Scan::settle`]). A loose
-        // file in no Game's counts towards the ROMs its Finding gives.
+        // file in no Game's counts towards the ROMs its Finding gives; one in a ZIP or folder named for no Game, only
+        // towards those of the one Game its file's Entries single out, when they do, settled too (ADR 0017).
+        let stray = container
+            .is_none()
+            .then(|| stray_file(&path, member.is_some()))
+            .flatten();
         let (container_roms, mut counted): (Vec<usize>, Vec<usize>) = match container {
             Some(c) => matching
                 .iter()
@@ -824,6 +858,7 @@ impl Scan<'_> {
             level,
             has_header: header.is_some(),
             entry: self.entries.len(),
+            container,
         };
         let (by_name, by_checksums): (Vec<usize>, Vec<usize>) =
             container_roms.into_iter().partition(named_for);
@@ -837,8 +872,18 @@ impl Scan<'_> {
         } else {
             counted.extend(by_name);
         }
-        for r in counted {
-            self.count(r, held);
+        match stray {
+            Some(file) if !counted.is_empty() => self.strays.push(Stray {
+                file: file.to_owned(),
+                roms: counted,
+                held,
+            }),
+            Some(_) => {}
+            None => {
+                for r in counted {
+                    self.count(r, held);
+                }
+            }
         }
         self.entries.push(Entry {
             path,
@@ -854,12 +899,26 @@ impl Scan<'_> {
             // Filled once every Entry is in ([`Scan::settle`]).
             disks: Vec::new(),
             parent_sha1: None,
+            complete_in: None,
         });
     }
 
     /// Counts the ROM `r` as present, and its Game as lacking a Header when `held` is a Matched Entry without one
     /// that the DAT's emulators need.
     fn count(&mut self, r: usize, held: Held) {
+        let game = self.dat.roms[r].game;
+        if self.counts_for.len() <= held.entry {
+            self.counts_for.resize(held.entry + 1, CountsFor::None);
+        }
+        let counts_for = &mut self.counts_for[held.entry];
+        *counts_for = match *counts_for {
+            CountsFor::None => CountsFor::One(game),
+            CountsFor::One(g) if g == game => CountsFor::One(g),
+            _ => CountsFor::Several,
+        };
+        if held.finding == Finding::Matched {
+            self.matched.push((held.entry, r, held.container));
+        }
         if held.finding == Finding::Matched
             && !held.has_header
             && self.dat.header().is_some_and(HeaderRule::needed_to_play)
@@ -875,12 +934,48 @@ impl Scan<'_> {
         }
     }
 
+    /// Counts each Entry in a ZIP or folder named for no Game (ADR 0017). When the Games singled out by its file's
+    /// Entries whose ROMs are of one Game alone are one Game, the Entry counts only towards that Game's ROMs, so that a
+    /// duplicate of a Game under an older name never counts a common track, such as an audio track many discs share,
+    /// towards every other Game with that track. Otherwise it counts towards every ROM its Finding gives.
+    fn settle_strays(&mut self) {
+        let strays = std::mem::take(&mut self.strays);
+        // For each file, the one Game its Entries single out, or None once they single out more than one.
+        let mut single: HashMap<&str, Option<usize>> = HashMap::new();
+        for s in &strays {
+            let mut games = s.roms.iter().map(|r| self.dat.roms[*r].game);
+            let Some(first) = games.next() else {
+                continue;
+            };
+            if games.any(|g| g != first) {
+                continue;
+            }
+            single
+                .entry(s.file.as_str())
+                .and_modify(|one| {
+                    if *one != Some(first) {
+                        *one = None;
+                    }
+                })
+                .or_insert(Some(first));
+        }
+        for s in &strays {
+            let one = single.get(s.file.as_str()).copied().flatten();
+            for r in s.roms.iter().copied() {
+                if one.is_none_or(|g| self.dat.roms[r].game == g) {
+                    self.count(r, s.held);
+                }
+            }
+        }
+    }
+
     /// Counts each Entry in a Game's own ZIP or folder that none of its ROMs is named for towards the first of those
     /// ROMs with its checksums that nothing has counted for yet, once every other Entry is in, so that one file never
     /// stands in for several identical ROMs, such as a disc's identical tracks. A needed ROM comes before an optional
     /// one, which never lowers the Game Status (ADR 0025). A ROM another Entry counts for only by Claim Evidence stays
     /// at Claim. Then names, in each CHD's Entry, the Disks it counts for.
     fn settle(&mut self) {
+        self.settle_strays();
         for mut u in std::mem::take(&mut self.unnamed) {
             u.roms.sort_by_key(|r| !self.dat.roms[*r].needed());
             if let Some(r) = u.roms.into_iter().find(|r| self.covered[*r].is_none()) {
@@ -891,6 +986,59 @@ impl Scan<'_> {
             if let Some(e) = e {
                 self.entries[*e].disks.push(rom_ref(self.dat, r));
             }
+        }
+        self.duplicates();
+    }
+
+    /// Names, in each Entry that counts towards one Game alone, the file named for that Game whose Matched Entries
+    /// alone make it Complete, when the Entry is in another file: the Entry is a duplicate. Of several such files, the
+    /// first counted. A file is a ZIP, the folder a loose file is in, or a loose file in the Source Set's own folder.
+    fn duplicates(&mut self) {
+        let mut needed = vec![0usize; self.dat.games.len()];
+        for rom in self.dat.roms.iter().filter(|r| r.needed()) {
+            needed[rom.game] += 1;
+        }
+        let entries = &self.entries;
+        let file = |e: usize| file_of(&entries[e].path, entries[e].member.is_some());
+        // Each needed ROM of a Game that a Matched Entry of a file named for the Game counts for, by file and Game.
+        let mut held: HashMap<(&str, usize), HashSet<usize>> = HashMap::new();
+        for &(e, r, container) in &self.matched {
+            let rom = &self.dat.roms[r];
+            let named = match container {
+                Some(c) => c == rom.game,
+                None => {
+                    entries[e].member.is_none() && stray_file(&entries[e].path, false).is_none()
+                }
+            };
+            if named && rom.needed() {
+                held.entry((file(e), rom.game)).or_default().insert(r);
+            }
+        }
+        let mut complete: Vec<Option<&str>> = vec![None; self.dat.games.len()];
+        for &(e, r, _) in &self.matched {
+            let game = self.dat.roms[r].game;
+            let key = (file(e), game);
+            if complete[game].is_none() && held.get(&key).is_some_and(|h| h.len() == needed[game]) {
+                complete[game] = Some(key.0);
+            }
+        }
+        let found: Vec<(usize, CompleteIn)> = (self.counts_for.iter().enumerate())
+            .filter_map(|(e, counts)| {
+                let CountsFor::One(game) = *counts else {
+                    return None;
+                };
+                let path = complete[game].filter(|path| *path != file(e))?;
+                Some((
+                    e,
+                    CompleteIn {
+                        game: self.dat.games[game].clone(),
+                        path: path.to_owned(),
+                    },
+                ))
+            })
+            .collect();
+        for (e, complete_in) in found {
+            self.entries[e].complete_in = Some(complete_in);
         }
     }
 
@@ -1048,6 +1196,21 @@ fn rom_ref(dat: &Dat, r: usize) -> RomRef {
         game: dat.games[dat.roms[r].game].clone(),
         name: dat.roms[r].name.clone(),
     }
+}
+
+/// The file, named for no Game, that holds the Entry at `path`, `member` of it when `in_archive`: the ZIP, or else the
+/// folder the loose file is in. None for a loose file in the Source Set's own folder.
+fn stray_file(path: &str, in_archive: bool) -> Option<&str> {
+    match in_archive {
+        true => Some(path),
+        false => path.rsplit_once(['/', '\\']).map(|(folder, _)| folder),
+    }
+}
+
+/// The file that holds the Entry at `path`, `member` of it when `in_archive`: the ZIP, or else the folder the loose file
+/// is in, or the loose file itself in the Source Set's own folder.
+fn file_of(path: &str, in_archive: bool) -> &str {
+    stray_file(path, in_archive).unwrap_or(path)
 }
 
 /// The name of the Entry at `path`, `member` of it in a ZIP: its file name, less any folders.

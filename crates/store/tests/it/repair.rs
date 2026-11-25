@@ -1033,6 +1033,79 @@ fn a_loose_file_under_a_nodump_roms_name_in_its_games_folder_is_never_moved_or_k
 }
 
 #[test]
+fn a_duplicate_under_an_old_name_beside_a_complete_correctly_named_file_is_set_aside_by_default() {
+    let env = Env::new();
+    write_torrentzip(
+        &env.set().join("Pong (USA).zip"),
+        &[("Pong (USA).a26", b"pong")],
+    );
+    write_zip(
+        &env.set().join("Pong (Old).zip"),
+        &[("Pong (Old).a26", b"pong")],
+    );
+    env.audit(AuditEvidence::Full);
+    let complete_in = |path: &str| {
+        let report = env.latest_report();
+        let entry = report.entries.iter().find(|e| e.path == path).unwrap();
+        entry.complete_in.clone().map(|c| (c.game, c.path))
+    };
+    assert_eq!(
+        complete_in("Pong (Old).zip"),
+        Some(("Pong (USA)".into(), "Pong (USA).zip".into()))
+    );
+    assert_eq!(complete_in("Pong (USA).zip"), None);
+
+    let plan = env.plan();
+    let old = item(&plan, "file:Pong (Old).zip");
+    assert_eq!(old.kind, RepairKind::KeepAside);
+    assert_eq!(old.default, RepairChoice::KeepAside, "{old:#?}");
+    assert_eq!(old.chosen, RepairChoice::KeepAside);
+    assert!(
+        old.note
+            .as_deref()
+            .is_some_and(|n| n.contains("nothing in this repair reads it")),
+        "{old:#?}"
+    );
+    env.approve(&plan);
+
+    assert_eq!(
+        env.listing(),
+        [
+            ".stage-select/marker",
+            ".stage-select/retained/1/Pong (Old).zip.kept",
+            "Pong (USA).zip"
+        ]
+    );
+}
+
+#[test]
+fn a_spare_copy_covered_only_by_a_write_of_the_same_repair_is_left_by_default() {
+    let env = Env::new();
+    // Pong's own ZIP isn't TorrentZip, so the repair repacks it: the copy the old-named ZIP holds is covered only by
+    // that write.
+    write_zip(
+        &env.set().join("Pong (USA).zip"),
+        &[("Pong (USA).a26", b"pong")],
+    );
+    write_zip(
+        &env.set().join("Pong (Old).zip"),
+        &[("Pong (Old).a26", b"pong")],
+    );
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    assert_eq!(item(&plan, "game:Pong (USA)").kind, RepairKind::Repack);
+    let old = item(&plan, "file:Pong (Old).zip");
+    assert_eq!(old.default, RepairChoice::Leave, "{old:#?}");
+    assert!(
+        old.note
+            .as_deref()
+            .is_some_and(|n| n.contains("only when you choose to")),
+        "{old:#?}"
+    );
+}
+
+#[test]
 fn a_file_with_nothing_a_game_needs_is_kept_aside_and_deleted_only_once_you_approve_it() {
     let env = Env::new();
     env.put("readme.txt", b"hello");

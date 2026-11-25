@@ -378,6 +378,19 @@ pub struct Entry {
     /// For an Unreadable delta CHD, the combined SHA-1 of the parent CHD it can't be read without (ADR 0026).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_sha1: Option<String>,
+    /// When the Entry counts towards one Game alone, and another file named for that Game makes it Complete by its
+    /// Matched Entries alone: that Game and file. The Entry is then a duplicate (ADR 0017).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub complete_in: Option<CompleteIn>,
+}
+
+/// A Game and the file, named for it, whose Matched Entries alone make it Complete: a ZIP, a folder of loose files, or
+/// a loose file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompleteIn {
+    pub game: String,
+    /// Relative to the Source Set's root, as an Entry's `path`.
+    pub path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

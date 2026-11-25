@@ -1,7 +1,9 @@
 use crate::common::*;
 use crate::sevenz_fixtures;
 use sha2::Digest;
-use stage_select_engine::{AvailableElsewhere, EvidenceLevel, Finding, GameStatus, audit};
+use stage_select_engine::{
+    AvailableElsewhere, CompleteIn, EvidenceLevel, Finding, GameStatus, audit,
+};
 
 #[test]
 fn loose_file_whose_payload_matches_its_named_rom_is_matched() {
@@ -652,6 +654,174 @@ fn a_file_nested_deeper_in_another_games_folder_is_available_elsewhere() {
     let b = game_of(&report, "Game B (Europe)");
     assert_eq!(b.status, GameStatus::Missing);
     assert_eq!(b.available_elsewhere[0].games, ["Game A (USA)"]);
+}
+
+/// Three Redump-style Games whose second tracks are byte-identical, as a common audio track is.
+fn common_track_dat(f: &Fixture) -> std::path::PathBuf {
+    f.dat(&[
+        (
+            "Quarterback '97 (USA)",
+            vec![
+                rom("Quarterback '97 (USA) (Track 1).bin", b"qb data"),
+                rom("Quarterback '97 (USA) (Track 2).bin", b"common audio"),
+            ],
+        ),
+        (
+            "House (Europe)",
+            vec![
+                rom("House (Europe) (Track 1).bin", b"house data"),
+                rom("House (Europe) (Track 2).bin", b"common audio"),
+            ],
+        ),
+        (
+            "Rally (Japan)",
+            vec![
+                rom("Rally (Japan) (Track 1).bin", b"rally data"),
+                rom("Rally (Japan) (Track 2).bin", b"common audio"),
+            ],
+        ),
+    ])
+}
+
+#[test]
+fn a_zip_named_for_no_game_counts_its_entries_for_the_one_game_they_single_out() {
+    let f = Fixture::new();
+    let dat = common_track_dat(&f);
+    // A duplicate under an older name: no Game owns it, and its first track matches one Game alone.
+    write_zip(
+        &f.set_path("Quarterback 97 (USA).zip"),
+        &[
+            ("Quarterback 97 (USA) (Track 1).bin", b"qb data"),
+            ("Quarterback 97 (USA) (Track 2).bin", b"common audio"),
+        ],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(
+        status_of(&report, "Quarterback '97 (USA)"),
+        GameStatus::Complete
+    );
+    for game in ["House (Europe)", "Rally (Japan)"] {
+        let g = game_of(&report, game);
+        assert_eq!(g.status, GameStatus::Missing, "{game}");
+        assert!(g.available_elsewhere.is_empty(), "{game}");
+    }
+    // The Entry still lists every ROM its payload matches.
+    let common = report
+        .entries
+        .iter()
+        .find(|e| e.member.as_deref() == Some("Quarterback 97 (USA) (Track 2).bin"))
+        .unwrap();
+    assert_eq!(common.finding, Finding::Misnamed);
+    assert_eq!(common.roms.len(), 3);
+}
+
+#[test]
+fn a_duplicates_entries_name_the_correctly_named_file_their_game_is_complete_in() {
+    let f = Fixture::new();
+    let dat = common_track_dat(&f);
+    write_zip(
+        &f.set_path("Quarterback '97 (USA).zip"),
+        &[
+            ("Quarterback '97 (USA) (Track 1).bin", b"qb data"),
+            ("Quarterback '97 (USA) (Track 2).bin", b"common audio"),
+        ],
+    );
+    write_zip(
+        &f.set_path("Quarterback 97 (USA).zip"),
+        &[
+            ("Quarterback 97 (USA) (Track 1).bin", b"qb data"),
+            ("Quarterback 97 (USA) (Track 2).bin", b"common audio"),
+        ],
+    );
+    // House has no complete file: its old-named ZIP holds only its first track.
+    write_zip(
+        &f.set_path("House (Old).zip"),
+        &[("House (Old) (Track 1).bin", b"house data")],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    let complete_in = |path: &str| {
+        (report.entries.iter())
+            .filter(|e| e.path == path)
+            .map(|e| e.complete_in.clone())
+            .collect::<Vec<_>>()
+    };
+    let named = CompleteIn {
+        game: "Quarterback '97 (USA)".into(),
+        path: "Quarterback '97 (USA).zip".into(),
+    };
+    assert_eq!(
+        complete_in("Quarterback 97 (USA).zip"),
+        [Some(named.clone()), Some(named)]
+    );
+    for entry in &report.entries {
+        assert_eq!(
+            entry.finding == Finding::Misnamed,
+            entry.path != "Quarterback '97 (USA).zip"
+        );
+    }
+    assert_eq!(complete_in("Quarterback '97 (USA).zip"), [None, None]);
+    assert_eq!(complete_in("House (Old).zip"), [None]);
+    assert_eq!(status_of(&report, "House (Europe)"), GameStatus::Incomplete);
+}
+
+#[test]
+fn a_folder_named_for_no_game_counts_its_files_for_the_one_game_they_single_out() {
+    let f = Fixture::new();
+    let dat = common_track_dat(&f);
+    write_file(&f.set_path("old names/Track 01.bin"), b"qb data");
+    write_file(&f.set_path("old names/Track 02.bin"), b"common audio");
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(
+        status_of(&report, "Quarterback '97 (USA)"),
+        GameStatus::Complete
+    );
+    assert_eq!(status_of(&report, "House (Europe)"), GameStatus::Missing);
+    assert_eq!(status_of(&report, "Rally (Japan)"), GameStatus::Missing);
+}
+
+#[test]
+fn a_zip_named_for_no_game_whose_entries_single_out_no_one_game_counts_each_for_every_match() {
+    let f = Fixture::new();
+    let dat = common_track_dat(&f);
+    write_zip(
+        &f.set_path("Audio (USA).zip"),
+        &[("Track 02.bin", b"common audio")],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    for game in ["Quarterback '97 (USA)", "House (Europe)", "Rally (Japan)"] {
+        assert_eq!(status_of(&report, game), GameStatus::Incomplete, "{game}");
+    }
+}
+
+#[test]
+fn a_zip_named_for_no_game_whose_entries_single_out_two_games_counts_each_for_every_match() {
+    let f = Fixture::new();
+    let dat = common_track_dat(&f);
+    write_zip(
+        &f.set_path("Mixed (USA).zip"),
+        &[
+            ("Track 01.bin", b"house data"),
+            ("Track 02.bin", b"rally data"),
+            ("Track 03.bin", b"common audio"),
+        ],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(status_of(&report, "House (Europe)"), GameStatus::Complete);
+    assert_eq!(status_of(&report, "Rally (Japan)"), GameStatus::Complete);
+    assert_eq!(
+        status_of(&report, "Quarterback '97 (USA)"),
+        GameStatus::Incomplete
+    );
 }
 
 /// A parent, its clone sharing one ROM with it and having one of its own, and an unrelated Game sharing the parent's
