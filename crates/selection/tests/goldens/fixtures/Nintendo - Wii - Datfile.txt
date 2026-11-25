@@ -1160,35 +1160,19 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    w30 w30 w30 w30 x16 w30 x15 w30 .   .   .   .   .   .   .   .   | Cooking Mama (Europe) (En,Fr,De,Es,It)
    w30 w30 x19 x20 x16 w30 x15 w30 .   .   .   .   .   .   .   .   | Cooking Mama (Korea)
 == cooking mama - cook off
-   .   .   .   .   .   .   .   .   a25 a29 .   w28 x16 a25 x15 a25 | Cooking Mama (Europe) (En,Fr,De,Es,It)
-     alternative to Cooking Mama - Cook Off (USA) [9,14,16]
-     alternative to Cooking Mama - Minna to Issho ni Oryouri Taikai! (Japan) [10]
+   .   .   .   .   .   .   .   .   a25 a29 w25 w28 x16 a25 x15 a25 | Cooking Mama (Europe) (En,Fr,De,Es,It)
    .   .   .   .   .   .   .   .   a29 a29 x19 x20 x16 a29 x15 a29 | Cooking Mama (Korea)
-     alternative to Cooking Mama - Cook Off (USA) [9,14,16]
-     alternative to Cooking Mama - Minna to Issho ni Oryouri Taikai! (Japan) [10]
-   w30 w30 w30 x20 w30 w30 x15 w30 .   a29 a25 x20 .   .   x15 .   | Cooking Mama - Cook Off (USA)
-     alternative to Cooking Mama (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Cooking Mama - Minna to Issho ni Oryouri Taikai! (Japan) [10]
-   .   .   .   .   .   .   .   .   a29 .   a29 x20 x16 a29 x15 a29 | Cooking Mama - Minna to Issho ni Oryouri Taikai! (Japan)
-     alternative to Cooking Mama (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Cooking Mama - Cook Off (USA) [9,14,16]
+   w30 w30 w30 x20 w30 w30 x15 w30 w25 a29 a25 x20 w28 w25 x15 w25 | Cooking Mama - Cook Off (USA)
+   .   .   .   .   .   .   .   .   a29 w29 a29 x20 x16 a29 x15 a29 | Cooking Mama - Minna to Issho ni Oryouri Taikai! (Japan)
+   .   .   .   .   .   .   .   .   a6  a2  a7  .   a6  a6  .   a6  | Mama's 2-Pack (USA)
 == cooking mama - minna to issho ni oryouri taikai!
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w30 w30 w30 x20 x16 w30 x15 w30 .   .   .   .   .   .   .   .   | Cooking Mama - Minna to Issho ni Oryouri Taikai! (Japan)
 == cooking mama - world kitchen
    w30 w30 w30 x20 w30 w30 x15 w30 a24 a24 a24 x20 a24 a24 x15 a24 | Cooking Mama - World Kitchen (USA)
-     alternative to Cooking Mama - World Kitchen (USA) (Rev 1) [9,13-14,16]
-     alternative to Cooking Mama 2 - Taihen!! Mama wa Ooisogashi! (Japan) [10]
-     alternative to Cooking Mama 2 - World Kitchen (Europe) (En,Fr,De,Es,It) [11]
-   w30 w30 w30 x20 w30 w30 x15 w30 .   a29 a25 x20 .   .   x15 .   | Cooking Mama - World Kitchen (USA) (Rev 1)
-     alternative to Cooking Mama 2 - Taihen!! Mama wa Ooisogashi! (Japan) [10]
-     alternative to Cooking Mama 2 - World Kitchen (Europe) (En,Fr,De,Es,It) [11]
-   .   .   .   .   .   .   .   .   a29 .   a29 x20 x16 a29 x15 a29 | Cooking Mama 2 - Taihen!! Mama wa Ooisogashi! (Japan)
-     alternative to Cooking Mama - World Kitchen (USA) (Rev 1) [9,14,16]
-     alternative to Cooking Mama 2 - World Kitchen (Europe) (En,Fr,De,Es,It) [11]
-   .   .   .   .   .   .   .   .   a25 a29 .   w28 x16 a25 x15 a25 | Cooking Mama 2 - World Kitchen (Europe) (En,Fr,De,Es,It)
-     alternative to Cooking Mama - World Kitchen (USA) (Rev 1) [9,14,16]
-     alternative to Cooking Mama 2 - Taihen!! Mama wa Ooisogashi! (Japan) [10]
+   w30 w30 w30 x20 w30 w30 x15 w30 w25 a29 a25 x20 w24 w25 x15 w25 | Cooking Mama - World Kitchen (USA) (Rev 1)
+   .   .   .   .   .   .   .   .   a29 w29 a29 x20 x16 a29 x15 a29 | Cooking Mama 2 - Taihen!! Mama wa Ooisogashi! (Japan)
+   .   .   .   .   .   .   .   .   a25 a29 w25 w28 x16 a25 x15 a25 | Cooking Mama 2 - World Kitchen (Europe) (En,Fr,De,Es,It)
 == cooking mama 2 - taihen!! mama wa ooisogashi!
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w30 w30 w30 x20 x16 w30 x15 w30 .   .   .   .   .   .   .   .   | Cooking Mama 2 - Taihen!! Mama wa Ooisogashi! (Japan)
@@ -2003,10 +1987,9 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w25 w28 x16 a25 x15 a25 | DreamWorks Puss in Boots (Europe) (En,Fr,De,Es,It,Nl)
    w30 w30 w30 x20 w30 w30 x15 w30 w25 w25 a25 x20 w28 w25 x15 w25 | DreamWorks Puss in Boots (USA) (En,Fr)
 == dreamworks rise of the guardians
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 .   .   x16 a25 x15 a25 | DreamWorks Rise of the Guardians (Europe) (En,Fr,De,Es,It)
-     alternative to DreamWorks Rise of the Guardians (USA) (En,Fr,Es) [9-10,14,16]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   .   a25 a25 w28 .   x15 .   | DreamWorks Rise of the Guardians (USA) (En,Fr,Es)
-     alternative to DreamWorks Rise of the Guardians (Europe) (En,Fr,De,Es,It) [11-12]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w25 w25 x16 a25 x15 a25 | DreamWorks Rise of the Guardians (Europe) (En,Fr,De,Es,It)
+   w30 w30 w30 w30 w30 w30 x15 w30 w25 w25 a25 a25 w28 w25 x15 w25 | DreamWorks Rise of the Guardians (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a7  a7  a6  a6  .   a7  .   a7  | DreamWorks The Croods - Prehistoric Party! & Rise of the Guardians - Combo Pack (Europe) (En,Fr,De,Es,It)
 == dreamworks shrek e vissero felici e contenti
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w30 w30 w30 w30 x16 w30 x15 w30 .   .   .   .   .   .   .   .   | DreamWorks Shrek e Vissero Felici e Contenti (Italy)
@@ -2027,10 +2010,8 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w25 w28 x16 a25 x15 a25 | DreamWorks Super Star Kartz (Europe) (En,Fr,De,Es,It,Nl,Sv)
    w30 w30 w30 x20 w30 w30 x15 w30 w25 w25 a25 x20 w28 w25 x15 w25 | DreamWorks Super Star Kartz (USA) (En,Fr)
 == dreamworks the croods - prehistoric party!
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 .   .   x16 a25 x15 a25 | DreamWorks The Croods - Prehistoric Party! (Europe) (En,Fr,De,Es,It)
-     alternative to DreamWorks The Croods - Prehistoric Party! (USA) (En,Fr,Es) [9-10,14,16]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   .   a25 a25 w28 .   x15 .   | DreamWorks The Croods - Prehistoric Party! (USA) (En,Fr,Es)
-     alternative to DreamWorks The Croods - Prehistoric Party! (Europe) (En,Fr,De,Es,It) [11-12]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w25 w25 x16 a25 x15 a25 | DreamWorks The Croods - Prehistoric Party! (Europe) (En,Fr,De,Es,It)
+   w30 w30 w30 w30 w30 w30 x15 w30 w25 w25 a25 a25 w28 w25 x15 w25 | DreamWorks The Croods - Prehistoric Party! (USA) (En,Fr,Es)
 == dreamworks the croods - prehistoric party! & rise of the guardians - combo pack
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w30 w30 w30 w30 x16 w30 x15 w30 .   .   .   .   x16 .   x15 .   | DreamWorks The Croods - Prehistoric Party! & Rise of the Guardians - Combo Pack (Europe) (En,Fr,De,Es,It)
@@ -2182,25 +2163,19 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
 == family jockey
    w30 w30 w30 x20 x16 w30 x15 w30 w28 w28 w28 x20 x16 w28 x15 w28 | Family Jockey (Japan)
 == family party - 30 great games
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 .   .   x16 a25 x15 a25 | Family Party - 30 Great Games (Europe) (En,Fr,De,Es,It)
-     alternative to Family Party - 30 Great Games (USA) (En,Fr,Es) [9,14,16]
-     alternative to Simple 2000 Series Wii Vol. 2 - The Party Game (Japan) [10]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   a29 a25 a25 .   .   x15 .   | Family Party - 30 Great Games (USA) (En,Fr,Es)
-     alternative to Family Party - 30 Great Games (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Simple 2000 Series Wii Vol. 2 - The Party Game (Japan) [10]
-   .   .   .   .   .   .   .   .   a29 .   a29 x20 x16 a29 x15 a29 | Simple 2000 Series Wii Vol. 2 - The Party Game (Japan)
-     alternative to Family Party - 30 Great Games (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Family Party - 30 Great Games (USA) (En,Fr,Es) [9,14,16]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w3  w3  x16 a25 x15 a25 | Family Party - 30 Great Games (Europe) (En,Fr,De,Es,It)
+   w30 w30 w30 w30 w30 w30 x15 w30 w3  a29 a25 a25 w28 w3  x15 w3  | Family Party - 30 Great Games (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a3  .   a6  a6  .   a3  .   a3  | Family Party - 90 Great Games Party Pack (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a6  .   a3  a3  a6  a6  .   a6  | Family Party - 90 Great Games Party Pack (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a29 w29 a29 x20 x16 a29 x15 a29 | Simple 2000 Series Wii Vol. 2 - The Party Game (Japan)
 == family party - 30 great games - outdoor fun
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 .   .   x16 a25 x15 a25 | Family Party - 30 Great Games - Outdoor Fun (Europe) (En,Fr,De,Es,It)
-     alternative to Family Party - 30 Great Games - Outdoor Fun (USA) (En,Fr,Es) [9-10,14,16]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   .   a25 a25 .   .   x15 .   | Family Party - 30 Great Games - Outdoor Fun (USA) (En,Fr,Es)
-     alternative to Family Party - 30 Great Games - Outdoor Fun (Europe) (En,Fr,De,Es,It) [11-12]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w3  w3  x16 a25 x15 a25 | Family Party - 30 Great Games - Outdoor Fun (Europe) (En,Fr,De,Es,It)
+   w30 w30 w30 w30 w30 w30 x15 w30 w3  w3  a25 a25 w28 w3  x15 w3  | Family Party - 30 Great Games - Outdoor Fun (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   .   a3  .   .   .   .   .   .   | Family Party - 90 Great Games Party Pack (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   a6  .   .   .   .   .   .   | Family Party - 90 Great Games Party Pack (USA) (En,Fr,Es)
 == family party - 30 great games - winter fun
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 .   .   x16 a25 x15 a25 | Family Party - 30 Great Games - Winter Fun (Europe) (En,Fr,De,Es,It)
-     alternative to Family Party - 30 Great Games - Winter Fun (USA) (En,Fr,Es) [9-10,14,16]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   .   a25 a25 .   .   x15 .   | Family Party - 30 Great Games - Winter Fun (USA) (En,Fr,Es)
-     alternative to Family Party - 30 Great Games - Winter Fun (Europe) (En,Fr,De,Es,It) [11-12]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w3  w3  x16 a25 x15 a25 | Family Party - 30 Great Games - Winter Fun (Europe) (En,Fr,De,Es,It)
+   w30 w30 w30 w30 w30 w30 x15 w30 w3  w3  a25 a25 w28 w3  x15 w3  | Family Party - 30 Great Games - Winter Fun (USA) (En,Fr,Es)
 == family party - 90 great games party pack
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w30 w30 w30 w30 x16 w30 x15 w30 .   .   .   .   x16 .   x15 .   | Family Party - 90 Great Games Party Pack (Europe) (En,Fr,De,Es,It)
@@ -2799,30 +2774,20 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    w30 w30 w30 x20 w30 w30 x15 w30 w22 w22 w22 x20 w22 w22 x15 w28 | Harvey Birdman - Attorney at Law (USA)
    w30 w30 w30 x20 w30 w30 x15 x12 a22 a22 a22 x20 a22 a22 x15 x12 | Harvey Birdman - Attorney at Law (USA) (Beta) (2007-06-10)
 == hasbro family game night
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 .   w25 x16 a25 x15 a25 | Hasbro Family Game Night (Europe) (En,Fr,De,Es,Nl)
-     alternative to Hasbro Family Game Night (USA) (En,Fr,Es) [9-10,14,16]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w25 w25 x16 a25 x15 a25 | Hasbro Family Game Night (Europe) (En,Fr,De,Es,Nl)
    w30 w30 w30 x20 x16 w30 x15 w30 a25 a25 a25 x20 x16 a25 x15 a25 | Hasbro Family Game Night (Scandinavia)
-     alternative to Hasbro Family Game Night (Europe) (En,Fr,De,Es,Nl) [11]
-     alternative to Hasbro Family Game Night (USA) (En,Fr,Es) [9-10,14,16]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   .   a25 a25 .   .   x15 .   | Hasbro Family Game Night (USA) (En,Fr,Es)
-     alternative to Hasbro Family Game Night (Europe) (En,Fr,De,Es,Nl) [11]
+   w30 w30 w30 w30 w30 w30 x15 w30 w25 w25 a25 a25 w28 w25 x15 w25 | Hasbro Family Game Night (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a6  a6  a7  .   a6  a6  .   a6  | Hasbro Family Game Night Value Pack (USA)
    .   .   .   .   .   .   .   .   a29 a29 a29 a29 x16 a29 x15 a29 | Hasbro Family Party (Italy)
-     alternative to Hasbro Family Game Night (Europe) (En,Fr,De,Es,Nl) [11]
-     alternative to Hasbro Family Game Night (USA) (En,Fr,Es) [9-10,14,16]
 == hasbro family game night 2
-   w30 w30 w30 w30 w30 w30 x15 w30 .   .   a25 a25 .   .   x15 .   | Hasbro Family Game Night 2 (USA) (En,Fr,Es)
-     alternative to Hasbro Family Game Night Vol 2 (Europe) (En,Fr,De,Es,Nl) [11]
-   .   .   .   .   .   .   .   .   a25 a25 .   w25 x16 a25 x15 a25 | Hasbro Family Game Night Vol 2 (Europe) (En,Fr,De,Es,Nl)
-     alternative to Hasbro Family Game Night 2 (USA) (En,Fr,Es) [9-10,14,16]
+   w30 w30 w30 w30 w30 w30 x15 w30 w25 w25 a25 a25 w28 w25 x15 w25 | Hasbro Family Game Night 2 (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a6  a6  a7  .   a5  a6  .   a5  | Hasbro Family Game Night Fun Pack (USA)
+   .   .   .   .   .   .   .   .   a25 a25 w25 w25 x16 a25 x15 a25 | Hasbro Family Game Night Vol 2 (Europe) (En,Fr,De,Es,Nl)
 == hasbro family game night 3
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w30 w30 w30 x20 w30 w30 x15 x12 a22 a22 a22 x20 a22 a22 x15 x12 | Hasbro Family Game Night 3 (USA) (Beta) (2010-07-12)
-     alternative to Hasbro Family Game Night 3 (USA) (En,Fr,Es) [9-10,13-14]
-     alternative to Hasbro Family Game Night Vol 3 (Europe) (En,Fr,De,Es,It,Nl) [11]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   .   a25 a25 .   .   x15 .   | Hasbro Family Game Night 3 (USA) (En,Fr,Es)
-     alternative to Hasbro Family Game Night Vol 3 (Europe) (En,Fr,De,Es,It,Nl) [11]
-   .   .   .   .   .   .   .   .   a25 a25 .   w25 x16 a25 x15 a25 | Hasbro Family Game Night Vol 3 (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Hasbro Family Game Night 3 (USA) (En,Fr,Es) [9-10,14,16]
+   w30 w30 w30 w30 w30 w30 x15 w30 w25 w25 a25 a25 w22 w25 x15 w25 | Hasbro Family Game Night 3 (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a25 a25 w25 w25 x16 a25 x15 a25 | Hasbro Family Game Night Vol 3 (Europe) (En,Fr,De,Es,It,Nl)
 == hasbro family game night fun pack
    g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
    w30 w30 w30 x20 w30 w30 x15 w30 .   .   .   x20 .   .   x15 .   | Hasbro Family Game Night Fun Pack (USA)
@@ -3689,13 +3654,11 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
    w30 w30 w30 x20 w30 w30 x15 w30 .   .   .   x20 .   .   x15 .   | Little League World Series Baseball - Double Play (USA)
 == little league world series baseball 2008
-   w30 w30 w30 x20 x16 w30 x15 w30 a25 a25 .   x20 x16 a25 x15 a25 | Little League World Series Baseball 2008 (Europe)
-     alternative to Little League World Series Baseball 2008 (USA) [9-10,14,16]
-   w30 w30 w30 x20 w30 w30 x15 w30 .   .   a25 x20 .   .   x15 .   | Little League World Series Baseball 2008 (USA)
-     alternative to Little League World Series Baseball 2008 (Europe) [11]
+   .   .   .   .   .   .   .   .   a6  a6  a6  .   a6  a6  .   a6  | Little League World Series Baseball - Double Play (USA)
+   w30 w30 w30 x20 x16 w30 x15 w30 a25 a25 w25 x20 x16 a25 x15 a25 | Little League World Series Baseball 2008 (Europe)
+   w30 w30 w30 x20 w30 w30 x15 w30 w25 w25 a25 x20 w28 w25 x15 w25 | Little League World Series Baseball 2008 (USA)
 == little league world series baseball 2009
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w30 w30 w30 x20 w30 w30 x15 w30 .   .   .   x20 .   .   x15 .   | Little League World Series Baseball 2009 (USA)
+   w30 w30 w30 x20 w30 w30 x15 w30 w28 w28 w28 x20 w28 w28 x15 w28 | Little League World Series Baseball 2009 (USA)
 == littlest pet shop
    w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w25 w25 x16 a25 x15 a25 | Littlest Pet Shop (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi,Pl,Cs)
    w30 w30 w30 w30 w30 w30 x15 w30 w25 w25 a25 a25 w28 w25 x15 w25 | Littlest Pet Shop (USA) (En,Fr,Es)
@@ -4032,29 +3995,25 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    w30 w30 w30 w30 w30 w30 x15 w30 a24 a24 a24 a24 a24 a24 x15 a24 | Metroid - Other M (USA) (En,Fr,Es)
    w30 w30 w30 w30 w30 w30 x15 w30 w25 a29 a25 a25 w24 w25 x15 w25 | Metroid - Other M (USA) (En,Fr,Es) (Rev 1)
 == metroid prime
-   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
-   w30 w30 w30 x20 x16 w30 x15 w30 a1  .   a1  x20 x16 a1  x15 a1  | Metroid Prime (Japan)
-     alternative to Metroid Prime Trilogy (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Metroid Prime Trilogy (USA) [9,14,16]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   w30 w30 w30 x20 x16 w30 x15 w30 .   w28 .   x20 x16 .   x15 .   | Metroid Prime (Japan)
+   .   .   .   .   .   .   .   .   .   a2  .   .   .   .   .   .   | Metroid Prime Trilogy (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   a2  .   .   .   .   .   .   | Metroid Prime Trilogy (USA)
 == metroid prime 2 - dark echoes
-   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
-   w30 w30 w30 x20 x16 w30 x15 w30 a1  .   a1  x20 x16 a1  x15 a1  | Metroid Prime 2 - Dark Echoes (Japan)
-     alternative to Metroid Prime Trilogy (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Metroid Prime Trilogy (USA) [9,14,16]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   w30 w30 w30 x20 x16 w30 x15 w30 .   w28 .   x20 x16 .   x15 .   | Metroid Prime 2 - Dark Echoes (Japan)
 == metroid prime 3 - corruption
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 .   .   x16 a25 x15 a25 | Metroid Prime 3 - Corruption (Europe) (En,Fr,De,Es,It)
-     alternative to Metroid Prime 3 - Corruption (Japan) [10]
-     alternative to Metroid Prime 3 - Corruption (USA) [9,14,16]
-   w30 w30 w30 x20 x16 w30 x15 w30 a29 .   a29 x20 x16 a29 x15 a29 | Metroid Prime 3 - Corruption (Japan)
-     alternative to Metroid Prime 3 - Corruption (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Metroid Prime 3 - Corruption (USA) [9,14,16]
-   w30 w30 w30 x20 w30 w30 x15 w30 .   a29 a25 x20 .   .   x15 .   | Metroid Prime 3 - Corruption (USA)
-     alternative to Metroid Prime 3 - Corruption (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Metroid Prime 3 - Corruption (Japan) [10]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w3  w4  x16 a25 x15 a25 | Metroid Prime 3 - Corruption (Europe) (En,Fr,De,Es,It)
+   w30 w30 w30 x20 x16 w30 x15 w30 a29 w29 a29 x20 x16 a29 x15 a29 | Metroid Prime 3 - Corruption (Japan)
+   w30 w30 w30 x20 w30 w30 x15 w30 w3  a29 a25 x20 w5  w3  x15 w5  | Metroid Prime 3 - Corruption (USA)
+   .   .   .   .   .   .   .   .   a3  .   .   .   .   a3  .   a3  | Metroid Prime Trilogy (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   .   a3  .   .   .   .   .   | Metroid Prime Trilogy (USA)
 == metroid prime trilogy
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w30 w30 w30 w30 x16 w30 x15 w30 .   .   .   .   x16 .   x15 .   | Metroid Prime Trilogy (Europe) (En,Fr,De,Es,It)
-   w30 w30 w30 x20 w30 w30 x15 w30 .   .   .   x20 .   .   x15 .   | Metroid Prime Trilogy (USA)
+   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a1  .   a1  .   .   a1  .   a1  | Metroid Prime (Japan)
+   .   .   .   .   .   .   .   .   a1  .   a1  .   .   a1  .   a1  | Metroid Prime 2 - Dark Echoes (Japan)
+   w30 w30 w30 w30 x16 w30 x15 w30 .   .   w3  w4  x16 .   x15 .   | Metroid Prime Trilogy (Europe) (En,Fr,De,Es,It)
+   w30 w30 w30 x20 w30 w30 x15 w30 w3  .   .   x20 w5  w3  x15 w5  | Metroid Prime Trilogy (USA)
 == mezase!! tsuri master
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w30 w30 w30 x20 x16 w30 x15 w30 .   .   .   .   .   .   .   .   | Mezase!! Tsuri Master (Japan)
@@ -4158,24 +4117,18 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a25 a25 w25 w28 x16 a25 x15 a25 | Monkey Mischief! (Europe) (En,Fr,De,Es,It)
    w30 w30 w30 x20 w30 w30 x15 w30 w25 w25 a25 x20 w28 w25 x15 w25 | Monkey Mischief! Party Time (USA) (En,Fr)
 == monopoly
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 .   w25 x16 a25 x15 a25 | Monopoly (Europe) (En,Fr,De,Es,Nl,Sv,Fi)
-     alternative to Monopoly (Japan) [10]
-     alternative to Monopoly (USA) (En,Fr,Es) [9,14,16]
-   w30 w30 w30 x20 x16 w30 x15 w30 a29 .   a29 x20 x16 a29 x15 a29 | Monopoly (Japan)
-     alternative to Monopoly (Europe) (En,Fr,De,Es,Nl,Sv,Fi) [11]
-     alternative to Monopoly (USA) (En,Fr,Es) [9,14,16]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   a29 a25 a25 .   .   x15 .   | Monopoly (USA) (En,Fr,Es)
-     alternative to Monopoly (Europe) (En,Fr,De,Es,Nl,Sv,Fi) [11]
-     alternative to Monopoly (Japan) [10]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w3  w25 x16 a25 x15 a25 | Monopoly (Europe) (En,Fr,De,Es,Nl,Sv,Fi)
+   w30 w30 w30 x20 x16 w30 x15 w30 a29 w29 a29 x20 x16 a29 x15 a29 | Monopoly (Japan)
+   w30 w30 w30 w30 w30 w30 x15 w30 w3  a29 a25 a25 w28 w3  x15 w3  | Monopoly (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a3  a3  a6  .   .   a3  .   a3  | Monopoly Collection (Europe) (En,Fr)
+   .   .   .   .   .   .   .   .   a6  a2  a3  .   a6  a6  .   a6  | Monopoly Collection (USA) (En,Fr)
 == monopoly collection
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
    w30 w30 w30 x20 x16 w30 x15 w30 .   .   .   x20 x16 .   x15 .   | Monopoly Collection (Europe) (En,Fr)
    w30 w30 w30 x20 w30 w30 x15 w30 .   .   .   x20 .   .   x15 .   | Monopoly Collection (USA) (En,Fr)
 == monopoly streets
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 .   w25 x16 a25 x15 a25 | Monopoly Streets (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Monopoly Streets (USA) (En,Fr,Es) [9-10,14,16]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   .   a25 a25 .   .   x15 .   | Monopoly Streets (USA) (En,Fr,Es)
-     alternative to Monopoly Streets (Europe) (En,Fr,De,Es,It,Nl) [11]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w3  w25 x16 a25 x15 a25 | Monopoly Streets (Europe) (En,Fr,De,Es,It,Nl)
+   w30 w30 w30 w30 w30 w30 x15 w30 w3  w3  a25 a25 w28 w3  x15 w3  | Monopoly Streets (USA) (En,Fr,Es)
 == monster 4x4 - stunt racer
    w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w25 w25 x16 a25 x15 a25 | Monster 4x4 - Stunt Racer (Europe) (En,Fr,De,Es,It)
    w30 w30 w30 w30 w30 w30 x15 w30 w25 w25 a25 a25 w28 w25 x15 w25 | Monster 4x4 - Stunt Racer (USA) (En,Fr,Es)
@@ -4398,23 +4351,12 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    w30 w30 x19 x20 x16 w30 x15 w30 .   .   .   .   .   .   .   .   | Myeongtamjeong Conan - Chueogui Hwansang (Korea) (Rev 1)
 == mysims
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
-   .   .   .   .   .   .   .   .   a29 .   a29 x20 x16 a29 x15 a29 | Boku to Sim no Machi (Japan)
-     alternative to MySims (Europe) (En,Fr,De,Es,It,Nl) [11]
-     alternative to MySims (USA) (En,Fr,Es) [9,14,16]
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 .   .   x16 a25 x15 a25 | MySims (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Boku to Sim no Machi (Japan) [10]
-     alternative to MySims (USA) (En,Fr,Es) [9,14,16]
+   .   .   .   .   .   .   .   .   a29 w29 a29 x20 x16 a29 x15 a29 | Boku to Sim no Machi (Japan)
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w25 w25 x16 a25 x15 a25 | MySims (Europe) (En,Fr,De,Es,It,Nl)
    w30 w30 w30 x20 w30 w30 x15 x12 a22 a22 a22 x20 a22 a22 x15 x12 | MySims (USA) (Beta) (2007-07-24)
-     alternative to Boku to Sim no Machi (Japan) [10]
-     alternative to MySims (Europe) (En,Fr,De,Es,It,Nl) [11]
-     alternative to MySims (USA) (En,Fr,Es) [9,13-14]
    w30 w30 w30 x20 w30 w30 x15 x12 a22 a22 a22 x20 a22 a22 x15 x12 | MySims (USA) (Beta) (2007-07-29)
-     alternative to Boku to Sim no Machi (Japan) [10]
-     alternative to MySims (Europe) (En,Fr,De,Es,It,Nl) [11]
-     alternative to MySims (USA) (En,Fr,Es) [9,13-14]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   a29 a25 a25 .   .   x15 .   | MySims (USA) (En,Fr,Es)
-     alternative to Boku to Sim no Machi (Japan) [10]
-     alternative to MySims (Europe) (En,Fr,De,Es,It,Nl) [11-12]
+   w30 w30 w30 w30 w30 w30 x15 w30 w25 a29 a25 a25 w22 w25 x15 w25 | MySims (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a6  a2  a7  a7  a6  a6  .   a6  | MySims Collection (USA) (En,Fr,Es)
 == mysims agents
    .   .   .   .   .   .   .   .   a29 w29 a29 x20 x16 a29 x15 a29 | Boku to Sim no Machi Agent - Gokuaku Shachou kara Sekai o Sukue Daisakusen! (Japan)
    w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w25 w25 x16 a25 x15 a25 | MySims Agents (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
@@ -4433,14 +4375,14 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w25 w25 x16 a25 x15 a25 | MySims Party (Europe) (En,Fr,De,Es,It,Nl)
    w30 w30 w30 w30 w30 w30 x15 w30 w25 a29 a25 a25 w28 w25 x15 w25 | MySims Party (USA) (En,Fr,Es)
 == mysims racing
-   .   .   .   .   .   .   .   .   a29 .   a29 x20 x16 a29 x15 a29 | Boku to Sim no Machi Racing (Japan)
+   .   .   .   .   .   .   .   .   a29 w29 a29 x20 x16 a29 x15 a29 | Boku to Sim no Machi Racing (Japan)
      alternative to MySims Racing (Europe) (En,Fr,De,Es,It,Nl) [11]
-     alternative to MySims Racing (USA) (En,Fr,Es) [9,14,16]
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 .   .   x16 a25 x15 a25 | MySims Racing (Europe) (En,Fr,De,Es,It,Nl)
+     alternative to MySims Racing (USA) (En,Fr,Es) [9,14]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w25 w25 x16 a25 x15 a25 | MySims Racing (Europe) (En,Fr,De,Es,It,Nl)
      alternative to Boku to Sim no Machi Racing (Japan) [10]
-     alternative to MySims Racing (USA) (En,Fr,Es) [9,14,16]
-   w30 w30 w30 w30 x16 w30 x15 x10 .   .   .   .   x16 .   x15 x10 | MySims Racing (Europe) (En,Fr,De,Es,It,Nl) (Demo)
-   w30 w30 w30 w30 w30 w30 x15 w30 .   a29 a25 a25 .   .   x15 .   | MySims Racing (USA) (En,Fr,Es)
+     alternative to MySims Racing (USA) (En,Fr,Es) [9,14]
+   w30 w30 w30 w30 x16 w30 x15 x10 w25 w29 w25 w25 x16 w25 x15 x10 | MySims Racing (Europe) (En,Fr,De,Es,It,Nl) (Demo)
+   w30 w30 w30 w30 w30 w30 x15 w30 w25 a29 a25 a25 w28 w25 x15 w25 | MySims Racing (USA) (En,Fr,Es)
      alternative to Boku to Sim no Machi Racing (Japan) [10]
      alternative to MySims Racing (Europe) (En,Fr,De,Es,It,Nl) [11-12]
 == mysims simdeurui wangguk
@@ -5424,77 +5366,31 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w25 w25 x16 a25 x15 a25 | Raving Rabbids - Travel in Time (Europe) (En,Fr,De,Es,It,Nl)
    w30 w30 w30 w30 w30 w30 x15 w30 w25 a29 a25 a25 w28 w25 x15 w25 | Raving Rabbids - Travel in Time (USA) (En,Fr,Es)
 == rayman - raving rabbids
-   .   .   .   .   .   .   .   .   a29 .   a29 x20 x16 a29 x15 a29 | Rabbids Party (Japan)
-     alternative to Rayman - Raving Rabbids (Europe) (En,Fr,De,Es,It,Nl) [11]
-     alternative to Rayman - Raving Rabbids (USA) (En,Fr,Es) (Rev 2) [9,14,16]
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 .   .   x16 a25 x15 a25 | Rayman - Raving Rabbids (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Rabbids Party (Japan) [10]
-     alternative to Rayman - Raving Rabbids (USA) (En,Fr,Es) (Rev 2) [9,14,16]
+   .   .   .   .   .   .   .   .   a29 w29 a29 x20 x16 a29 x15 a29 | Rabbids Party (Japan)
+   .   .   .   .   .   .   .   .   a3  a2  a6  a6  .   a3  .   a3  | Raving Rabbids - Party Collection (Europe) (En,Fr,De,Es,It,Nl)
+   .   .   .   .   .   .   .   .   a6  a2  a3  a3  a6  a6  .   a6  | Raving Rabbids - Party Collection (USA) (En,Fr,Es)
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w3  w3  x16 a25 x15 a25 | Rayman - Raving Rabbids (Europe) (En,Fr,De,Es,It,Nl)
    w30 w30 w30 w30 w30 w30 x15 w30 a24 a24 a24 a24 a24 a24 x15 a24 | Rayman - Raving Rabbids (USA) (En,Fr,Es)
-     alternative to Rabbids Party (Japan) [10]
-     alternative to Rayman - Raving Rabbids (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-     alternative to Rayman - Raving Rabbids (USA) (En,Fr,Es) (Rev 2) [9,13-14,16]
    w30 w30 w30 w30 w30 w30 x15 w30 a24 a24 a24 a24 a24 a24 x15 a24 | Rayman - Raving Rabbids (USA) (En,Fr,Es) (Rev 1)
-     alternative to Rabbids Party (Japan) [10]
-     alternative to Rayman - Raving Rabbids (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-     alternative to Rayman - Raving Rabbids (USA) (En,Fr,Es) (Rev 2) [9,13-14,16]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   a29 a25 a25 .   .   x15 .   | Rayman - Raving Rabbids (USA) (En,Fr,Es) (Rev 2)
-     alternative to Rabbids Party (Japan) [10]
-     alternative to Rayman - Raving Rabbids (Europe) (En,Fr,De,Es,It,Nl) [11-12]
+   w30 w30 w30 w30 w30 w30 x15 w30 w3  a29 a25 a25 w24 w3  x15 w3  | Rayman - Raving Rabbids (USA) (En,Fr,Es) (Rev 2)
 == rayman - raving rabbids - tv party
-   .   .   .   .   .   .   .   .   a29 .   a29 x20 x16 a29 x15 a29 | Rabbids Party - TV Party (Japan)
-     alternative to Rayman - Raving Rabbids - TV Party (Europe) (En,Fr,De,Es,It,Nl) (Rev 1) [11]
-     alternative to Rayman - Raving Rabbids - TV Party (USA) (En,Fr,Es) (Rev 1) [9,14,16]
+   .   .   .   .   .   .   .   .   a29 w29 a29 x20 x16 a29 x15 a29 | Rabbids Party - TV Party (Japan)
    w30 w30 w30 w30 x16 w30 x15 w30 a24 a24 a24 a24 x16 a24 x15 a24 | Rayman - Raving Rabbids - TV Party (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Rabbids Party - TV Party (Japan) [10]
-     alternative to Rayman - Raving Rabbids - TV Party (Europe) (En,Fr,De,Es,It,Nl) (Rev 1) [11-12]
-     alternative to Rayman - Raving Rabbids - TV Party (USA) (En,Fr,Es) (Rev 1) [9,14,16]
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 .   .   x16 a25 x15 a25 | Rayman - Raving Rabbids - TV Party (Europe) (En,Fr,De,Es,It,Nl) (Rev 1)
-     alternative to Rabbids Party - TV Party (Japan) [10]
-     alternative to Rayman - Raving Rabbids - TV Party (USA) (En,Fr,Es) (Rev 1) [9,14,16]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w3  w3  x16 a25 x15 a25 | Rayman - Raving Rabbids - TV Party (Europe) (En,Fr,De,Es,It,Nl) (Rev 1)
    w30 w30 x19 x20 x16 w30 x15 w30 a29 a29 x19 x20 x16 a29 x15 a29 | Rayman - Raving Rabbids - TV Party (Korea)
-     alternative to Rabbids Party - TV Party (Japan) [10]
-     alternative to Rayman - Raving Rabbids - TV Party (USA) (En,Fr,Es) (Rev 1) [9,14,16]
    w30 w30 w30 w30 w30 w30 x15 w30 a24 a24 a24 a24 a24 a24 x15 a24 | Rayman - Raving Rabbids - TV Party (USA) (En,Fr,Es)
-     alternative to Rabbids Party - TV Party (Japan) [10]
-     alternative to Rayman - Raving Rabbids - TV Party (Europe) (En,Fr,De,Es,It,Nl) (Rev 1) [11-12]
-     alternative to Rayman - Raving Rabbids - TV Party (USA) (En,Fr,Es) (Rev 1) [9,13-14,16]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   a29 a25 a25 .   .   x15 .   | Rayman - Raving Rabbids - TV Party (USA) (En,Fr,Es) (Rev 1)
-     alternative to Rabbids Party - TV Party (Japan) [10]
-     alternative to Rayman - Raving Rabbids - TV Party (Europe) (En,Fr,De,Es,It,Nl) (Rev 1) [11-12]
+   w30 w30 w30 w30 w30 w30 x15 w30 w3  a29 a25 a25 w24 w3  x15 w3  | Rayman - Raving Rabbids - TV Party (USA) (En,Fr,Es) (Rev 1)
 == rayman - raving rabbids 2
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
-   .   .   .   .   .   .   .   .   a29 .   a29 x20 x16 a29 x15 a29 | Rabbids Party Returns (Japan)
-     alternative to Rayman - Raving Rabbids 2 (Europe) (En,Fr,De,Es,It,Nl) (Rev 2) [11]
-     alternative to Rayman - Raving Rabbids 2 (USA) (En,Fr,Es) (Rev 1) [9,14,16]
+   .   .   .   .   .   .   .   .   a29 w29 a29 x20 x16 a29 x15 a29 | Rabbids Party Returns (Japan)
    w30 w30 w30 w30 x16 w30 x15 w30 a24 a24 a24 a24 x16 a24 x15 a24 | Rayman - Raving Rabbids 2 (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Rabbids Party Returns (Japan) [10]
-     alternative to Rayman - Raving Rabbids 2 (Europe) (En,Fr,De,Es,It,Nl) (Rev 2) [11-12]
-     alternative to Rayman - Raving Rabbids 2 (USA) (En,Fr,Es) (Rev 1) [9,14,16]
    w30 w30 w30 w30 x16 w30 x15 w30 a24 a24 a24 a24 x16 a24 x15 a24 | Rayman - Raving Rabbids 2 (Europe) (En,Fr,De,Es,It,Nl) (Rev 1)
-     alternative to Rabbids Party Returns (Japan) [10]
-     alternative to Rayman - Raving Rabbids 2 (Europe) (En,Fr,De,Es,It,Nl) (Rev 2) [11-12]
-     alternative to Rayman - Raving Rabbids 2 (USA) (En,Fr,Es) (Rev 1) [9,14,16]
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 .   .   x16 a25 x15 a25 | Rayman - Raving Rabbids 2 (Europe) (En,Fr,De,Es,It,Nl) (Rev 2)
-     alternative to Rabbids Party Returns (Japan) [10]
-     alternative to Rayman - Raving Rabbids 2 (USA) (En,Fr,Es) (Rev 1) [9,14,16]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w3  w3  x16 a25 x15 a25 | Rayman - Raving Rabbids 2 (Europe) (En,Fr,De,Es,It,Nl) (Rev 2)
    w30 w30 x19 x20 x16 w30 x15 w30 a29 a29 x19 x20 x16 a29 x15 a29 | Rayman - Raving Rabbids 2 (Korea)
-     alternative to Rabbids Party Returns (Japan) [10]
-     alternative to Rayman - Raving Rabbids 2 (USA) (En,Fr,Es) (Rev 1) [9,14,16]
    w30 w30 x19 x20 x16 w30 x15 w30 a29 a29 x19 x20 x16 a29 x15 a29 | Rayman - Raving Rabbids 2 (Russia)
-     alternative to Rabbids Party Returns (Japan) [10]
-     alternative to Rayman - Raving Rabbids 2 (USA) (En,Fr,Es) (Rev 1) [9,14,16]
    w30 w30 w30 x20 w30 w30 x15 x12 a22 a22 a22 x20 a22 a22 x15 x12 | Rayman - Raving Rabbids 2 (USA) (Beta) (2007-09-01)
-     alternative to Rabbids Party Returns (Japan) [10]
-     alternative to Rayman - Raving Rabbids 2 (Europe) (En,Fr,De,Es,It,Nl) (Rev 2) [11]
-     alternative to Rayman - Raving Rabbids 2 (USA) (En,Fr,Es) (Rev 1) [9,13-14]
    w30 w30 w30 w30 w30 w30 x15 w30 a24 a24 a24 a24 a24 a24 x15 a24 | Rayman - Raving Rabbids 2 (USA) (En,Fr,Es)
-     alternative to Rabbids Party Returns (Japan) [10]
-     alternative to Rayman - Raving Rabbids 2 (Europe) (En,Fr,De,Es,It,Nl) (Rev 2) [11-12]
-     alternative to Rayman - Raving Rabbids 2 (USA) (En,Fr,Es) (Rev 1) [9,13-14,16]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   a29 a25 a25 .   .   x15 .   | Rayman - Raving Rabbids 2 (USA) (En,Fr,Es) (Rev 1)
-     alternative to Rabbids Party Returns (Japan) [10]
-     alternative to Rayman - Raving Rabbids 2 (Europe) (En,Fr,De,Es,It,Nl) (Rev 2) [11-12]
+   w30 w30 w30 w30 w30 w30 x15 w30 w3  a29 a25 a25 w24 w3  x15 w3  | Rayman - Raving Rabbids 2 (USA) (En,Fr,Es) (Rev 1)
 == rayman origins
    w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w25 w25 x16 a25 x15 a25 | Rayman Origins (Europe) (En,Fr,De,Es,It,Nl)
    w30 w30 w30 w30 w30 w30 x15 w30 w25 w25 a25 a25 w28 w25 x15 w25 | Rayman Origins (USA) (En,Fr,Es)
@@ -5556,10 +5452,9 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
 == remington dangerous animals
    w30 w30 w30 w30 x16 w30 x15 w30 w28 w28 w28 w28 x16 w28 x15 w28 | Remington Dangerous Animals (Europe) (En,Fr,De,Es,It)
 == remington great american bird hunt
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 .   w28 x16 a25 x15 a25 | Remington Great American Bird Hunt (Europe) (En,Fr,De,Es,It)
-     alternative to Remington Great American Bird Hunt (USA) [9-10,14,16]
-   w30 w30 w30 x20 w30 w30 x15 w30 .   .   a25 x20 .   .   x15 .   | Remington Great American Bird Hunt (USA)
-     alternative to Remington Great American Bird Hunt (Europe) (En,Fr,De,Es,It) [11]
+   .   .   .   .   .   .   .   .   a6  a6  a7  .   a6  a6  .   a6  | Outdoor Action Double Pack (USA)
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w25 w28 x16 a25 x15 a25 | Remington Great American Bird Hunt (Europe) (En,Fr,De,Es,It)
+   w30 w30 w30 x20 w30 w30 x15 w30 w25 w25 a25 x20 w28 w25 x15 w25 | Remington Great American Bird Hunt (USA)
 == remington super slam hunting - africa
    w30 w30 w30 x20 x16 w30 x15 w30 a25 a25 a25 x20 x16 a25 x15 a25 | Remington Super Slam Hunting - Africa (Australia)
    w30 w30 w30 x20 w30 w30 x15 w30 w25 w25 w25 x20 w28 w25 x15 w25 | Remington Super Slam Hunting - Africa (USA)
@@ -5604,151 +5499,6 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a29 w29 a29 x20 x16 a29 x15 a29 | Biohazard Zero (Japan)
    w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w25 w28 x16 a25 x15 a25 | Resident Evil Archives - Resident Evil Zero (Europe) (En,Fr,De,Es,It)
    w30 w30 w30 x20 w30 w30 x15 w30 w25 a29 a25 x20 w28 w25 x15 w25 | Resident Evil Archives - Resident Evil Zero (USA)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   g   g   g   g   g   g   .   g   |
-   .   .   .   .   .   .   .   .   a7  a7  a6  a6  .   a7  .   a7  | DreamWorks The Croods - Prehistoric Party! & Rise of the Guardians - Combo Pack (Europe) (En,Fr,De,Es,It)
-     alternative to DreamWorks Rise of the Guardians (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to DreamWorks Rise of the Guardians (USA) (En,Fr,Es) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a3  a3  a6  a6  .   a3  .   a3  | Family Party - 90 Great Games Party Pack (Europe) (En,Fr,De,Es,It)
-     alternative to Family Party - 30 Great Games (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Family Party - 30 Great Games (USA) (En,Fr,Es) [9,14,16]
-     alternative to Family Party - 30 Great Games - Outdoor Fun (USA) (En,Fr,Es) [10]
-   .   .   .   .   .   .   .   .   a6  a6  a3  a3  a6  a6  .   a6  | Family Party - 90 Great Games Party Pack (USA) (En,Fr,Es)
-     alternative to Family Party - 30 Great Games (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Family Party - 30 Great Games (USA) (En,Fr,Es) [9,13-14,16]
-     alternative to Family Party - 30 Great Games - Outdoor Fun (USA) (En,Fr,Es) [10]
-   .   .   .   .   .   .   .   .   a6  a6  a7  .   a5  a6  .   a5  | Hasbro Family Game Night Fun Pack (USA)
-     alternative to Hasbro Family Game Night 2 (USA) (En,Fr,Es) [9-10,13-14,16]
-     alternative to Hasbro Family Game Night Vol 2 (Europe) (En,Fr,De,Es,Nl) [11]
-   .   .   .   .   .   .   .   .   a6  a6  a7  .   a6  a6  .   a6  | Hasbro Family Game Night Value Pack (USA)
-     alternative to Hasbro Family Game Night (Europe) (En,Fr,De,Es,Nl) [11]
-     alternative to Hasbro Family Game Night (USA) (En,Fr,Es) [9-10,13-14,16]
-   .   .   .   .   .   .   .   .   a6  a6  a6  .   a6  a6  .   a6  | Little League World Series Baseball - Double Play (USA)
-     alternative to Little League World Series Baseball 2008 (Europe) [11]
-     alternative to Little League World Series Baseball 2008 (USA) [9-10,13-14,16]
-   .   .   .   .   .   .   .   .   a6  a2  a7  .   a6  a6  .   a6  | Mama's 2-Pack (USA)
-     alternative to Cooking Mama (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Cooking Mama - Cook Off (USA) [9,13-14,16]
-     alternative to Cooking Mama - Minna to Issho ni Oryouri Taikai! (Japan) [10]
-   .   .   .   .   .   .   .   .   a1  .   a1  .   .   a1  .   a1  | Metroid Prime (Japan)
-     alternative to Metroid Prime Trilogy (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Metroid Prime Trilogy (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a1  .   a1  .   .   a1  .   a1  | Metroid Prime 2 - Dark Echoes (Japan)
-     alternative to Metroid Prime Trilogy (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Metroid Prime Trilogy (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a3  a2  .   .   .   a3  .   a3  | Metroid Prime Trilogy (Europe) (En,Fr,De,Es,It)
-     alternative to Metroid Prime (Japan) [10]
-     alternative to Metroid Prime 3 - Corruption (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   .   a2  a3  .   .   .   .   .   | Metroid Prime Trilogy (USA)
-     alternative to Metroid Prime (Japan) [10]
-     alternative to Metroid Prime 3 - Corruption (Europe) (En,Fr,De,Es,It) [11]
-   .   .   .   .   .   .   .   .   a3  a3  a6  .   .   a3  .   a3  | Monopoly Collection (Europe) (En,Fr)
-     alternative to Monopoly (Europe) (En,Fr,De,Es,Nl,Sv,Fi) [11]
-     alternative to Monopoly (Japan) [10]
-     alternative to Monopoly (USA) (En,Fr,Es) [9,14,16]
-   .   .   .   .   .   .   .   .   a6  a2  a3  .   a6  a6  .   a6  | Monopoly Collection (USA) (En,Fr)
-     alternative to Monopoly (Europe) (En,Fr,De,Es,Nl,Sv,Fi) [11]
-     alternative to Monopoly (Japan) [10]
-     alternative to Monopoly (USA) (En,Fr,Es) [9,13-14,16]
-   .   .   .   .   .   .   .   .   a6  a2  a7  a7  a6  a6  .   a6  | MySims Collection (USA) (En,Fr,Es)
-     alternative to Boku to Sim no Machi (Japan) [10]
-     alternative to MySims (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-     alternative to MySims (USA) (En,Fr,Es) [9,13-14,16]
-   .   .   .   .   .   .   .   .   a6  a6  a7  .   a6  a6  .   a6  | Outdoor Action Double Pack (USA)
-     alternative to Remington Great American Bird Hunt (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Remington Great American Bird Hunt (USA) [9-10,13-14,16]
-   .   .   .   .   .   .   .   .   a3  a2  a6  a6  .   a3  .   a3  | Raving Rabbids - Party Collection (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Rabbids Party (Japan) [10]
-     alternative to Rayman - Raving Rabbids (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-     alternative to Rayman - Raving Rabbids (USA) (En,Fr,Es) (Rev 2) [9,14,16]
-   .   .   .   .   .   .   .   .   a6  a2  a3  a3  a6  a6  .   a6  | Raving Rabbids - Party Collection (USA) (En,Fr,Es)
-     alternative to Rabbids Party (Japan) [10]
-     alternative to Rayman - Raving Rabbids (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-     alternative to Rayman - Raving Rabbids (USA) (En,Fr,Es) (Rev 2) [9,13-14,16]
-   .   .   .   .   .   .   .   .   a3  a3  a6  a4  .   a3  .   a3  | Transformers - Ultimate Battle Edition (Europe) (En,Fr,De,Es,It)
-     alternative to Transformers - Cybertron Adventures (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Transformers - Cybertron Adventures (USA) (En,Fr) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a6  a6  a3  .   a6  a6  .   a6  | Transformers - Ultimate Battle Edition (USA) (En,Fr)
-     alternative to Transformers - Cybertron Adventures (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Transformers - Cybertron Adventures (USA) (En,Fr) [9-10,13-14,16]
-   .   .   .   .   .   .   .   .   a3  a2  a6  a6  .   a3  .   a3  | Wii Sports + Wii Sports Resort (Europe, Australia) (En,Fr,De,Es,It)
-     alternative to Wii Sports (Europe) (En,Fr,De,Es,It) (Rev 1) [11-12]
-     alternative to Wii Sports (Japan) (Rev 1) [10]
-     alternative to Wii Sports (USA) (Rev 1) [9,14,16]
-   .   .   .   .   .   .   .   .   a6  a2  a3  a3  a6  a6  .   a6  | Wii Sports + Wii Sports Resort (USA) (En,Fr,Es)
-     alternative to Wii Sports (Europe) (En,Fr,De,Es,It) (Rev 1) [11-12]
-     alternative to Wii Sports (Japan) (Rev 1) [10]
-     alternative to Wii Sports (USA) (Rev 1) [9,13-14,16]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   g   g   g   g   g   g   .   g   |
-   .   .   .   .   .   .   .   .   .   w29 .   .   .   .   .   .   | Boku to Sim no Machi (Japan)
-   .   .   .   .   .   .   .   .   .   w29 .   .   .   .   .   .   | Boku to Sim no Machi Racing (Japan)
-   .   .   .   .   .   .   .   .   .   .   w25 .   .   .   .   .   | Cooking Mama (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w25 .   .   .   w28 w25 .   w25 | Cooking Mama - Cook Off (USA)
-   .   .   .   .   .   .   .   .   .   w29 .   .   .   .   .   .   | Cooking Mama - Minna to Issho ni Oryouri Taikai! (Japan)
-   .   .   .   .   .   .   .   .   w25 .   .   .   w24 w25 .   w25 | Cooking Mama - World Kitchen (USA) (Rev 1)
-   .   .   .   .   .   .   .   .   .   w29 .   .   .   .   .   .   | Cooking Mama 2 - Taihen!! Mama wa Ooisogashi! (Japan)
-   .   .   .   .   .   .   .   .   .   .   w25 .   .   .   .   .   | Cooking Mama 2 - World Kitchen (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w25 w25 .   .   .   .   | DreamWorks Rise of the Guardians (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w25 w25 .   .   .   w25 .   w25 | DreamWorks Rise of the Guardians (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w25 w25 .   .   .   .   | DreamWorks The Croods - Prehistoric Party! (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w25 w25 .   .   .   w25 .   w25 | DreamWorks The Croods - Prehistoric Party! (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w3  w3  .   .   .   .   | Family Party - 30 Great Games (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w3  .   .   .   w28 w3  .   w3  | Family Party - 30 Great Games (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w3  w3  .   .   .   .   | Family Party - 30 Great Games - Outdoor Fun (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w3  w3  .   .   w28 w3  .   w3  | Family Party - 30 Great Games - Outdoor Fun (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w3  w3  .   .   .   .   | Family Party - 30 Great Games - Winter Fun (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w3  w3  .   .   w28 w3  .   w3  | Family Party - 30 Great Games - Winter Fun (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w25 .   .   .   .   .   | Hasbro Family Game Night (Europe) (En,Fr,De,Es,Nl)
-   .   .   .   .   .   .   .   .   w25 w25 .   .   w28 w25 .   w25 | Hasbro Family Game Night (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   w25 w25 .   .   w28 w25 .   w25 | Hasbro Family Game Night 2 (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   w25 w25 .   .   w22 w25 .   w25 | Hasbro Family Game Night 3 (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w25 .   .   .   .   .   | Hasbro Family Game Night Vol 2 (Europe) (En,Fr,De,Es,Nl)
-   .   .   .   .   .   .   .   .   .   .   w25 .   .   .   .   .   | Hasbro Family Game Night Vol 3 (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   .   .   w25 .   .   .   .   .   | Little League World Series Baseball 2008 (Europe)
-   .   .   .   .   .   .   .   .   w25 w25 .   .   w28 w25 .   w25 | Little League World Series Baseball 2008 (USA)
-   .   .   .   .   .   .   .   .   w28 w28 w28 .   w28 w28 .   w28 | Little League World Series Baseball 2009 (USA)
-   .   .   .   .   .   .   .   .   .   w28 .   .   .   .   .   .   | Metroid Prime (Japan)
-   .   .   .   .   .   .   .   .   .   w28 .   .   .   .   .   .   | Metroid Prime 2 - Dark Echoes (Japan)
-   .   .   .   .   .   .   .   .   .   .   w3  w4  .   .   .   .   | Metroid Prime 3 - Corruption (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w29 .   .   .   .   .   .   | Metroid Prime 3 - Corruption (Japan)
-   .   .   .   .   .   .   .   .   w3  .   .   .   w5  w3  .   w5  | Metroid Prime 3 - Corruption (USA)
-   .   .   .   .   .   .   .   .   .   .   w3  w4  .   .   .   .   | Metroid Prime Trilogy (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w3  .   .   .   w5  w3  .   w5  | Metroid Prime Trilogy (USA)
-   .   .   .   .   .   .   .   .   .   .   w3  .   .   .   .   .   | Monopoly (Europe) (En,Fr,De,Es,Nl,Sv,Fi)
-   .   .   .   .   .   .   .   .   .   w29 .   .   .   .   .   .   | Monopoly (Japan)
-   .   .   .   .   .   .   .   .   w3  .   .   .   w28 w3  .   w3  | Monopoly (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w3  .   .   .   .   .   | Monopoly Streets (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   w3  w3  .   .   w28 w3  .   w3  | Monopoly Streets (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w25 w25 .   .   .   .   | MySims (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   w25 .   .   .   w22 w25 .   w25 | MySims (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w25 w25 .   .   .   .   | MySims Racing (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   w25 w29 w25 w25 .   w25 .   .   | MySims Racing (Europe) (En,Fr,De,Es,It,Nl) (Demo)
-   .   .   .   .   .   .   .   .   w25 .   .   .   w28 w25 .   w25 | MySims Racing (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   w29 .   .   .   .   .   .   | Rabbids Party (Japan)
-   .   .   .   .   .   .   .   .   .   w29 .   .   .   .   .   .   | Rabbids Party - TV Party (Japan)
-   .   .   .   .   .   .   .   .   .   w29 .   .   .   .   .   .   | Rabbids Party Returns (Japan)
-   .   .   .   .   .   .   .   .   .   .   w3  w3  .   .   .   .   | Rayman - Raving Rabbids (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   w3  .   .   .   w24 w3  .   w3  | Rayman - Raving Rabbids (USA) (En,Fr,Es) (Rev 2)
-   .   .   .   .   .   .   .   .   .   .   w3  w3  .   .   .   .   | Rayman - Raving Rabbids - TV Party (Europe) (En,Fr,De,Es,It,Nl) (Rev 1)
-   .   .   .   .   .   .   .   .   w3  .   .   .   w24 w3  .   w3  | Rayman - Raving Rabbids - TV Party (USA) (En,Fr,Es) (Rev 1)
-   .   .   .   .   .   .   .   .   .   .   w3  w3  .   .   .   .   | Rayman - Raving Rabbids 2 (Europe) (En,Fr,De,Es,It,Nl) (Rev 2)
-   .   .   .   .   .   .   .   .   w3  .   .   .   w24 w3  .   w3  | Rayman - Raving Rabbids 2 (USA) (En,Fr,Es) (Rev 1)
-   .   .   .   .   .   .   .   .   .   .   w25 .   .   .   .   .   | Remington Great American Bird Hunt (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w25 w25 .   .   w28 w25 .   w25 | Remington Great American Bird Hunt (USA)
-   .   .   .   .   .   .   .   .   .   .   w25 .   .   .   .   .   | Shimano Extreme Fishing (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
-   .   .   .   .   .   .   .   .   w25 w25 .   .   w28 w25 .   w25 | Shimano Xtreme Fishing (USA)
-   .   .   .   .   .   .   .   .   .   w29 .   .   .   .   .   .   | Simple 2000 Series Wii Vol. 2 - The Party Game (Japan)
-   .   .   .   .   .   .   .   .   .   .   w3  w28 .   .   .   .   | Transformers - Cybertron Adventures (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w3  w3  .   .   w28 w3  .   w3  | Transformers - Cybertron Adventures (USA) (En,Fr)
-   .   .   .   .   .   .   .   .   .   .   w3  w28 .   .   .   .   | Transformers - Dark of the Moon - Stealth Force Edition (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w3  w3  .   .   w28 w3  .   w3  | Transformers - Dark of the Moon - Stealth Force Edition (USA) (En,Fr)
-   .   .   .   .   .   .   .   .   .   .   w3  w3  .   .   .   .   | Wii Sports (Europe) (En,Fr,De,Es,It) (Rev 1)
-   .   .   .   .   .   .   .   .   .   w29 .   .   .   .   .   .   | Wii Sports (Japan) (Rev 1)
-   .   .   .   .   .   .   .   .   w3  .   .   .   w24 w3  .   w3  | Wii Sports (USA) (Rev 1)
-   .   .   .   .   .   .   .   .   .   .   w3  w3  .   .   .   .   | Wii Sports Resort (Europe) (En,Fr,De,Es,It) (Rev 1)
-   .   .   .   .   .   .   .   .   .   w29 .   .   .   .   .   .   | Wii Sports Resort (Japan) (Rev 3)
-   .   .   .   .   .   .   .   .   w3  .   .   .   w24 w3  .   w3  | Wii Sports Resort (USA) (En,Fr,Es) (Rev 1)
 == retro city rampage dx
    w30 w30 w30 w30 x16 w30 x15 w30 w28 w28 w28 w28 x16 w28 x15 w28 | Retro City Rampage DX (Europe) (En,Fr,De,Es,It)
 == rhythm heaven fever
@@ -6083,10 +5833,8 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w30 w30 w30 w30 x16 w30 x15 w30 .   .   .   .   .   .   .   .   | Shimano Extreme Fishing (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
 == shimano xtreme fishing
-   .   .   .   .   .   .   .   .   a25 a25 .   w28 x16 a25 x15 a25 | Shimano Extreme Fishing (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
-     alternative to Shimano Xtreme Fishing (USA) [9-10,14,16]
-   w30 w30 w30 x20 w30 w30 x15 w30 .   .   a25 x20 .   .   x15 .   | Shimano Xtreme Fishing (USA)
-     alternative to Shimano Extreme Fishing (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) [11]
+   .   .   .   .   .   .   .   .   a25 a25 w25 w28 x16 a25 x15 a25 | Shimano Extreme Fishing (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
+   w30 w30 w30 x20 w30 w30 x15 w30 w25 w25 a25 x20 w28 w25 x15 w25 | Shimano Xtreme Fishing (USA)
 == shin chan - las nuevas aventuras para wii!
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w30 w30 x19 w30 x16 w30 x15 w30 .   .   .   .   .   .   .   .   | Shin Chan - Las Nuevas Aventuras para Wii! (Spain)
@@ -6873,15 +6621,13 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a25 a25 w25 w25 x16 a25 x15 a25 | TrackMania (Europe) (En,Fr,De,Es,It)
    w30 w30 w30 w30 w30 w30 x15 w30 w25 w25 a25 a25 w28 w25 x15 w25 | TrackMania - Build to Race (USA) (En,Fr,Es)
 == transformers - cybertron adventures
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 .   .   x16 a25 x15 a25 | Transformers - Cybertron Adventures (Europe) (En,Fr,De,Es,It)
-     alternative to Transformers - Cybertron Adventures (USA) (En,Fr) [9-10,14,16]
-   w30 w30 w30 x20 w30 w30 x15 w30 .   .   a25 x20 .   .   x15 .   | Transformers - Cybertron Adventures (USA) (En,Fr)
-     alternative to Transformers - Cybertron Adventures (Europe) (En,Fr,De,Es,It) [11]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w3  w28 x16 a25 x15 a25 | Transformers - Cybertron Adventures (Europe) (En,Fr,De,Es,It)
+   w30 w30 w30 x20 w30 w30 x15 w30 w3  w3  a25 x20 w28 w3  x15 w3  | Transformers - Cybertron Adventures (USA) (En,Fr)
+   .   .   .   .   .   .   .   .   a3  a3  a6  a4  .   a3  .   a3  | Transformers - Ultimate Battle Edition (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a6  a6  a3  .   a6  a6  .   a6  | Transformers - Ultimate Battle Edition (USA) (En,Fr)
 == transformers - dark of the moon - stealth force edition
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 .   .   x16 a25 x15 a25 | Transformers - Dark of the Moon - Stealth Force Edition (Europe) (En,Fr,De,Es,It)
-     alternative to Transformers - Dark of the Moon - Stealth Force Edition (USA) (En,Fr) [9-10,14,16]
-   w30 w30 w30 x20 w30 w30 x15 w30 .   .   a25 x20 .   .   x15 .   | Transformers - Dark of the Moon - Stealth Force Edition (USA) (En,Fr)
-     alternative to Transformers - Dark of the Moon - Stealth Force Edition (Europe) (En,Fr,De,Es,It) [11]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w3  w28 x16 a25 x15 a25 | Transformers - Dark of the Moon - Stealth Force Edition (Europe) (En,Fr,De,Es,It)
+   w30 w30 w30 x20 w30 w30 x15 w30 w3  w3  a25 x20 w28 w3  x15 w3  | Transformers - Dark of the Moon - Stealth Force Edition (USA) (En,Fr)
 == transformers - revenge of the fallen
    w30 w30 w30 w30 x16 w30 x15 w30 a25 a25 w25 w28 x16 a25 x15 a25 | Transformers - Revenge of the Fallen (Europe) (En,Fr,De,Es,It)
    w30 w30 w30 x20 w30 w30 x15 w30 w25 w25 a25 x20 w28 w25 x15 w25 | Transformers - Revenge of the Fallen (USA) (En,Fr)
@@ -7277,72 +7023,31 @@ rule r42: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w30 w30 x19 x20 x16 w30 x15 w30 .   .   .   .   .   .   .   .   | Wii Remocon Plusro Jeulgineun - Variety Game Box (Korea)
 == wii sports
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 .   .   x16 a25 x15 a25 | Wii Sports (Europe) (En,Fr,De,Es,It) (Rev 1)
-     alternative to Wii Sports (Japan) (Rev 1) [10]
-     alternative to Wii Sports (USA) (Rev 1) [9,14,16]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w3  w3  x16 a25 x15 a25 | Wii Sports (Europe) (En,Fr,De,Es,It) (Rev 1)
    w30 w30 w30 w30 x16 w30 x15 w30 a24 a24 a24 a24 x16 a24 x15 a24 | Wii Sports (Europe, Australia) (En,Fr,De,Es,It)
-     alternative to Wii Sports (Europe) (En,Fr,De,Es,It) (Rev 1) [11-12]
-     alternative to Wii Sports (Japan) (Rev 1) [10]
-     alternative to Wii Sports (USA) (Rev 1) [9,14,16]
    w30 w30 w30 x20 x16 w30 x15 w30 a24 a24 a24 x20 x16 a24 x15 a24 | Wii Sports (Japan)
-     alternative to Wii Sports (Europe) (En,Fr,De,Es,It) (Rev 1) [11]
-     alternative to Wii Sports (Japan) (Rev 1) [10]
-     alternative to Wii Sports (USA) (Rev 1) [9,14,16]
-   w30 w30 w30 x20 x16 w30 x15 w30 a29 .   a29 x20 x16 a29 x15 a29 | Wii Sports (Japan) (Rev 1)
-     alternative to Wii Sports (Europe) (En,Fr,De,Es,It) (Rev 1) [11]
-     alternative to Wii Sports (USA) (Rev 1) [9,14,16]
+   w30 w30 w30 x20 x16 w30 x15 w30 a29 w29 a29 x20 x16 a29 x15 a29 | Wii Sports (Japan) (Rev 1)
    w30 w30 x19 x20 x16 w30 x15 w30 a29 a29 x19 x20 x16 a29 x15 a29 | Wii Sports (Korea)
-     alternative to Wii Sports (Japan) (Rev 1) [10]
-     alternative to Wii Sports (USA) (Rev 1) [9,14,16]
    w30 w30 x19 x20 x16 w30 x15 w30 a29 a29 x19 x20 x16 a29 x15 a29 | Wii Sports (Taiwan)
-     alternative to Wii Sports (Japan) (Rev 1) [10]
-     alternative to Wii Sports (USA) (Rev 1) [9,14,16]
    w30 w30 w30 x20 w30 w30 x15 w30 a24 a24 a24 x20 a24 a24 x15 a24 | Wii Sports (USA)
-     alternative to Wii Sports (Europe) (En,Fr,De,Es,It) (Rev 1) [11]
-     alternative to Wii Sports (Japan) (Rev 1) [10]
-     alternative to Wii Sports (USA) (Rev 1) [9,13-14,16]
-   w30 w30 w30 x20 w30 w30 x15 w30 .   a29 a25 x20 .   .   x15 .   | Wii Sports (USA) (Rev 1)
-     alternative to Wii Sports (Europe) (En,Fr,De,Es,It) (Rev 1) [11]
-     alternative to Wii Sports (Japan) (Rev 1) [10]
+   w30 w30 w30 x20 w30 w30 x15 w30 w3  a29 a25 x20 w24 w3  x15 w3  | Wii Sports (USA) (Rev 1)
+   .   .   .   .   .   .   .   .   a3  a2  a6  a6  .   a3  .   a3  | Wii Sports + Wii Sports Resort (Europe, Australia) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a6  a2  a3  a3  a6  a6  .   a6  | Wii Sports + Wii Sports Resort (USA) (En,Fr,Es)
 == wii sports + wii sports resort
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w30 w30 w30 w30 x16 w30 x15 w30 .   .   .   .   x16 .   x15 .   | Wii Sports + Wii Sports Resort (Europe, Australia) (En,Fr,De,Es,It)
    w30 w30 w30 w30 w30 w30 x15 w30 .   .   .   .   .   .   x15 .   | Wii Sports + Wii Sports Resort (USA) (En,Fr,Es)
 == wii sports resort
    w30 w30 x19 x20 x16 w30 x15 w30 a29 a29 x19 x20 x16 a29 x15 a29 | Wii Sports Resort (Asia)
-     alternative to Wii Sports Resort (Japan) (Rev 3) [10]
-     alternative to Wii Sports Resort (USA) (En,Fr,Es) (Rev 1) [9,14,16]
    w30 w30 w30 w30 x16 w30 x15 w30 a24 a24 a24 a24 x16 a24 x15 a24 | Wii Sports Resort (Europe) (En,Fr,De,Es,It)
-     alternative to Wii Sports Resort (Europe) (En,Fr,De,Es,It) (Rev 1) [11-12]
-     alternative to Wii Sports Resort (Japan) (Rev 3) [10]
-     alternative to Wii Sports Resort (USA) (En,Fr,Es) (Rev 1) [9,14,16]
-   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 .   .   x16 a25 x15 a25 | Wii Sports Resort (Europe) (En,Fr,De,Es,It) (Rev 1)
-     alternative to Wii Sports Resort (Japan) (Rev 3) [10]
-     alternative to Wii Sports Resort (USA) (En,Fr,Es) (Rev 1) [9,14,16]
+   w30 w30 w30 w30 x16 w30 x15 w30 a25 a29 w3  w3  x16 a25 x15 a25 | Wii Sports Resort (Europe) (En,Fr,De,Es,It) (Rev 1)
    w30 w30 w30 x20 x16 w30 x15 w30 a24 a24 a24 x20 x16 a24 x15 a24 | Wii Sports Resort (Japan) (Rev 1)
-     alternative to Wii Sports Resort (Europe) (En,Fr,De,Es,It) (Rev 1) [11]
-     alternative to Wii Sports Resort (Japan) (Rev 3) [10]
-     alternative to Wii Sports Resort (USA) (En,Fr,Es) (Rev 1) [9,14,16]
    w30 w30 w30 x20 x16 w30 x15 w30 a24 a24 a24 x20 x16 a24 x15 a24 | Wii Sports Resort (Japan) (Rev 2)
-     alternative to Wii Sports Resort (Europe) (En,Fr,De,Es,It) (Rev 1) [11]
-     alternative to Wii Sports Resort (Japan) (Rev 3) [10]
-     alternative to Wii Sports Resort (USA) (En,Fr,Es) (Rev 1) [9,14,16]
-   w30 w30 w30 x20 x16 w30 x15 w30 a29 .   a29 x20 x16 a29 x15 a29 | Wii Sports Resort (Japan) (Rev 3)
-     alternative to Wii Sports Resort (Europe) (En,Fr,De,Es,It) (Rev 1) [11]
-     alternative to Wii Sports Resort (USA) (En,Fr,Es) (Rev 1) [9,14,16]
+   w30 w30 w30 x20 x16 w30 x15 w30 a29 w29 a29 x20 x16 a29 x15 a29 | Wii Sports Resort (Japan) (Rev 3)
    w30 w30 x19 x20 x16 w30 x15 w30 a24 a24 x19 x20 x16 a24 x15 a24 | Wii Sports Resort (Korea)
-     alternative to Wii Sports Resort (Japan) (Rev 3) [10]
-     alternative to Wii Sports Resort (USA) (En,Fr,Es) (Rev 1) [9,14,16]
    w30 w30 x19 x20 x16 w30 x15 w30 a29 a29 x19 x20 x16 a29 x15 a29 | Wii Sports Resort (Korea) (Rev 1)
-     alternative to Wii Sports Resort (Japan) (Rev 3) [10]
-     alternative to Wii Sports Resort (USA) (En,Fr,Es) (Rev 1) [9,14,16]
    w30 w30 w30 w30 w30 w30 x15 w30 a24 a24 a24 a24 a24 a24 x15 a24 | Wii Sports Resort (USA) (En,Fr,Es)
-     alternative to Wii Sports Resort (Europe) (En,Fr,De,Es,It) (Rev 1) [11-12]
-     alternative to Wii Sports Resort (Japan) (Rev 3) [10]
-     alternative to Wii Sports Resort (USA) (En,Fr,Es) (Rev 1) [9,13-14,16]
-   w30 w30 w30 w30 w30 w30 x15 w30 .   a29 a25 a25 .   .   x15 .   | Wii Sports Resort (USA) (En,Fr,Es) (Rev 1)
-     alternative to Wii Sports Resort (Europe) (En,Fr,De,Es,It) (Rev 1) [11-12]
-     alternative to Wii Sports Resort (Japan) (Rev 3) [10]
+   w30 w30 w30 w30 w30 w30 x15 w30 w3  a29 a25 a25 w24 w3  x15 w3  | Wii Sports Resort (USA) (En,Fr,Es) (Rev 1)
 == wiiro dahamkke! mallangmallang dunoegyosil
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w30 w30 x19 x20 x16 w30 x15 w30 .   .   .   .   .   .   .   .   | Wiiro Dahamkke! Mallangmallang Dunoegyosil (Korea)

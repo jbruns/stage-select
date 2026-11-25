@@ -459,6 +459,9 @@ the engine now makes anyway is flagged as matching the default, so you can drop 
   was read.
 - Each game in `kept`, `clones` and `left_out` carries the rule that decided it: the stage, the engine's trace
   reference and its message. `ref` is absent when no trace record names the game, for example a game filtered out by region.
+- A compilation, a release that holds several games, is shown in a game group of its own, and a release of one of its
+  games that it replaced is shown there as its clone. A game the compilation didn't replace stays in its own game
+  group. Their rules still say how the compilations stage decided them.
 - A game group is `unresolved` when its deciding rule is the engine's fail-safe (choosing the highest string) or a
   compilation tie-breaker. It is also unresolved when it holds a multi-disc game whose selected discs come from
   different versions, or whose selected version lacks a disc: one of its own, even one your settings exclude, or one

@@ -1870,17 +1870,25 @@ rule r45: Superset parent selection REF0119: Group after good dump/production/re
 == jockey's road
    w36 w36 w36 x22 x17 w36 x16 w36 w33 w33 w33 x22 x17 w33 x16 w33 | Jockey's Road (Japan)
 == jsrf - jet set radio future
-   w36 w36 w36 w36 x17 w36 x16 w36 a30 a35 .   .   x17 a30 x16 a30 | JSRF - Jet Set Radio Future (Europe) (En,Fr,De,Es,It)
+   w36 w36 w36 w36 x17 w36 x16 w36 a30 a35 w4  w33 x17 a30 x16 a30 | JSRF - Jet Set Radio Future (Europe) (En,Fr,De,Es,It)
      alternative to JSRF - Jet Set Radio Future (Japan) [10]
-     alternative to JSRF - Jet Set Radio Future (USA) [9,14,16]
-   w36 w36 w36 x22 x17 w36 x16 w36 a35 .   a35 x22 x17 a35 x16 a35 | JSRF - Jet Set Radio Future (Japan)
+     alternative to JSRF - Jet Set Radio Future (USA) [9,14]
+   w36 w36 w36 x22 x17 w36 x16 w36 a35 w3  a35 x22 x17 a35 x16 a35 | JSRF - Jet Set Radio Future (Japan)
      alternative to JSRF - Jet Set Radio Future (Europe) (En,Fr,De,Es,It) [11]
-     alternative to JSRF - Jet Set Radio Future (USA) [9,14,16]
-   w36 w36 w36 x22 x17 w36 x16 x12 .   .   .   x22 x17 .   x16 x12 | JSRF - Jet Set Radio Future (Japan) (Demo 1)
-   w36 w36 w36 x22 x17 w36 x16 x12 .   .   .   x22 x17 .   x16 x12 | JSRF - Jet Set Radio Future (Japan) (Demo 2)
-   w36 w36 w36 x22 w36 w36 x16 w36 .   a35 a30 x22 .   .   x16 .   | JSRF - Jet Set Radio Future (USA)
+     alternative to JSRF - Jet Set Radio Future (USA) [9,14]
+   w36 w36 w36 x22 x17 w36 x16 x12 w30 w35 w30 x22 x17 w30 x16 x12 | JSRF - Jet Set Radio Future (Japan) (Demo 1)
+   w36 w36 w36 x22 x17 w36 x16 x12 w30 w35 w30 x22 x17 w30 x16 x12 | JSRF - Jet Set Radio Future (Japan) (Demo 2)
+   w36 w36 w36 x22 w36 w36 x16 w36 w4  a35 a30 x22 w33 w4  x16 w4  | JSRF - Jet Set Radio Future (USA)
      alternative to JSRF - Jet Set Radio Future (Europe) (En,Fr,De,Es,It) [11]
      alternative to JSRF - Jet Set Radio Future (Japan) [10]
+   .   .   .   .   .   .   .   .   a4  a3  a5  a5  .   a4  .   a4  | Sega GT 2002 + JSRF - Jet Set Radio Future (Europe) (En,Fr,De,Es,It)
+     alternative to JSRF - Jet Set Radio Future (Europe) (En,Fr,De,Es,It) [11]
+     alternative to JSRF - Jet Set Radio Future (Japan) [10]
+     alternative to JSRF - Jet Set Radio Future (USA) [9,14]
+   .   .   .   .   .   .   .   .   a5  a7  a4  .   a5  a5  .   a5  | Sega GT 2002 + JSRF - Jet Set Radio Future (USA) (En,Ja)
+     alternative to JSRF - Jet Set Radio Future (Europe) (En,Fr,De,Es,It) [11]
+     alternative to JSRF - Jet Set Radio Future (Japan) [10]
+     alternative to JSRF - Jet Set Radio Future (USA) [9,14]
 == judge dredd - dredd vs. death
    w36 w36 w36 w36 x17 w36 x16 w36 a30 a30 w30 w35 x17 a30 x16 a30 | Judge Dredd - Dredd vs. Death (Europe) (En,Fr,Es,It)
    w36 w36 w36 w36 x17 w36 x16 w36 a30 a30 a30 a35 x17 a30 x16 a30 | Judge Dredd - Dredd vs. Death (Germany) (En,De)
@@ -2538,11 +2546,11 @@ rule r45: Superset parent selection REF0119: Group after good dump/production/re
 == ncaa football 2004
    w36 w36 w36 x22 w36 w36 x16 w36 w33 w33 w33 x22 w33 w33 x16 w33 | NCAA Football 2004 (USA)
 == ncaa football 2005
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w36 w36 w36 x22 w36 w36 x16 w36 .   .   .   x22 .   .   x16 .   | NCAA Football 2005 (USA)
+   w36 w36 w36 x22 w36 w36 x16 w36 w33 w33 w33 x22 w33 w33 x16 w33 | NCAA Football 2005 (USA)
+   .   .   .   .   .   .   .   .   a5  a1  a7  .   a5  a5  .   a5  | NCAA Football 2005 + Top Spin (USA) (En,Fr,De)
 == ncaa football 2005 + top spin
-   g   g   g   g   g   g   g   g   .   .   .   .   .   .   g   .   |
-   w36 w36 w36 w36 w36 w36 x16 w36 .   .   .   .   .   .   x16 .   | NCAA Football 2005 + Top Spin (USA) (En,Fr,De)
+   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
+   w36 w36 w36 w36 w36 w36 x16 w36 .   .   .   w2  .   .   x16 .   | NCAA Football 2005 + Top Spin (USA) (En,Fr,De)
 == ncaa march madness 06
    w36 w36 w36 x22 w36 w36 x16 w36 w33 w33 w33 x22 w33 w33 x16 w33 | NCAA March Madness 06 (USA)
 == ncaa march madness 2004
@@ -3413,49 +3421,6 @@ rule r45: Superset parent selection REF0119: Group after good dump/production/re
 == reservoir dogs
    w36 w36 w36 x22 x17 w36 x16 w36 a30 a30 w30 x22 x17 a30 x16 a30 | Reservoir Dogs (Europe) (En,Fr)
    w36 w36 w36 x22 w36 w36 x16 w36 w30 w30 a30 x22 w33 w30 x16 w30 | Reservoir Dogs (USA)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   g   g   g   g   g   g   .   g   |
-   .   .   .   .   .   .   .   .   a5  a1  a7  .   a5  a5  .   a5  | NCAA Football 2005 + Top Spin (USA) (En,Fr,De)
-     alternative to NCAA Football 2005 (USA) [9-11,13-14,16]
-   .   .   .   .   .   .   .   .   a4  a3  a5  a5  .   a4  .   a4  | Sega GT 2002 + JSRF - Jet Set Radio Future (Europe) (En,Fr,De,Es,It)
-     alternative to JSRF - Jet Set Radio Future (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to JSRF - Jet Set Radio Future (Japan) [10]
-     alternative to JSRF - Jet Set Radio Future (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a5  a7  a4  .   a5  a5  .   a5  | Sega GT 2002 + JSRF - Jet Set Radio Future (USA) (En,Ja)
-     alternative to JSRF - Jet Set Radio Future (Europe) (En,Fr,De,Es,It) [11]
-     alternative to JSRF - Jet Set Radio Future (Japan) [10]
-     alternative to JSRF - Jet Set Radio Future (USA) [9,13-14,16]
-   .   .   .   .   .   .   .   .   .   a6  .   .   .   .   .   .   | Star Wars - The Clone Wars (USA)
-     alternative to Star Wars - The Clone Wars + Tetris Worlds (Asia) [10]
-   .   .   .   .   .   .   .   .   a4  .   a7  .   .   a4  .   a4  | Star Wars - The Clone Wars + Tetris Worlds (Asia)
-     alternative to Star Wars - The Clone Wars (Europe) [11]
-     alternative to Star Wars - The Clone Wars (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a5  a1  a7  .   a5  a5  .   a5  | Star Wars - The Clone Wars + Tetris Worlds (USA)
-     alternative to Star Wars - The Clone Wars (Europe) [11]
-     alternative to Star Wars - The Clone Wars (USA) [9,13-14,16]
-     alternative to Star Wars - The Clone Wars + Tetris Worlds (Asia) [10]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   g   g   g   g   g   g   .   g   |
-   .   .   .   .   .   .   .   .   .   .   w4  w33 .   .   .   .   | JSRF - Jet Set Radio Future (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w3  .   .   .   .   .   .   | JSRF - Jet Set Radio Future (Japan)
-   .   .   .   .   .   .   .   .   w30 w35 w30 .   .   w30 .   .   | JSRF - Jet Set Radio Future (Japan) (Demo 1)
-   .   .   .   .   .   .   .   .   w30 w35 w30 .   .   w30 .   .   | JSRF - Jet Set Radio Future (Japan) (Demo 2)
-   .   .   .   .   .   .   .   .   w4  .   .   .   w33 w4  .   w4  | JSRF - Jet Set Radio Future (USA)
-   .   .   .   .   .   .   .   .   w33 w33 w33 .   w33 w33 .   w33 | NCAA Football 2005 (USA)
-   .   .   .   .   .   .   .   .   .   .   .   w2  .   .   .   .   | NCAA Football 2005 + Top Spin (USA) (En,Fr,De)
-   .   .   .   .   .   .   .   .   .   .   w4  w33 .   .   .   .   | Sega GT 2002 (Europe) (En,Ja,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w30 w30 w30 .   .   w30 .   .   | Sega GT 2002 (Japan) (Demo)
-   .   .   .   .   .   .   .   .   .   w3  .   .   .   .   .   .   | Sega GT 2002 (Japan) (En,Ja)
-   .   .   .   .   .   .   .   .   w4  .   .   .   w33 w4  .   w4  | Sega GT 2002 (USA) (En,Ja)
-   .   .   .   .   .   .   .   .   .   .   w30 .   .   .   .   .   | Star Wars - The Clone Wars (Europe)
-   .   .   .   .   .   .   .   .   w4  .   .   .   w33 w4  .   w4  | Star Wars - The Clone Wars (USA)
-   .   .   .   .   .   .   .   .   .   w2  .   .   .   .   .   .   | Star Wars - The Clone Wars + Tetris Worlds (Asia)
-   .   .   .   .   .   .   .   .   .   .   w30 .   .   .   .   .   | Tetris Worlds (Europe) (En,Fr,De,Es,It) (Online Enabled)
-   .   .   .   .   .   .   .   .   .   w35 .   .   .   .   .   .   | Tetris Worlds (Japan)
-   .   .   .   .   .   .   .   .   w4  .   .   .   w23 w4  .   w4  | Tetris Worlds (USA) (Online Enabled)
-   .   .   .   .   .   .   .   .   .   .   w30 w30 .   .   .   .   | Top Spin (Europe) (En,Fr,De)
-   .   .   .   .   .   .   .   .   .   w35 .   .   .   .   .   .   | Top Spin (Japan)
-   .   .   .   .   .   .   .   .   w30 .   .   .   w33 w30 .   w30 | Top Spin (USA) (En,Fr,De)
 == return to castle wolfenstein - tides of war
    w36 w36 w36 x22 x17 w36 x16 w36 a35 a35 a35 x22 x17 a35 x16 a35 | Return to Castle Wolfenstein - Tides of War (France)
    w36 w36 w36 x22 w36 w36 x16 w36 w35 w35 w35 x22 w33 w35 x16 w35 | Return to Castle Wolfenstein - Tides of War (World)
@@ -3575,14 +3540,14 @@ rule r45: Superset parent selection REF0119: Group after good dump/production/re
    w36 w36 x21 w36 x17 w36 x16 w36 a35 a35 x21 w35 x17 a35 x16 a35 | Secret Weapons over Normandy (Spain)
    w36 w36 w36 x22 w36 w36 x16 w36 w30 w30 a30 x22 w33 w30 x16 w30 | Secret Weapons over Normandy (USA)
 == sega gt 2002
-   w36 w36 w36 w36 x17 w36 x16 w36 a30 a30 .   .   x17 a30 x16 a30 | Sega GT 2002 (Europe) (En,Ja,Fr,De,Es,It)
+   w36 w36 w36 w36 x17 w36 x16 w36 a30 a30 w4  w33 x17 a30 x16 a30 | Sega GT 2002 (Europe) (En,Ja,Fr,De,Es,It)
      alternative to Sega GT 2002 (Japan) (En,Ja) [10]
-     alternative to Sega GT 2002 (USA) (En,Ja) [9,14,16]
-   w36 w36 w36 x22 x17 w36 x16 x12 .   .   .   x22 x17 .   x16 x12 | Sega GT 2002 (Japan) (Demo)
-   w36 w36 w36 x22 x17 w36 x16 w36 a30 .   a30 x22 x17 a30 x16 a30 | Sega GT 2002 (Japan) (En,Ja)
+     alternative to Sega GT 2002 (USA) (En,Ja) [9,14]
+   w36 w36 w36 x22 x17 w36 x16 x12 w30 w30 w30 x22 x17 w30 x16 x12 | Sega GT 2002 (Japan) (Demo)
+   w36 w36 w36 x22 x17 w36 x16 w36 a30 w3  a30 x22 x17 a30 x16 a30 | Sega GT 2002 (Japan) (En,Ja)
      alternative to Sega GT 2002 (Europe) (En,Ja,Fr,De,Es,It) [11]
-     alternative to Sega GT 2002 (USA) (En,Ja) [9,14,16]
-   w36 w36 w36 x22 w36 w36 x16 w36 .   a30 a30 x22 .   .   x16 .   | Sega GT 2002 (USA) (En,Ja)
+     alternative to Sega GT 2002 (USA) (En,Ja) [9,14]
+   w36 w36 w36 x22 w36 w36 x16 w36 w4  a30 a30 x22 w33 w4  x16 w4  | Sega GT 2002 (USA) (En,Ja)
      alternative to Sega GT 2002 (Europe) (En,Ja,Fr,De,Es,It) [11]
      alternative to Sega GT 2002 (Japan) (En,Ja) [10]
 == sega gt 2002 + jsrf - jet set radio future
@@ -3934,31 +3899,25 @@ rule r45: Superset parent selection REF0119: Group after good dump/production/re
 == star wars - starfighter special edition
    w36 w36 w36 x22 w36 w36 x16 w36 w33 w33 w33 x22 w33 w33 x16 w33 | Star Wars - Starfighter Special Edition (USA)
 == star wars - the clone wars
-   .   .   .   .   .   .   .   .   a35 a35 a35 a35 x17 a35 x16 a35 | Star Wars - La Guerra dei Cloni (Italy)
-     alternative to Star Wars - The Clone Wars (Europe) [11]
-     alternative to Star Wars - The Clone Wars (USA) [9,14,16]
-     alternative to Star Wars - The Clone Wars + Tetris Worlds (Asia) [10]
-   .   .   .   .   .   .   .   .   a35 a35 x21 w35 x17 a35 x16 a35 | Star Wars - Las Guerras Clon (Spain)
-     alternative to Star Wars - The Clone Wars (USA) [9,14,16]
-     alternative to Star Wars - The Clone Wars + Tetris Worlds (Asia) [10]
-   w36 w36 w36 x22 x17 w36 x16 w36 a30 a30 .   x22 x17 a30 x16 a30 | Star Wars - The Clone Wars (Europe)
-     alternative to Star Wars - The Clone Wars (USA) [9,14,16]
-     alternative to Star Wars - The Clone Wars + Tetris Worlds (Asia) [10]
-   w36 w36 w36 x22 x17 w36 x16 w36 a35 a35 a35 x22 x17 a35 x16 a35 | Star Wars - The Clone Wars (France)
-     alternative to Star Wars - The Clone Wars (Europe) [11]
-     alternative to Star Wars - The Clone Wars (USA) [9,14,16]
-     alternative to Star Wars - The Clone Wars + Tetris Worlds (Asia) [10]
-   w36 w36 w36 w36 x17 w36 x16 w36 a35 a35 a35 a35 x17 a35 x16 a35 | Star Wars - The Clone Wars (Germany)
-     alternative to Star Wars - The Clone Wars (Europe) [11]
-     alternative to Star Wars - The Clone Wars (USA) [9,14,16]
-     alternative to Star Wars - The Clone Wars + Tetris Worlds (Asia) [10]
-   w36 w36 w36 x22 w36 w36 x16 w36 .   a6  a30 x22 .   .   x16 .   | Star Wars - The Clone Wars (USA)
-     alternative to Star Wars - The Clone Wars (Europe) [11]
-     alternative to Star Wars - The Clone Wars + Tetris Worlds (Asia) [10]
+   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a35 .   a35 a35 x17 a35 x16 a35 | Star Wars - La Guerra dei Cloni (Italy)
+   .   .   .   .   .   .   .   .   a35 .   x21 w35 x17 a35 x16 a35 | Star Wars - Las Guerras Clon (Spain)
+   w36 w36 w36 x22 x17 w36 x16 w36 a30 .   w30 x22 x17 a30 x16 a30 | Star Wars - The Clone Wars (Europe)
+   w36 w36 w36 x22 x17 w36 x16 w36 a35 .   a35 x22 x17 a35 x16 a35 | Star Wars - The Clone Wars (France)
+   w36 w36 w36 w36 x17 w36 x16 w36 a35 .   a35 a35 x17 a35 x16 a35 | Star Wars - The Clone Wars (Germany)
+   w36 w36 w36 x22 w36 w36 x16 w36 w4  .   a30 x22 w33 w4  x16 w4  | Star Wars - The Clone Wars (USA)
+   .   .   .   .   .   .   .   .   a4  .   a7  .   .   a4  .   a4  | Star Wars - The Clone Wars + Tetris Worlds (Asia)
+   .   .   .   .   .   .   .   .   a5  .   a7  .   a5  a5  .   a5  | Star Wars - The Clone Wars + Tetris Worlds (USA)
 == star wars - the clone wars + tetris worlds
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w36 w36 w36 x22 x17 w36 x16 w36 .   .   .   x22 x17 .   x16 .   | Star Wars - The Clone Wars + Tetris Worlds (Asia)
-   w36 w36 w36 x22 w36 w36 x16 w36 .   .   .   x22 .   .   x16 .   | Star Wars - The Clone Wars + Tetris Worlds (USA)
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   a35 .   .   .   .   .   .   | Star Wars - La Guerra dei Cloni (Italy)
+   .   .   .   .   .   .   .   .   .   a35 .   .   .   .   .   .   | Star Wars - Las Guerras Clon (Spain)
+   .   .   .   .   .   .   .   .   .   a30 .   .   .   .   .   .   | Star Wars - The Clone Wars (Europe)
+   .   .   .   .   .   .   .   .   .   a35 .   .   .   .   .   .   | Star Wars - The Clone Wars (France)
+   .   .   .   .   .   .   .   .   .   a35 .   .   .   .   .   .   | Star Wars - The Clone Wars (Germany)
+   .   .   .   .   .   .   .   .   .   a6  .   .   .   .   .   .   | Star Wars - The Clone Wars (USA)
+   w36 w36 w36 x22 x17 w36 x16 w36 .   w2  .   x22 x17 .   x16 .   | Star Wars - The Clone Wars + Tetris Worlds (Asia)
+   w36 w36 w36 x22 w36 w36 x16 w36 .   a1  .   x22 .   .   x16 .   | Star Wars - The Clone Wars + Tetris Worlds (USA)
 == starsky & hutch
    w36 w36 w36 w36 x17 w36 x16 w36 a30 a30 w30 w33 x17 a30 x16 a30 | Starsky & Hutch (Europe) (En,Fr,De,Es,It)
    w36 w36 w36 x22 w36 w36 x16 w36 w30 w30 a30 x22 w33 w30 x16 w30 | Starsky & Hutch (USA)
@@ -4112,22 +4071,10 @@ rule r45: Superset parent selection REF0119: Group after good dump/production/re
 == tetris worlds (online enabled)
    .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
    .   .   .   .   .   .   .   .   a23 a23 a23 a25 x17 a23 x16 a23 | Tetris Worlds (Europe) (En,Fr,De)
-     alternative to Tetris Worlds (Europe) (En,Fr,De,Es,It) (Online Enabled) [11]
-     alternative to Tetris Worlds (Japan) [10]
-     alternative to Tetris Worlds (USA) (Online Enabled) [9,14,16]
-   .   .   .   .   .   .   .   .   a30 a35 .   w25 x17 a30 x16 a30 | Tetris Worlds (Europe) (En,Fr,De,Es,It) (Online Enabled)
-     alternative to Tetris Worlds (Japan) [10]
-     alternative to Tetris Worlds (USA) (Online Enabled) [9,14,16]
-   .   .   .   .   .   .   .   .   a35 .   a35 x22 x17 a35 x16 a35 | Tetris Worlds (Japan)
-     alternative to Tetris Worlds (Europe) (En,Fr,De,Es,It) (Online Enabled) [11]
-     alternative to Tetris Worlds (USA) (Online Enabled) [9,14,16]
+   .   .   .   .   .   .   .   .   a30 a35 w30 w25 x17 a30 x16 a30 | Tetris Worlds (Europe) (En,Fr,De,Es,It) (Online Enabled)
+   .   .   .   .   .   .   .   .   a35 w35 a35 x22 x17 a35 x16 a35 | Tetris Worlds (Japan)
    .   .   .   .   .   .   .   .   a23 a23 a23 x22 a23 a23 x16 a23 | Tetris Worlds (USA)
-     alternative to Tetris Worlds (Europe) (En,Fr,De,Es,It) (Online Enabled) [11]
-     alternative to Tetris Worlds (Japan) [10]
-     alternative to Tetris Worlds (USA) (Online Enabled) [9,13-14,16]
-   .   .   .   .   .   .   .   .   .   a35 a30 x22 .   .   x16 .   | Tetris Worlds (USA) (Online Enabled)
-     alternative to Tetris Worlds (Europe) (En,Fr,De,Es,It) (Online Enabled) [11]
-     alternative to Tetris Worlds (Japan) [10]
+   .   .   .   .   .   .   .   .   w4  a35 a30 x22 w23 w4  x16 w4  | Tetris Worlds (USA) (Online Enabled)
 == thief - deadly shadows
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w36 w36 w36 w36 x17 w36 x16 w36 a30 a30 w30 w33 x17 a30 x16 a30 | Thief - Deadly Shadows (Europe) (En,Fr,De,It)
@@ -4298,19 +4245,10 @@ rule r45: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a30 a30 w30 w33 x17 a30 x16 a30 | RPM Tuning (Europe) (En,Fr,De,Es,It,Pt)
    w36 w36 w36 x22 w36 w36 x16 w36 w30 w30 a30 x22 w33 w30 x16 w30 | Top Gear - RPM Tuning (USA)
 == top spin
-   w36 w36 w36 w36 x17 w36 x16 w36 a30 a35 .   .   x17 a30 x16 a30 | Top Spin (Europe) (En,Fr,De)
-     alternative to Top Spin (Japan) [10]
-     alternative to Top Spin (USA) (En,Fr,De) [9,14,16]
-   w36 w36 w36 x22 x17 w36 x16 w36 a35 .   a35 x22 x17 a35 x16 a35 | Top Spin (Japan)
-     alternative to Top Spin (Europe) (En,Fr,De) [11]
-     alternative to Top Spin (USA) (En,Fr,De) [9,14,16]
+   w36 w36 w36 w36 x17 w36 x16 w36 a30 a35 w30 w30 x17 a30 x16 a30 | Top Spin (Europe) (En,Fr,De)
+   w36 w36 w36 x22 x17 w36 x16 w36 a35 w35 a35 x22 x17 a35 x16 a35 | Top Spin (Japan)
    w36 w36 w36 w36 x17 w36 x16 w36 a30 a35 a30 a30 x17 a30 x16 a30 | Top Spin (Korea) (En,Fr,De)
-     alternative to Top Spin (Europe) (En,Fr,De) [11-12]
-     alternative to Top Spin (Japan) [10]
-     alternative to Top Spin (USA) (En,Fr,De) [9,14,16]
-   w36 w36 w36 w36 w36 w36 x16 w36 .   a35 a30 a30 .   .   x16 .   | Top Spin (USA) (En,Fr,De)
-     alternative to Top Spin (Europe) (En,Fr,De) [11-12]
-     alternative to Top Spin (Japan) [10]
+   w36 w36 w36 w36 w36 w36 x16 w36 w30 a35 a30 a30 w33 w30 x16 w30 | Top Spin (USA) (En,Fr,De)
 == torino 2006
    w36 w36 w36 w36 w36 w36 x16 w36 w33 w33 w33 w33 w33 w33 x16 w33 | Torino 2006 (USA, Europe) (En,Fr,De,Es,It)
 == tork - prehistoric punk

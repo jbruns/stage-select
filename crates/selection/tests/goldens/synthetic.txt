@@ -8690,6 +8690,8 @@ pro yakyuu team o tsukurou! 2003
   w Pro Yakyuu Team o Tsukurou! 2003 (Japan) | Parent selection REF0074: Only one title in this region, skipping filtering
 psi2 29
   x PSi2 29 (UK) (Unl) | Exclusions REF0044: Excluded due to a categories regex: '\\(Unl\\)' (reason: Category exclude, Unlicensed)
+psyvariar - complete edition
+  w Psyvariar - Complete Edition (Japan) (Special Capture Box) | Compilations REF0067: Original unmodified group
 q-ball - billiards master
   w Pool Master (Europe) (En,Fr,De) | Parent selection REF0074: Only one title in this region, skipping filtering
 realplay golf
@@ -8698,8 +8700,6 @@ realplay racing
   w Realplay Racing (Europe) (En,Fr,De,Es,It) | Parent selection REF0074: Only one title in this region, skipping filtering
 resident evil - dead aim
   w Gun Survivor 4 - Biohazard - Heroes Never Die (Japan) | Parent selection REF0074: Only one title in this region, skipping filtering
-retool_compilations_winners
-  w Psyvariar - Complete Edition (Japan) (Special Capture Box) | Compilations REF0067: Original unmodified group
 ring of red
   w Ring of Red (USA) | Parent selection REF0074: Only one title in this region, skipping filtering
 rock band - country track pack
@@ -8896,6 +8896,8 @@ alpha quest (drift)
   w Alpha Quest (Japan, USA) (Evercade) (Alt 2) | Parent selection REF0119: Group after good dump/production/retail check
   w Alpha Quest (USA, Europe) (Classic Mini) | Parent selection REF0119: Group after good dump/production/retail check
   a Alpha Quest (Unknown) (Zh,Nl) < Alpha Quest (Japan, USA) (Evercade) (Alt 2) | Parent selection REF0119: Group after good dump/production/retail check
+altered beast
+  w Altered Beast (USA, Europe) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
 alterego
   w AlterEgo - Remastered (World) (Aftermarket) (Unl) | Superset parent selection REF0074: Only one title in this region, skipping filtering
 anaconda (drift)
@@ -8962,6 +8964,10 @@ chaoji poker (drift)
   w Chaoji Poker (Taiwan) (En) (Unl) | Parent selection REF0074: Only one title in this region, skipping filtering
 chibi maruko-chan - wakuwaku shopping
   w Chibi Maruko-chan - Wakuwaku Shopping (Japan) | Parent selection REF0074: Only one title in this region, skipping filtering
+columns
+  w Columns (World) (Sega Ages) | Parent selection REF0074: Only one title in this region, skipping filtering
+  a Mega Games 6 (Europe) < Columns (World) (Sega Ages) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
+  a Mega Games I (Europe) < Columns (World) (Sega Ages) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
 comix zone
   w Comix Zone (USA) (Beta) (1995-05-26) | Parent selection REF0074: Only one title in this region, skipping filtering
 contra - hard corps
@@ -9046,6 +9052,8 @@ frank thomas big hurt baseball
   w Frank Thomas Big Hurt Baseball (USA, Europe) | Parent selection REF0074: Only one title in this region, skipping filtering
 gadget twins
   w Gadget Twins (USA) | Parent selection REF0074: Only one title in this region, skipping filtering
+game no kanzume otokuyou
+  w Game no Kanzume Otokuyou (Japan) (Sega Channel) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
 gamma force (drift)
   w Gamma Force (Korea) (Aftermarket) | Parent selection REF0119: Group after good dump/production/retail check
   a Gamma Force (Asia) (v1.1) < Gamma Force (Korea) (Aftermarket) | Parent selection REF0119: Group after good dump/production/retail check
@@ -9090,6 +9098,8 @@ kappa puzzle (drift)
   w Kappa Puzzle (Italy) (Es,En,Fr,Pt) (Promo) | Parent selection REF0119: Group after good dump/production/retail check
   w Kappa Puzzle (Unknown) (v1.02) (Switch Online) | Parent selection REF0119: Group after good dump/production/retail check
   a Kappa Puzzle (Spain) < Kappa Puzzle (Unknown) (v1.02) (Switch Online) | Parent selection REF0119: Group after good dump/production/retail check
+kid chameleon (drift)
+  w Arcade Legends Sega Mega Drive (World) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
 king of fighters 98', the
   w King of Fighters 98', The (Taiwan) (Unl) | Parent selection REF0074: Only one title in this region, skipping filtering
 king salmon - the big catch
@@ -9135,6 +9145,8 @@ maten no soumetsu
   w Maten no Soumetsu (Japan) | Parent selection REF0074: Only one title in this region, skipping filtering
 math blaster - episode 1
   w Math Blaster - Episode 1 (USA) | Parent selection REF0074: Only one title in this region, skipping filtering
+mega games 3
+  w Mega Games 3 (Europe, Asia) (En) | Compilations REF0067: Original unmodified group
 mega xmas '89 (drift)
   w Mega Xmas '89 (World) (Aftermarket) (Unl) | Parent selection REF0074: Only one title in this region, skipping filtering
 megapanel
@@ -9245,18 +9257,6 @@ puyo puyo tsuu
   w Puyo Puyo Tsuu (Japan) (Rev A) | Parent selection REF0074: Only one title in this region, skipping filtering
 puzzle & action - ichidanto-r
   w Puzzle & Action - Ichidanto-R (Japan) | Parent selection REF0074: Only one title in this region, skipping filtering
-retool_compilations_discards
-  a Mega Games 6 (Europe) < Columns (World) (Sega Ages) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
-  a Mega Games I (Europe) < Columns (World) (Sega Ages) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
-retool_compilations_winners (drift)
-  w Altered Beast (USA, Europe) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
-  w Arcade Legends Sega Mega Drive (World) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
-  w Columns (World) (Sega Ages) | Parent selection REF0074: Only one title in this region, skipping filtering
-  w Game no Kanzume Otokuyou (Japan) (Sega Channel) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
-  w Mega Games 3 (Europe, Asia) (En) | Compilations REF0067: Original unmodified group
-  w Sonic Compilation (Europe) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
-  w Sonic The Hedgehog 2 (World) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
-  w World Cup Soccer (Japan) (En) | Parent selection REF0074: Only one title in this region, skipping filtering
 revenge of shinobi, the
   w Revenge of Shinobi, The (USA, Europe) (Rev A) (Beta) (1990-02-01) | Parent selection REF0014: Group after lower priority region, non-superset clones removed
   a Super Shinobi, The (Japan) (En) (Beta) (1989-08-21) (Sega Channel) < Revenge of Shinobi, The (USA, Europe) (Rev A) (Beta) (1990-02-01) | Parent selection REF0014: Group after lower priority region, non-superset clones removed
@@ -9279,8 +9279,12 @@ show do milhao volume 2
 sonic & knuckles
   w Sonic & Knuckles (World) | Parent selection REF0004: Group after handling modern title rips
   a Sonic & Knuckles (World) (Sonic Classic Collection) < Sonic & Knuckles (World) | Parent selection REF0004: Group after handling modern title rips
+sonic compilation
+  w Sonic Compilation (Europe) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
 sonic spinball
   w Sonic Spinball (Europe) | Parent selection REF0074: Only one title in this region, skipping filtering
+sonic the hedgehog 2
+  w Sonic The Hedgehog 2 (World) | Compilations REF0072: Looking for this ideal combination: ["(('16t', 'aworg', 'fatal labyrinth', 'flicky', 'hyper marbles', 'ikasuze! koi no doki doki penguin land md', 'medal city', 'paddle fighter', 'putter golf', 'pyramid magic', 'robot battler', 'teddy boy blues'), 'Japan')", "(('altered beast',), 'USA')", '((\'altered beast\', "dr. robotnik\'s mean bean machine", \'flicky\', \'golden axe\'), \'World\')', '(("dr. robotnik\'s mean bean machine", \'sonic the hedgehog\', \'sonic the hedgehog 2\'), \'Europe\')', "(('sonic the hedgehog 2',), 'World')"]
 sorcerer's kingdom
   w Sorcerer's Kingdom (USA) | Parent selection REF0074: Only one title in this region, skipping filtering
 sorcerian
@@ -9350,6 +9354,8 @@ wonder boy iii - monster lair
   w Wonder Boy III - Monster Lair (Japan, Europe) (En) | Parent selection REF0074: Only one title in this region, skipping filtering
 wonder boy in monster world
   w Wonder Boy in Monster World (USA, Europe) | Parent selection REF0074: Only one title in this region, skipping filtering
+world championship soccer
+  w World Cup Soccer (Japan) (En) | Parent selection REF0074: Only one title in this region, skipping filtering
 world cup usa 94
   w World Cup USA 94 (USA, Europe, Korea) (En,Fr,De,Es,It,Nl,Pt,Sv) | Parent selection REF0074: Only one title in this region, skipping filtering
 world series baseball
@@ -9934,6 +9940,8 @@ pride fc - fighting championships (drift)
   w Pride FC - Fighting Championships (Korea) | Parent selection REF0074: Only one title in this region, skipping filtering
 ps mania 2.0 spaccacodici - lara croft tomb raider - the angel of darkness
   w PS Mania 2.0 Spaccacodici - Lara Croft Tomb Raider - The Angel of Darkness (Italy) (Unl) | Parent selection REF0074: Only one title in this region, skipping filtering
+psyvariar - complete edition
+  w Psyvariar - Complete Edition (Japan) | Compilations REF0067: Original unmodified group
 radirgy precious
   w Radirgy Precious (Japan) | Parent selection REF0074: Only one title in this region, skipping filtering
 ratchet & clank
@@ -9948,8 +9956,6 @@ red faction
 red star, the
   w Red Star, The (Europe, Australia) (En,Fr,De,Es,It) | Parent selection REF0119: Group after good dump/production/retail check
   a Red Star, The (USA) < Red Star, The (Europe, Australia) (En,Fr,De,Es,It) | Parent selection REF0119: Group after good dump/production/retail check
-retool_compilations_winners
-  w Psyvariar - Complete Edition (Japan) | Compilations REF0067: Original unmodified group
 return to castle wolfenstein - operation resurrection
   w Return to Castle Wolfenstein - Operation Resurrection (Europe) | Parent selection REF0074: Only one title in this region, skipping filtering
 riding star 3
@@ -13051,9 +13057,6 @@ resistance 3
   w Resistance 3 (UK) | Parent selection REF0074: Only one title in this region, skipping filtering
 resonance of fate
   w End of Eternity (Japan) | Parent selection REF0074: Only one title in this region, skipping filtering
-retool_compilations_winners
-  w Tomb Raider - Underworld (USA) (En,Fr,De,Es,It,Nl) (FW2.42) | Parent selection REF0074: Only one title in this region, skipping filtering
-  w Tomb Raider Trilogy, The (Europe) (En,Fr,De,Es,It,Nl) | Compilations REF0067: Original unmodified group
 rock band
   w Rock Band (Europe) (En,Fr,De,Es,It) | Parent selection REF0074: Only one title in this region, skipping filtering
 rock revolution
@@ -13144,6 +13147,10 @@ tom clancy's splinter cell - blacklist
   w Tom Clancy's Splinter Cell - Blacklist (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Pl) | Parent selection REF0074: Only one title in this region, skipping filtering
 tom clancy's splinter cell trilogy
   w Tom Clancy's Splinter Cell Trilogy (Europe) (En,Fr,De,Es,It) | Parent selection REF0074: Only one title in this region, skipping filtering
+tomb raider - underworld
+  w Tomb Raider - Underworld (USA) (En,Fr,De,Es,It,Nl) (FW2.42) | Parent selection REF0074: Only one title in this region, skipping filtering
+tomb raider trilogy, the
+  w Tomb Raider Trilogy, The (Europe) (En,Fr,De,Es,It,Nl) | Compilations REF0067: Original unmodified group
 transformers - rise of the dark spark
   w Transformers - Rise of the Dark Spark (Japan) | Parent selection REF0074: Only one title in this region, skipping filtering
 transformers - the game

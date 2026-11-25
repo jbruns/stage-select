@@ -160,10 +160,9 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == abc wipeout 2
    w55 w55 w55 x40 w55 x34 x35 w55 w50 w50 w50 x40 w50 x34 x35 w50 | ABC Wipeout 2 (USA)
 == absolute supercars
-   w55 w55 w55 w55 x36 x34 x35 w55 .   .   .   .   x36 x34 x35 .   | Absolute Supercars (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   a41 a41 a41 a41 x36 a1  x35 a41 | Supercar Challenge (Europe) (En,Fr,De,Es,It)
-     alternative to Absolute Supercars (Europe) (En,Fr,De,Es,It) [9-12,16]
-     alternative to Ferrari Challenge - Trofeo Pirelli with Supercar Challenge (Europe) (En,Fr,De,Es,It) [14]
+   w55 w55 w55 w55 x36 x34 x35 w55 w41 w41 w41 w41 x36 x34 x35 w41 | Absolute Supercars (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a26 a26 a22 a22 .   .   .   a26 | Ferrari Challenge - Trofeo Pirelli with Supercar Challenge (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a41 a41 a41 a41 x36 .   x35 a41 | Supercar Challenge (Europe) (En,Fr,De,Es,It)
 == ac-dc live - rock band
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w55 w55 w55 w55 x36 x34 x35 w55 .   .   .   .   .   .   .   .   | AC-DC Live - Rock Band (Europe) (En,Fr,De,Es,It)
@@ -424,60 +423,30 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 x40 x36 x34 x35 w55 w50 w50 w50 x40 x36 x34 x35 w50 | Ashes Cricket 2009 (Europe, Australia)
 == assassin's creed
    w55 w55 w55 w55 x36 x34 x35 w55 a47 a53 a47 a47 x36 x34 x35 a47 | Assassin's Creed (Asia) (En,Fr,De,Es,It)
-     alternative to Assassin's Creed (Europe, Australia) (En,Fr,De,Es,It) (FW2.00) [11-12]
-     alternative to Assassin's Creed (Japan) [10]
-     alternative to Assassin's Creed (USA) (En,Fr,De,Es,It) [9,16]
    w55 w55 w55 w55 x36 x34 x35 w55 a44 a44 a44 a44 x36 x34 x35 a44 | Assassin's Creed (Europe) (En,Fr,De,Es,It) (FW1.94)
-     alternative to Assassin's Creed (Europe, Australia) (En,Fr,De,Es,It) (FW2.00) [11-12]
-     alternative to Assassin's Creed (Japan) [10]
-     alternative to Assassin's Creed (USA) (En,Fr,De,Es,It) [9,16]
-   w55 w55 w55 w55 x36 x34 x35 w55 a47 a53 .   .   x36 x34 x35 a47 | Assassin's Creed (Europe, Australia) (En,Fr,De,Es,It) (FW2.00)
-     alternative to Assassin's Creed (Japan) [10]
-     alternative to Assassin's Creed (USA) (En,Fr,De,Es,It) [9,16]
-   w55 w55 w55 x40 x36 x34 x35 w55 a53 .   a53 x40 x36 x34 x35 a53 | Assassin's Creed (Japan)
-     alternative to Assassin's Creed (Europe, Australia) (En,Fr,De,Es,It) (FW2.00) [11]
-     alternative to Assassin's Creed (USA) (En,Fr,De,Es,It) [9,16]
+   w55 w55 w55 w55 x36 x34 x35 w55 a47 a53 w8  w7  x36 x34 x35 a47 | Assassin's Creed (Europe, Australia) (En,Fr,De,Es,It) (FW2.00)
+   w55 w55 w55 x40 x36 x34 x35 w55 a53 w7  a53 x40 x36 x34 x35 a53 | Assassin's Creed (Japan)
    w55 w55 x39 x40 x36 x34 x35 w55 a53 a53 x39 x40 x36 x34 x35 a53 | Assassin's Creed (Korea)
-     alternative to Assassin's Creed (Japan) [10]
-     alternative to Assassin's Creed (USA) (En,Fr,De,Es,It) [9,16]
    w55 w55 x39 x40 x36 x34 x35 w55 a53 a53 x39 x40 x36 x34 x35 a53 | Assassin's Creed (Poland)
-     alternative to Assassin's Creed (Japan) [10]
-     alternative to Assassin's Creed (USA) (En,Fr,De,Es,It) [9,16]
    w55 w55 x39 x40 x36 x34 x35 w55 a53 a53 x39 x40 x36 x34 x35 a53 | Assassin's Creed (Russia)
-     alternative to Assassin's Creed (Japan) [10]
-     alternative to Assassin's Creed (USA) (En,Fr,De,Es,It) [9,16]
-   w55 w55 w55 w55 w55 x34 x35 w55 .   a53 a47 a47 w50 x34 x35 .   | Assassin's Creed (USA) (En,Fr,De,Es,It)
-     alternative to Assassin's Creed (Europe, Australia) (En,Fr,De,Es,It) (FW2.00) [11-12]
-     alternative to Assassin's Creed (Japan) [10]
+   w55 w55 w55 w55 w55 x34 x35 w55 w47 a53 a47 a47 w50 x34 x35 w47 | Assassin's Creed (USA) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a8  a7  a22 a22 .   .   .   a8  | Assassin's Creed - Heritage Collection (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi)
+   .   .   .   .   .   .   .   .   a26 a22 a8  a7  .   .   .   a26 | Assassin's Creed I + II Welcome Pack (Japan) (En,Ja,It)
+   .   .   .   .   .   .   .   .   a26 a7  a22 a22 .   .   .   a26 | Assassin's Creed II - Game of the Year Edition + Assassin's Creed (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da)
 == assassin's creed - birth of a new world - the american saga
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w55 w55 w55 w55 x36 x34 x35 w55 .   .   .   .   .   .   .   .   | Assassin's Creed - Birth of a New World - The American Saga (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Ru)
 == assassin's creed - brotherhood
    w55 w55 w55 w55 x36 x34 x35 w55 a44 a44 a44 a44 x36 x34 x35 a44 | Assassin's Creed - Brotherhood (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (v01.01)
-     alternative to Assassin's Creed - Brotherhood (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (v02.00) [11-12]
-     alternative to Assassin's Creed - Brotherhood (Japan) (En,Ja,It) [10]
-     alternative to Assassin's Creed - Brotherhood (USA) (En,Fr,Es,It) [9,16]
-   w55 w55 w55 w55 x36 x34 x35 w55 a47 a53 .   .   x36 x34 x35 a47 | Assassin's Creed - Brotherhood (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (v02.00)
-     alternative to Assassin's Creed - Brotherhood (Japan) (En,Ja,It) [10]
-     alternative to Assassin's Creed - Brotherhood (USA) (En,Fr,Es,It) [9,16]
+   w55 w55 w55 w55 x36 x34 x35 w55 a47 a53 w8  w8  x36 x34 x35 a47 | Assassin's Creed - Brotherhood (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (v02.00)
    w55 w55 w55 w55 x36 x34 x35 w55 a43 a43 a43 a43 x36 x34 x35 a43 | Assassin's Creed - Brotherhood (Europe) (It,Pl,Ru)
-     alternative to Assassin's Creed - Brotherhood (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (v02.00) [11-12]
-     alternative to Assassin's Creed - Brotherhood (Japan) (En,Ja,It) [10]
-     alternative to Assassin's Creed - Brotherhood (USA) (En,Fr,Es,It) [9,16]
-   w55 w55 w55 w55 x36 x34 x35 w55 a47 .   a47 a53 x36 x34 x35 a47 | Assassin's Creed - Brotherhood (Japan) (En,Ja,It)
-     alternative to Assassin's Creed - Brotherhood (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (v02.00) [11-12]
-     alternative to Assassin's Creed - Brotherhood (USA) (En,Fr,Es,It) [9,16]
+   w55 w55 w55 w55 x36 x34 x35 w55 a47 w7  a47 a53 x36 x34 x35 a47 | Assassin's Creed - Brotherhood (Japan) (En,Ja,It)
    w55 w55 w55 w55 x36 x34 x35 w55 a44 a44 a44 a44 x36 x34 x35 a44 | Assassin's Creed - Brotherhood (UK) (En,It) (v01.00)
-     alternative to Assassin's Creed - Brotherhood (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (v02.00) [11-12]
-     alternative to Assassin's Creed - Brotherhood (Japan) (En,Ja,It) [10]
-     alternative to Assassin's Creed - Brotherhood (USA) (En,Fr,Es,It) [9,16]
    w55 w55 w55 w55 x36 x34 x35 w55 a47 a53 a47 a53 x36 x34 x35 a47 | Assassin's Creed - Brotherhood (UK) (En,It) (v02.00)
-     alternative to Assassin's Creed - Brotherhood (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (v02.00) [11-12]
-     alternative to Assassin's Creed - Brotherhood (Japan) (En,Ja,It) [10]
-     alternative to Assassin's Creed - Brotherhood (USA) (En,Fr,Es,It) [9,16]
-   w55 w55 w55 w55 w55 x34 x35 w55 .   a53 a47 a47 .   x34 x35 .   | Assassin's Creed - Brotherhood (USA) (En,Fr,Es,It)
-     alternative to Assassin's Creed - Brotherhood (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (v02.00) [11-12]
-     alternative to Assassin's Creed - Brotherhood (Japan) (En,Ja,It) [10]
+   w55 w55 w55 w55 w55 x34 x35 w55 w8  a53 a47 a47 w50 x34 x35 w8  | Assassin's Creed - Brotherhood (USA) (En,Fr,Es,It)
+   .   .   .   .   .   .   .   .   a8  a7  a23 a2  .   .   .   a8  | Assassin's Creed - Brotherhood + Assassin's Creed - Revelations (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
+   .   .   .   .   .   .   .   .   a7  a23 a7  .   .   .   .   a7  | Assassin's Creed - Ezio Saga (Japan)
+   .   .   .   .   .   .   .   .   a23 a7  a8  a8  a22 .   .   a23 | Assassin's Creed - Ezio Trilogy (USA) (En,Fr,De,Es,It,Pt)
 == assassin's creed - brotherhood + assassin's creed - revelations
    g   g   g   g   g   g   g   g   .   .   .   .   g   g   g   .   |
    w55 w55 w55 w55 x36 x34 x35 w55 .   .   .   .   x36 x34 x35 .   | Assassin's Creed - Brotherhood + Assassin's Creed - Revelations (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
@@ -495,41 +464,23 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 w55 x36 x34 x35 w55 .   .   .   .   x36 x34 x35 .   | Assassin's Creed - Heritage Collection (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi)
 == assassin's creed - revelations
    w55 w55 w55 w55 x36 x34 x35 w55 a59 a59 a59 a44 x36 x34 x35 a59 | Assassin's Creed - Revelations (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (BLES-01384)
-     alternative to Assassin's Creed - Revelations (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (BLES-01467) [12]
-     alternative to Assassin's Creed - Revelations - Special Edition (Japan) (En,Ja) [9-11,16]
-   w55 w55 w55 w55 x36 x34 x35 w55 a60 a70 a68 .   x36 x34 x35 a60 | Assassin's Creed - Revelations (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (BLES-01467)
-     alternative to Assassin's Creed - Revelations - Special Edition (Japan) (En,Ja) [9-11,16]
+   w55 w55 w55 w55 x36 x34 x35 w55 a60 a70 a68 w47 x36 x34 x35 a60 | Assassin's Creed - Revelations (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (BLES-01467)
    w55 w55 w55 x40 x36 x34 x35 w55 a59 a59 a59 x40 x36 x34 x35 a59 | Assassin's Creed - Revelations (Europe) (En,Pl,Ru) (BLES-01385)
-     alternative to Assassin's Creed - Revelations - Special Edition (Japan) (En,Ja) [9-11,16]
    w55 w55 w55 x40 x36 x34 x35 w55 a59 a59 a59 x40 x36 x34 x35 a59 | Assassin's Creed - Revelations (Europe) (En,Pl,Ru) (BLES-01466)
-     alternative to Assassin's Creed - Revelations - Special Edition (Japan) (En,Ja) [9-11,16]
    w55 w55 w55 x40 x36 x34 x35 w55 a66 a66 a66 x40 x36 x34 x35 a66 | Assassin's Creed - Revelations (Japan) (En,Ja)
-     alternative to Assassin's Creed - Revelations - Special Edition (Japan) (En,Ja) [9-11,16]
-   w55 w55 w55 w55 w55 x34 x35 w55 a68 a70 a60 a47 .   x34 x35 a68 | Assassin's Creed - Revelations (USA) (En,Fr,Es,Pt) (BLUS-30905)
-     alternative to Assassin's Creed - Revelations (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (BLES-01467) [12]
-     alternative to Assassin's Creed - Revelations - Special Edition (Japan) (En,Ja) [9-11,16]
+   w55 w55 w55 w55 w55 x34 x35 w55 a68 a70 a60 a47 w44 x34 x35 a68 | Assassin's Creed - Revelations (USA) (En,Fr,Es,Pt) (BLUS-30905)
    w55 w55 w55 w55 w55 x34 x35 w55 a59 a70 a59 a44 a44 x34 x35 a59 | Assassin's Creed - Revelations (USA, Asia) (En,Fr,Es,Pt) (BLUS-30808)
-     alternative to Assassin's Creed - Revelations (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (BLES-01467) [12]
-     alternative to Assassin's Creed - Revelations (USA) (En,Fr,Es,Pt) (BLUS-30905) [13]
-     alternative to Assassin's Creed - Revelations - Special Edition (Japan) (En,Ja) [9-11,16]
-   .   .   .   .   .   .   .   .   .   .   .   x40 x36 x34 x35 .   | Assassin's Creed - Revelations - Special Edition (Japan) (En,Ja)
+   .   .   .   .   .   .   .   .   w68 w70 w68 x40 x36 x34 x35 w68 | Assassin's Creed - Revelations - Special Edition (Japan) (En,Ja)
 == assassin's creed - revelations - special edition
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w55 w55 w55 x40 x36 x34 x35 w55 .   .   .   .   .   .   .   .   | Assassin's Creed - Revelations - Special Edition (Japan) (En,Ja)
 == assassin's creed - rogue
-   w55 w55 w55 w55 x36 x34 x35 w55 a47 a53 .   .   x36 x34 x35 a47 | Assassin's Creed - Rogue (Europe) (En,Fr,De,Es,It,Nl,Pt,Zh,Ko,Pl)
-     alternative to Assassin's Creed - Rogue (Japan) (En,Ja) [10]
-     alternative to Assassin's Creed - Rogue (USA, Brazil) (En,Fr,Es,Pt) [9,16]
+   w55 w55 w55 w55 x36 x34 x35 w55 a47 a53 w8  w47 x36 x34 x35 a47 | Assassin's Creed - Rogue (Europe) (En,Fr,De,Es,It,Nl,Pt,Zh,Ko,Pl)
    w55 w55 w55 x40 x36 x34 x35 w55 a48 a48 a48 x40 x36 x34 x35 a48 | Assassin's Creed - Rogue (Europe) (En,Ru,Ar)
-     alternative to Assassin's Creed - Rogue (Europe) (En,Fr,De,Es,It,Nl,Pt,Zh,Ko,Pl) [11]
-     alternative to Assassin's Creed - Rogue (Japan) (En,Ja) [10]
-     alternative to Assassin's Creed - Rogue (USA, Brazil) (En,Fr,Es,Pt) [9,16]
-   w55 w55 w55 x40 x36 x34 x35 w55 a47 .   a47 x40 x36 x34 x35 a47 | Assassin's Creed - Rogue (Japan) (En,Ja)
-     alternative to Assassin's Creed - Rogue (Europe) (En,Fr,De,Es,It,Nl,Pt,Zh,Ko,Pl) [11]
-     alternative to Assassin's Creed - Rogue (USA, Brazil) (En,Fr,Es,Pt) [9,16]
-   w55 w55 w55 w55 w55 x34 x35 w55 .   a53 a47 a47 w50 x34 x35 .   | Assassin's Creed - Rogue (USA, Brazil) (En,Fr,Es,Pt)
-     alternative to Assassin's Creed - Rogue (Europe) (En,Fr,De,Es,It,Nl,Pt,Zh,Ko,Pl) [11-12]
-     alternative to Assassin's Creed - Rogue (Japan) (En,Ja) [10]
+   w55 w55 w55 x40 x36 x34 x35 w55 a47 w53 a47 x40 x36 x34 x35 a47 | Assassin's Creed - Rogue (Japan) (En,Ja)
+   w55 w55 w55 w55 w55 x34 x35 w55 w47 a53 a47 a47 w50 x34 x35 w47 | Assassin's Creed - Rogue (USA, Brazil) (En,Fr,Es,Pt)
+   .   .   .   .   .   .   .   .   a26 a4  a22 a22 .   .   .   a26 | Assassin's Creed IV - Black Flag + Assassin's Creed - Rogue (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl)
+   .   .   .   .   .   .   .   .   a26 a4  a8  .   .   .   .   a26 | Assassin's Creed IV - Black Flag + Assassin's Creed - Rogue (Russia) (En,Pl,Ru,Cs,Hu,Ar)
 == assassin's creed - the americas collection
    .   .   .   .   .   .   .   .   a47 a47 w47 w47 x36 x34 x35 a47 | Assassin's Creed - Birth of a New World - The American Saga (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Ru)
    w55 w55 w55 w55 w55 x34 x35 w55 w47 w47 a47 a47 w50 x34 x35 w47 | Assassin's Creed - The Americas Collection (USA) (En,Fr,Es,Pt)
@@ -539,30 +490,14 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == assassin's creed ii
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w55 w55 w55 w55 x36 x34 x35 w55 a66 a66 a66 a66 x36 x34 x35 a66 | Assassin's Creed II (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da)
-     alternative to Assassin's Creed II - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da) [9,11-12,16]
-     alternative to Assassin's Creed II - Special Edition (Japan) (En,Ja,It) [10]
    w55 w55 w55 w55 x36 x34 x35 w55 a58 a58 a58 a58 x36 x34 x35 a58 | Assassin's Creed II (Europe) (It,Pl,Ru)
-     alternative to Assassin's Creed II - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da) [9,11-12,16]
-     alternative to Assassin's Creed II - Special Edition (Japan) (En,Ja,It) [10]
    w55 w55 w55 w55 x36 x34 x35 w55 a66 a66 a66 a66 x36 x34 x35 a66 | Assassin's Creed II (Japan) (En,Ja,It)
-     alternative to Assassin's Creed II - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da) [9,11-12,16]
-     alternative to Assassin's Creed II - Special Edition (Japan) (En,Ja,It) [10]
    w55 w55 w55 w55 x36 x34 x35 w55 a66 a66 a66 a66 x36 x34 x35 a66 | Assassin's Creed II (UK) (En,It)
-     alternative to Assassin's Creed II - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da) [9,11-12,16]
-     alternative to Assassin's Creed II - Special Edition (Japan) (En,Ja,It) [10]
-   w55 w55 w55 w55 w55 x34 x35 w55 a68 a70 a68 a68 .   x34 x35 a68 | Assassin's Creed II (USA, Asia) (En,Fr,Es,It)
-     alternative to Assassin's Creed II - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da) [9,11-12,16]
-     alternative to Assassin's Creed II - Special Edition (Japan) (En,Ja,It) [10]
-   .   .   .   .   .   .   .   .   .   a70 .   .   x36 x34 x35 .   | Assassin's Creed II - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da)
-     alternative to Assassin's Creed II - Special Edition (Japan) (En,Ja,It) [10]
+   w55 w55 w55 w55 w55 x34 x35 w55 a68 a70 a68 a68 w50 x34 x35 a68 | Assassin's Creed II (USA, Asia) (En,Fr,Es,It)
+   .   .   .   .   .   .   .   .   w67 a70 w67 w68 x36 x34 x35 w67 | Assassin's Creed II - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da)
    .   .   .   .   .   .   .   .   a58 a58 a58 a58 x36 x34 x35 a58 | Assassin's Creed II - Game of the Year Edition (Europe) (It,Pl,Ru)
-     alternative to Assassin's Creed II - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da) [9,11-12,16]
-     alternative to Assassin's Creed II - Special Edition (Japan) (En,Ja,It) [10]
    .   .   .   .   .   .   .   .   a67 a70 a67 a70 x36 x34 x35 a67 | Assassin's Creed II - Game of the Year Edition (UK) (En,It)
-     alternative to Assassin's Creed II - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da) [9,11-12,16]
-     alternative to Assassin's Creed II - Special Edition (Japan) (En,Ja,It) [10]
-   .   .   .   .   .   .   .   .   a67 .   a67 a70 x36 x34 x35 a67 | Assassin's Creed II - Special Edition (Japan) (En,Ja,It)
-     alternative to Assassin's Creed II - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da) [9,11-12,16]
+   .   .   .   .   .   .   .   .   a67 w70 a67 a70 x36 x34 x35 a67 | Assassin's Creed II - Special Edition (Japan) (En,Ja,It)
 == assassin's creed ii - game of the year edition
    gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
    w55 w55 w55 w55 x36 x34 x35 w55 .   .   .   .   .   .   .   .   | Assassin's Creed II - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da)
@@ -576,58 +511,23 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 w55 x36 x34 x35 w55 .   .   .   .   .   .   .   .   | Assassin's Creed II - Special Edition (Japan) (En,Ja,It)
 == assassin's creed iii
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a7  a22 a7  .   .   .   .   a7  | Assassin's Creed - Connor Saga (Japan)
    w55 w55 w55 x40 x36 x34 x35 w55 a47 a53 a47 x40 x36 x34 x35 a47 | Assassin's Creed III (Australia) (v02.00)
-     alternative to Assassin's Creed III (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) (v02.00) [11]
-     alternative to Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v02.00) [10]
-     alternative to Assassin's Creed III (USA) (En,Fr,Es,Pt) (v02.00) [9,16]
    w55 w55 w55 w55 x36 x34 x35 w55 a44 a44 a44 a44 x36 x34 x35 a44 | Assassin's Creed III (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) (v01.01)
-     alternative to Assassin's Creed III (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) (v02.00) [11-12]
-     alternative to Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v02.00) [10]
-     alternative to Assassin's Creed III (USA) (En,Fr,Es,Pt) (v02.00) [9,16]
-   w55 w55 w55 w55 x36 x34 x35 w55 a47 a53 .   .   x36 x34 x35 a47 | Assassin's Creed III (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) (v02.00)
-     alternative to Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v02.00) [10]
-     alternative to Assassin's Creed III (USA) (En,Fr,Es,Pt) (v02.00) [9,16]
+   w55 w55 w55 w55 x36 x34 x35 w55 a47 a53 w7  w47 x36 x34 x35 a47 | Assassin's Creed III (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) (v02.00)
    w55 w55 x39 x40 x36 x34 x35 w55 a43 a43 x39 x40 x36 x34 x35 a43 | Assassin's Creed III (Europe) (Pl,Ru,Cs,Hu) (v01.01)
-     alternative to Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v02.00) [10]
-     alternative to Assassin's Creed III (USA) (En,Fr,Es,Pt) (v02.00) [9,16]
    w55 w55 x39 x40 x36 x34 x35 w55 a43 a43 x39 x40 x36 x34 x35 a43 | Assassin's Creed III (Europe) (Pl,Ru,Cs,Hu) (v02.00)
-     alternative to Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v02.00) [10]
-     alternative to Assassin's Creed III (USA) (En,Fr,Es,Pt) (v02.00) [9,16]
    w55 w55 w55 x40 x36 x34 x35 w55 a44 a53 a44 x40 x36 x34 x35 a44 | Assassin's Creed III (Europe, Asia) (v01.00)
-     alternative to Assassin's Creed III (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) (v02.00) [11]
-     alternative to Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v02.00) [10]
-     alternative to Assassin's Creed III (USA) (En,Fr,Es,Pt) (v02.00) [9,16]
    w55 w55 w55 x40 x36 x34 x35 w55 a44 a44 a44 x40 x36 x34 x35 a44 | Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v01.01)
-     alternative to Assassin's Creed III (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) (v02.00) [11]
-     alternative to Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v02.00) [10]
-     alternative to Assassin's Creed III (USA) (En,Fr,Es,Pt) (v02.00) [9,16]
-   w55 w55 w55 x40 x36 x34 x35 w55 a47 .   a47 x40 x36 x34 x35 a47 | Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v02.00)
-     alternative to Assassin's Creed III (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) (v02.00) [11]
-     alternative to Assassin's Creed III (USA) (En,Fr,Es,Pt) (v02.00) [9,16]
+   w55 w55 w55 x40 x36 x34 x35 w55 a47 w7  a47 x40 x36 x34 x35 a47 | Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v02.00)
    w55 w55 w55 w55 w55 x34 x35 w55 a44 a44 a44 a44 a44 x34 x35 a44 | Assassin's Creed III (USA) (En,Fr,Es,Pt) (v01.00)
-     alternative to Assassin's Creed III (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) (v02.00) [11-12]
-     alternative to Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v02.00) [10]
-     alternative to Assassin's Creed III (USA) (En,Fr,Es,Pt) (v02.00) [9,16]
-   w55 w55 w55 w55 w55 x34 x35 w55 .   a53 a47 a47 w44 x34 x35 .   | Assassin's Creed III (USA) (En,Fr,Es,Pt) (v02.00)
-     alternative to Assassin's Creed III (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) (v02.00) [11-12]
-     alternative to Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v02.00) [10]
+   w55 w55 w55 w55 w55 x34 x35 w55 w7  a53 a47 a47 w44 x34 x35 w7  | Assassin's Creed III (USA) (En,Fr,Es,Pt) (v02.00)
 == assassin's creed iv - black flag
    w55 w55 w55 x40 x36 x34 x35 w55 a48 a48 a48 x40 x36 x34 x35 a48 | Assassin's Creed IV - Black Flag (Europe) (En,Ar)
-     alternative to Assassin's Creed IV - Black Flag (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) [11]
-     alternative to Assassin's Creed IV - Black Flag (Japan, Asia) (En,Ja,Zh,Ko) [10]
-     alternative to Assassin's Creed IV - Black Flag (USA) (En,Fr,Es,Pt) [9,16]
-   w55 w55 w55 w55 x36 x34 x35 w55 a47 a53 .   .   x36 x34 x35 a47 | Assassin's Creed IV - Black Flag (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi)
-     alternative to Assassin's Creed IV - Black Flag (Japan, Asia) (En,Ja,Zh,Ko) [10]
-     alternative to Assassin's Creed IV - Black Flag (USA) (En,Fr,Es,Pt) [9,16]
+   w55 w55 w55 w55 x36 x34 x35 w55 a47 a53 w8  w47 x36 x34 x35 a47 | Assassin's Creed IV - Black Flag (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi)
    w55 w55 x39 x40 x36 x34 x35 w55 a43 a43 x39 x40 x36 x34 x35 a43 | Assassin's Creed IV - Black Flag (Europe) (Pl,Ru,Cs,Hu)
-     alternative to Assassin's Creed IV - Black Flag (Japan, Asia) (En,Ja,Zh,Ko) [10]
-     alternative to Assassin's Creed IV - Black Flag (USA) (En,Fr,Es,Pt) [9,16]
-   w55 w55 w55 x40 x36 x34 x35 w55 a47 .   a47 x40 x36 x34 x35 a47 | Assassin's Creed IV - Black Flag (Japan, Asia) (En,Ja,Zh,Ko)
-     alternative to Assassin's Creed IV - Black Flag (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) [11]
-     alternative to Assassin's Creed IV - Black Flag (USA) (En,Fr,Es,Pt) [9,16]
-   w55 w55 w55 w55 w55 x34 x35 w55 .   a53 a47 a47 w50 x34 x35 .   | Assassin's Creed IV - Black Flag (USA) (En,Fr,Es,Pt)
-     alternative to Assassin's Creed IV - Black Flag (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) [11-12]
-     alternative to Assassin's Creed IV - Black Flag (Japan, Asia) (En,Ja,Zh,Ko) [10]
+   w55 w55 w55 x40 x36 x34 x35 w55 a47 w53 a47 x40 x36 x34 x35 a47 | Assassin's Creed IV - Black Flag (Japan, Asia) (En,Ja,Zh,Ko)
+   w55 w55 w55 w55 w55 x34 x35 w55 w47 a53 a47 a47 w50 x34 x35 w47 | Assassin's Creed IV - Black Flag (USA) (En,Fr,Es,Pt)
 == assassin's creed iv - black flag + assassin's creed - rogue
    g   g   g   g   g   g   g   g   .   .   .   g   g   g   g   .   |
    w55 w55 w55 w55 x36 x34 x35 w55 .   .   .   .   x36 x34 x35 .   | Assassin's Creed IV - Black Flag + Assassin's Creed - Rogue (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl)
@@ -1577,26 +1477,13 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 x40 w55 w55 x35 w55 w47 w47 a47 x40 w50 w47 x35 w47 | de Blob 2 (USA) (En,Fr)
 == dead island
    w55 w55 w55 w55 x36 w55 x35 w55 a66 a66 a66 a66 x36 a66 x35 a66 | Dead Island (Europe) (En,Fr,De,Es,It,Pl)
-     alternative to Dead Island - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Pl) [11-12]
-     alternative to Dead Island - Game of the Year Edition (USA) (En,Fr,De,Es,It,Pl) [9,14,16]
-     alternative to Dead Island - Zombie of the Year Edition (Japan) [10]
    w55 w55 w55 x40 x36 w55 x35 w55 a66 a66 a66 x40 x36 a66 x35 a66 | Dead Island (Japan)
-     alternative to Dead Island - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Pl) [11]
-     alternative to Dead Island - Game of the Year Edition (USA) (En,Fr,De,Es,It,Pl) [9,14,16]
-     alternative to Dead Island - Zombie of the Year Edition (Japan) [10]
    w55 w55 w55 w55 w55 w55 x35 w55 a66 a66 a66 a66 a66 a66 x35 a66 | Dead Island (USA) (En,Fr,De,Es,It,Pl)
-     alternative to Dead Island - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Pl) [11-12]
-     alternative to Dead Island - Game of the Year Edition (USA) (En,Fr,De,Es,It,Pl) [9,14,16]
-     alternative to Dead Island - Zombie of the Year Edition (Japan) [10]
-   .   .   .   .   .   .   .   .   a67 a70 .   .   x36 a67 x35 a67 | Dead Island - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Pl)
-     alternative to Dead Island - Game of the Year Edition (USA) (En,Fr,De,Es,It,Pl) [9,14,16]
-     alternative to Dead Island - Zombie of the Year Edition (Japan) [10]
-   .   .   .   .   .   .   .   .   .   a70 a67 a67 w66 .   x35 .   | Dead Island - Game of the Year Edition (USA) (En,Fr,De,Es,It,Pl)
-     alternative to Dead Island - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Pl) [11-12]
-     alternative to Dead Island - Zombie of the Year Edition (Japan) [10]
-   .   .   .   .   .   .   .   .   a70 .   a70 x40 x36 a70 x35 a70 | Dead Island - Zombie of the Year Edition (Japan)
-     alternative to Dead Island - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Pl) [11]
-     alternative to Dead Island - Game of the Year Edition (USA) (En,Fr,De,Es,It,Pl) [9,14,16]
+   .   .   .   .   .   .   .   .   a23 .   a23 a23 .   a23 .   a23 | Dead Island - Double Pack (Europe) (En,Fr,De,Es,It,Pl)
+   .   .   .   .   .   .   .   .   a23 a23 a23 .   .   a23 .   a23 | Dead Island - Double Zombie Pack (Japan)
+   .   .   .   .   .   .   .   .   a67 a70 w67 w67 x36 a67 x35 a67 | Dead Island - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Pl)
+   .   .   .   .   .   .   .   .   w67 a70 a67 a67 w66 w67 x35 w67 | Dead Island - Game of the Year Edition (USA) (En,Fr,De,Es,It,Pl)
+   .   .   .   .   .   .   .   .   a70 w70 a70 x40 x36 a70 x35 a70 | Dead Island - Zombie of the Year Edition (Japan)
 == dead island - double pack
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | Dead Island - Double Pack (Europe) (En,Fr,De,Es,It,Pl)
@@ -1608,16 +1495,11 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   .   .   .   .   | Dead Island - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Pl)
    w55 w55 w55 w55 w55 w55 x35 w55 .   .   .   .   .   .   .   .   | Dead Island - Game of the Year Edition (USA) (En,Fr,De,Es,It,Pl)
 == dead island - riptide
+   .   .   .   .   .   .   .   .   .   a23 .   .   .   .   .   .   | Dead Island - Double Pack (Europe) (En,Fr,De,Es,It,Pl)
    w55 w55 w55 w55 x36 w55 x35 w55 a66 a66 a66 a66 x36 a66 x35 a66 | Dead Island - Riptide (Europe) (En,Fr,De,Es,It,Pl)
-     alternative to Dead Island - Riptide (Japan) [10]
-     alternative to Dead Island - Riptide - Complete Edition (Europe) (En,Fr,De,Es,It,Pl) [9,11-12,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a70 .   a70 x40 x36 a70 x35 a70 | Dead Island - Riptide (Japan)
-     alternative to Dead Island - Riptide - Complete Edition (Europe) (En,Fr,De,Es,It,Pl) [9,11,14,16]
+   w55 w55 w55 x40 x36 w55 x35 w55 a70 w70 a70 x40 x36 a70 x35 a70 | Dead Island - Riptide (Japan)
    w55 w55 w55 w55 w55 w55 x35 w55 a68 a70 a68 a68 w50 a68 x35 a68 | Dead Island - Riptide (USA) (En,Fr,De,Es,It,Pl)
-     alternative to Dead Island - Riptide (Japan) [10]
-     alternative to Dead Island - Riptide - Complete Edition (Europe) (En,Fr,De,Es,It,Pl) [9,11-12,14,16]
-   .   .   .   .   .   .   .   .   .   a70 .   .   x36 .   x35 .   | Dead Island - Riptide - Complete Edition (Europe) (En,Fr,De,Es,It,Pl)
-     alternative to Dead Island - Riptide (Japan) [10]
+   .   .   .   .   .   .   .   .   w68 a70 w68 w68 x36 w68 x35 w68 | Dead Island - Riptide - Complete Edition (Europe) (En,Fr,De,Es,It,Pl)
 == dead island - riptide - complete edition
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   .   .   .   .   | Dead Island - Riptide - Complete Edition (Europe) (En,Fr,De,Es,It,Pl)
@@ -2590,56 +2472,34 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w47 w50 x36 a47 x35 a47 | Fantastic Four - Rise of the Silver Surfer (Europe) (En,Fr,De,Es,It)
    w55 w55 w55 x40 w55 w55 x35 w55 w47 w47 a47 x40 w50 w47 x35 w47 | Fantastic Four - Rise of the Silver Surfer (USA) (En,Fr)
 == far cry - the wild expedition
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | Far Cry - The Wild Expedition (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
+   w55 w55 w55 w55 x36 w55 x35 w55 w12 w11 w10 w10 x36 w12 x35 w12 | Far Cry - The Wild Expedition (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
+   .   .   .   .   .   .   .   .   a8  a4  a22 a22 .   a8  .   a8  | Far Cry 3 + Far Cry 4 - Double Pack (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Ko,Pl,Cs)
+   .   .   .   .   .   .   .   .   a8  a4  a8  .   .   a8  .   a8  | Far Cry 3 + Far Cry 4 - Double Pack (Russia) (En,Pl,Ru)
+   .   .   .   .   .   .   .   .   .   .   a8  a8  .   .   .   .   | Far Cry Compilation (USA) (En,Fr,De,Es,It,Pt) (v02.00)
+   .   .   .   .   .   .   .   .   a22 a4  a8  .   .   a22 .   a22 | Far Cry Compilation (USA) (v01.00)
 == far cry 2
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Far Cry 2 (Europe) (En,Fr,De,Es,It)
-     alternative to Far Cry 2 (Japan) [10]
-     alternative to Far Cry 2 (USA) (En,Fr,De,Es,It) [9,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w10 w10 x36 a47 x35 a47 | Far Cry 2 (Europe) (En,Fr,De,Es,It)
    w55 w55 x39 x40 x36 w55 x35 w55 a43 a43 x39 x40 x36 a43 x35 a43 | Far Cry 2 (Europe) (Pl,Ru)
-     alternative to Far Cry 2 (Japan) [10]
-     alternative to Far Cry 2 (USA) (En,Fr,De,Es,It) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a53 .   a53 x40 x36 a53 x35 a53 | Far Cry 2 (Japan)
-     alternative to Far Cry 2 (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Far Cry 2 (USA) (En,Fr,De,Es,It) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 .   .   x35 .   | Far Cry 2 (USA) (En,Fr,De,Es,It)
-     alternative to Far Cry 2 (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Far Cry 2 (Japan) [10]
+   w55 w55 w55 x40 x36 w55 x35 w55 a53 w11 a53 x40 x36 a53 x35 a53 | Far Cry 2 (Japan)
+   w55 w55 w55 w55 w55 w55 x35 w55 w12 a53 a47 a47 w13 w12 x35 w12 | Far Cry 2 (USA) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   .   .   .   a22 .   .   .   | Far Cry Compilation (USA) (v01.00)
 == far cry 3
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Far Cry 3 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
-     alternative to Far Cry 3 (Japan) (En,Ja) [10]
-     alternative to Far Cry 3 (USA) (En,Fr,Es,Pt) [9,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w10 w10 x36 a47 x35 a47 | Far Cry 3 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
    w55 w55 w55 x40 x36 w55 x35 w55 a48 a53 a48 x40 x36 a48 x35 a48 | Far Cry 3 (Europe, Asia) (En,Pl,Ru)
-     alternative to Far Cry 3 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) [11]
-     alternative to Far Cry 3 (Japan) (En,Ja) [10]
-     alternative to Far Cry 3 (USA) (En,Fr,Es,Pt) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a47 .   a47 x40 x36 a47 x35 a47 | Far Cry 3 (Japan) (En,Ja)
-     alternative to Far Cry 3 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) [11]
-     alternative to Far Cry 3 (USA) (En,Fr,Es,Pt) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 .   .   x35 .   | Far Cry 3 (USA) (En,Fr,Es,Pt)
-     alternative to Far Cry 3 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) [11-12]
-     alternative to Far Cry 3 (Japan) (En,Ja) [10]
+   w55 w55 w55 x40 x36 w55 x35 w55 a47 w11 a47 x40 x36 a47 x35 a47 | Far Cry 3 (Japan) (En,Ja)
+   w55 w55 w55 w55 w55 w55 x35 w55 w12 a53 a47 a47 w13 w12 x35 w12 | Far Cry 3 (USA) (En,Fr,Es,Pt)
 == far cry 3 + far cry 4 - double pack
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
    w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | Far Cry 3 + Far Cry 4 - Double Pack (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Ko,Pl,Cs)
    w55 w55 w55 x40 x36 w55 x35 w55 .   .   .   x40 x36 .   x35 .   | Far Cry 3 + Far Cry 4 - Double Pack (Russia) (En,Pl,Ru)
 == far cry 4
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Far Cry 4 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Ko,Pl,Cs)
-     alternative to Far Cry 4 (Japan) [10]
-     alternative to Far Cry 4 (USA) (En,Fr,Es,Pt) [9,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w8  w47 x36 a47 x35 a47 | Far Cry 4 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Ko,Pl,Cs)
    w55 w55 w55 x40 x36 w55 x35 w55 a48 a48 a48 x40 x36 a48 x35 a48 | Far Cry 4 (Europe) (En,Ru)
-     alternative to Far Cry 4 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Ko,Pl,Cs) [11]
-     alternative to Far Cry 4 (Japan) [10]
-     alternative to Far Cry 4 (USA) (En,Fr,Es,Pt) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a53 .   a53 x40 x36 a53 x35 a53 | Far Cry 4 (Japan)
-     alternative to Far Cry 4 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Ko,Pl,Cs) [11]
-     alternative to Far Cry 4 (USA) (En,Fr,Es,Pt) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 w50 .   x35 .   | Far Cry 4 (USA) (En,Fr,Es,Pt)
-     alternative to Far Cry 4 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Ko,Pl,Cs) [11-12]
-     alternative to Far Cry 4 (Japan) [10]
+   w55 w55 w55 x40 x36 w55 x35 w55 a53 w53 a53 x40 x36 a53 x35 a53 | Far Cry 4 (Japan)
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 a53 a47 a47 w50 w47 x35 w47 | Far Cry 4 (USA) (En,Fr,Es,Pt)
 == far cry compilation
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w55 w55 w55 w55 w55 w55 x35 w55 .   .   .   .   .   .   x35 .   | Far Cry Compilation (USA) (En,Fr,De,Es,It,Pt) (v02.00)
+   g   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   |
+   w55 w55 w55 w55 w55 w55 x35 w55 w12 w11 .   .   w13 w12 x35 w12 | Far Cry Compilation (USA) (En,Fr,De,Es,It,Pt) (v02.00)
    w55 w55 w55 x40 w55 w55 x35 w55 .   .   .   x40 .   .   x35 .   | Far Cry Compilation (USA) (v01.00)
 == farming simulator
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w47 w47 x36 a47 x35 a47 | Farming Simulator (Europe) (En,Fr,De,Es,It,Nl,Pl)
@@ -2656,13 +2516,12 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == ferrari - the race experience
    w55 w55 w55 w55 x36 w55 x35 w55 w50 w50 w50 w50 x36 w50 x35 w50 | Ferrari - The Race Experience (Europe) (En,Fr,De,Es,It)
 == ferrari challenge - trofeo pirelli
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 .   .   x36 a47 x35 a47 | Ferrari Challenge - Trofeo Pirelli (Europe) (En,Fr,De,Es,It)
-     alternative to Ferrari Challenge - Trofeo Pirelli (USA) (En,Fr) [9-10,14,16]
-   w55 w55 w55 x40 w55 w55 x35 w55 .   .   a47 x40 w50 .   x35 .   | Ferrari Challenge - Trofeo Pirelli (USA) (En,Fr)
-     alternative to Ferrari Challenge - Trofeo Pirelli (Europe) (En,Fr,De,Es,It) [11]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w47 w50 x36 a47 x35 a47 | Ferrari Challenge - Trofeo Pirelli (Europe) (En,Fr,De,Es,It)
+   w55 w55 w55 x40 w55 w55 x35 w55 w47 w47 a47 x40 w50 w9  x35 w47 | Ferrari Challenge - Trofeo Pirelli (USA) (En,Fr)
 == ferrari challenge - trofeo pirelli with supercar challenge
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | Ferrari Challenge - Trofeo Pirelli with Supercar Challenge (Europe) (En,Fr,De,Es,It)
+   g   g   g   g   g   g   g   g   .   .   .   .   g   g   g   .   |
+   w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 w9  x35 .   | Ferrari Challenge - Trofeo Pirelli with Supercar Challenge (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a1  .   .   | Supercar Challenge (Europe) (En,Fr,De,Es,It)
 == fifa 08
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w55 w55 w55 x40 x36 x34 x35 w55 .   .   .   .   .   .   .   .   | FIFA 08 (Asia)
@@ -3110,37 +2969,22 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 x40 x36 w55 x35 w55 a53 w53 a53 x40 x36 a53 x35 a53 | Grand Slam Tennis 2 (Japan)
    w55 w55 w55 x40 w55 w55 x35 w55 w47 a53 a47 x40 w50 w47 x35 w47 | Grand Slam Tennis 2 (USA) (En,Fr)
 == grand theft auto - episodes from liberty city
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Grand Theft Auto - Episodes from Liberty City (Europe, Australia) (En,Fr,De,Es,It)
-     alternative to Grand Theft Auto - Episodes from Liberty City (Japan) [10]
-     alternative to Grand Theft Auto - Episodes from Liberty City (USA) (En,Fr,De,Es,It) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a53 .   a53 x40 x36 a53 x35 a53 | Grand Theft Auto - Episodes from Liberty City (Japan)
-     alternative to Grand Theft Auto - Episodes from Liberty City (Europe, Australia) (En,Fr,De,Es,It) [11]
-     alternative to Grand Theft Auto - Episodes from Liberty City (USA) (En,Fr,De,Es,It) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 .   .   x35 .   | Grand Theft Auto - Episodes from Liberty City (USA) (En,Fr,De,Es,It)
-     alternative to Grand Theft Auto - Episodes from Liberty City (Europe, Australia) (En,Fr,De,Es,It) [11-12]
-     alternative to Grand Theft Auto - Episodes from Liberty City (Japan) [10]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w8  w8  x36 a47 x35 a47 | Grand Theft Auto - Episodes from Liberty City (Europe, Australia) (En,Fr,De,Es,It)
+   w55 w55 w55 x40 x36 w55 x35 w55 a53 w7  a53 x40 x36 a53 x35 a53 | Grand Theft Auto - Episodes from Liberty City (Japan)
+   w55 w55 w55 w55 w55 w55 x35 w55 w8  a53 a47 a47 w50 w8  x35 w8  | Grand Theft Auto - Episodes from Liberty City (USA) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a8  a7  a22 a22 .   a8  .   a8  | Grand Theft Auto IV & Episodes from Liberty City (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a7  a22 a7  .   .   a7  .   a7  | Grand Theft Auto IV & Episodes from Liberty City (Japan)
+   .   .   .   .   .   .   .   .   a22 a7  a8  a8  a22 a22 .   a22 | Grand Theft Auto IV & Episodes from Liberty City (USA, Asia) (En,Fr,De,Es,It)
 == grand theft auto - san andreas
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w47 w47 x36 a47 x35 a47 | Grand Theft Auto - San Andreas (Europe) (En,Fr,De,Es,It,Ru)
    w55 w55 w55 x40 x36 w55 x35 w55 a53 w53 a53 x40 x36 a53 x35 a53 | Grand Theft Auto - San Andreas (Japan)
    w55 w55 w55 w55 w55 w55 x35 w55 w47 a53 a47 a47 w50 w47 x35 w47 | Grand Theft Auto - San Andreas (USA) (En,Fr,De,Es,It,Ru)
 == grand theft auto iv
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 a47 a47 x36 a47 x35 a47 | Grand Theft Auto IV (Australia) (En,Fr,De,Es,It)
-     alternative to Grand Theft Auto IV (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Grand Theft Auto IV (Japan) [10]
-     alternative to Grand Theft Auto IV (USA) (En,Fr,De,Es,It) [9,14,16]
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Grand Theft Auto IV (Europe) (En,Fr,De,Es,It)
-     alternative to Grand Theft Auto IV (Japan) [10]
-     alternative to Grand Theft Auto IV (USA) (En,Fr,De,Es,It) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a53 .   a53 x40 x36 a53 x35 a53 | Grand Theft Auto IV (Japan)
-     alternative to Grand Theft Auto IV (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Grand Theft Auto IV (USA) (En,Fr,De,Es,It) [9,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w8  w8  x36 a47 x35 a47 | Grand Theft Auto IV (Europe) (En,Fr,De,Es,It)
+   w55 w55 w55 x40 x36 w55 x35 w55 a53 w7  a53 x40 x36 a53 x35 a53 | Grand Theft Auto IV (Japan)
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 a47 a47 x36 a47 x35 a47 | Grand Theft Auto IV (Korea) (En,Fr,De,Es,It)
-     alternative to Grand Theft Auto IV (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Grand Theft Auto IV (Japan) [10]
-     alternative to Grand Theft Auto IV (USA) (En,Fr,De,Es,It) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 .   .   x35 .   | Grand Theft Auto IV (USA) (En,Fr,De,Es,It)
-     alternative to Grand Theft Auto IV (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Grand Theft Auto IV (Japan) [10]
+   w55 w55 w55 w55 w55 w55 x35 w55 w8  a53 a47 a47 w50 w8  x35 w8  | Grand Theft Auto IV (USA) (En,Fr,De,Es,It)
 == grand theft auto iv & episodes from liberty city
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
    w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | Grand Theft Auto IV & Episodes from Liberty City (Europe) (En,Fr,De,Es,It)
@@ -3433,46 +3277,23 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 w55 x36 w55 x35 w55 w50 w50 w50 w50 x36 w50 x35 w50 | Hunter's Trophy 2 - Europa (Europe) (En,Fr,De,Es,It)
 == hyperdimension neptunia
    .   .   .   .   .   .   .   .   a53 a53 x39 x40 x36 x33 x35 a53 | Cho Chawon Game Neptune (Korea)
-     alternative to Chou Jigen Game Neptune (Japan) [10]
-     alternative to Hyperdimension Neptunia (USA) [9,16]
-   .   .   .   .   .   .   .   .   a53 .   a53 x40 x36 x33 x35 a53 | Chou Jigen Game Neptune (Japan)
-     alternative to Hyperdimension Neptunia (Europe) [11]
-     alternative to Hyperdimension Neptunia (USA) [9,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a47 a53 .   x40 x36 x37 x35 a47 | Hyperdimension Neptunia (Europe)
-     alternative to Chou Jigen Game Neptune (Japan) [10]
-     alternative to Hyperdimension Neptunia (USA) [9,16]
-   w55 w55 w55 x40 w55 w55 x35 w55 .   a53 a47 x40 w50 x37 x35 .   | Hyperdimension Neptunia (USA)
-     alternative to Chou Jigen Game Neptune (Japan) [10]
-     alternative to Hyperdimension Neptunia (Europe) [11]
+   .   .   .   .   .   .   .   .   a53 w53 a53 x40 x36 x33 x35 a53 | Chou Jigen Game Neptune (Japan)
+   w55 w55 w55 x40 x36 w55 x35 w55 a47 a53 w47 x40 x36 x37 x35 a47 | Hyperdimension Neptunia (Europe)
+   w55 w55 w55 x40 w55 w55 x35 w55 w47 a53 a47 x40 w50 x37 x35 w47 | Hyperdimension Neptunia (USA)
+   .   .   .   .   .   .   .   .   a26 a4  a22 .   .   .   .   a26 | Hyperdimension Neptunia Hypercollection (Europe)
 == hyperdimension neptunia hypercollection
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w55 w55 w55 x40 x36 w55 x35 w55 .   .   .   x40 x36 .   x35 .   | Hyperdimension Neptunia Hypercollection (Europe)
+   g   g   g   g   g   g   g   g   .   .   .   g   g   g   g   .   |
+   w55 w55 w55 x40 x36 w55 x35 w55 .   .   .   x40 x36 w14 x35 .   | Hyperdimension Neptunia Hypercollection (Europe)
 == hyperdimension neptunia mk2
    .   .   .   .   .   .   .   .   a53 a53 x39 x40 x36 x33 x35 a53 | Cho Chawon Game Neptune mk2 (Korea)
-     alternative to Chou Jigen Game Neptune mk2 (Japan, Asia) [10]
-     alternative to Hyperdimension Neptunia mk2 (USA) [9,16]
-   .   .   .   .   .   .   .   .   a53 .   a53 x40 x36 x33 x35 a53 | Chou Jigen Game Neptune mk2 (Japan, Asia)
-     alternative to Hyperdimension Neptunia mk2 (Europe) [11]
-     alternative to Hyperdimension Neptunia mk2 (USA) [9,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a47 a53 .   x40 x36 x37 x35 a47 | Hyperdimension Neptunia mk2 (Europe)
-     alternative to Chou Jigen Game Neptune mk2 (Japan, Asia) [10]
-     alternative to Hyperdimension Neptunia mk2 (USA) [9,16]
-   w55 w55 w55 x40 w55 w55 x35 w55 .   a53 a47 x40 w50 x37 x35 .   | Hyperdimension Neptunia mk2 (USA)
-     alternative to Chou Jigen Game Neptune mk2 (Japan, Asia) [10]
-     alternative to Hyperdimension Neptunia mk2 (Europe) [11]
+   .   .   .   .   .   .   .   .   a53 w53 a53 x40 x36 x33 x35 a53 | Chou Jigen Game Neptune mk2 (Japan, Asia)
+   w55 w55 w55 x40 x36 w55 x35 w55 a47 a53 w47 x40 x36 x37 x35 a47 | Hyperdimension Neptunia mk2 (Europe)
+   w55 w55 w55 x40 w55 w55 x35 w55 w47 a53 a47 x40 w50 x37 x35 w47 | Hyperdimension Neptunia mk2 (USA)
 == hyperdimension neptunia victory
-   w55 w55 w55 x40 x36 w55 x35 w55 a47 a53 .   x40 x36 a47 x35 a47 | Hyperdimension Neptunia Victory (Europe)
-     alternative to Hyperdimension Neptunia Victory (USA) [9,14,16]
-     alternative to Kami Jigen Game Neptune V (Japan, Asia) [10]
-   w55 w55 w55 x40 w55 w55 x35 w55 .   a53 a47 x40 w50 .   x35 .   | Hyperdimension Neptunia Victory (USA)
-     alternative to Hyperdimension Neptunia Victory (Europe) [11]
-     alternative to Kami Jigen Game Neptune V (Japan, Asia) [10]
-   .   .   .   .   .   .   .   .   a53 .   a53 x40 x36 a53 x35 a53 | Kami Jigen Game Neptune V (Japan, Asia)
-     alternative to Hyperdimension Neptunia Victory (Europe) [11]
-     alternative to Hyperdimension Neptunia Victory (USA) [9,14,16]
+   w55 w55 w55 x40 x36 w55 x35 w55 a47 a53 w47 x40 x36 a47 x35 a47 | Hyperdimension Neptunia Victory (Europe)
+   w55 w55 w55 x40 w55 w55 x35 w55 w47 a53 a47 x40 w50 w14 x35 w47 | Hyperdimension Neptunia Victory (USA)
+   .   .   .   .   .   .   .   .   a53 w53 a53 x40 x36 a53 x35 a53 | Kami Jigen Game Neptune V (Japan, Asia)
    .   .   .   .   .   .   .   .   a53 a53 x39 x40 x36 a53 x35 a53 | Sin Chawon Game Neptune V (Korea)
-     alternative to Hyperdimension Neptunia Victory (USA) [9,14,16]
-     alternative to Kami Jigen Game Neptune V (Japan, Asia) [10]
 == ice age - dawn of the dinosaurs
    .   .   .   .   .   .   .   .   a53 a53 a53 a53 x36 a53 x35 a53 | Era Glaciale 3, L' - L'Alba dei Dinosauri (Italy)
    w55 w55 w55 x40 w55 w55 x35 w55 w47 w47 a47 x40 w50 w47 x35 w47 | Ice Age - Dawn of the Dinosaurs (USA) (En,Fr)
@@ -3486,18 +3307,28 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 w55 x36 w55 x35 w55 w53 w53 w53 w53 x36 w53 x35 w53 | Ice Age 4 - Continental Drift - Arctic Games (Europe) (En,Fr,De,Es,Nl,Sv)
    w55 w55 x39 x40 x36 w55 x35 w55 a53 a53 x39 x40 x36 a53 x35 a53 | Ice Age 4 - Continental Drift - Arctic Games (Russia)
 == ico
-   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
-   w55 w55 w55 x40 x36 w55 x35 w55 a7  .   a7  x40 x36 a7  x35 a7  | Ico (Japan)
-     alternative to Ico & Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It) [11]
-     alternative to Ico & Shadow of the Colossus Collection, The (USA, Brazil) (En,Fr,Es) [9,14,16]
+   g   g   g   g   g   g   g   g   .   gd  .   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   a4  .   .   .   .   .   .   | Ico & Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   a4  .   .   .   .   .   .   | Ico & Shadow of the Colossus (UK)
+   .   .   .   .   .   .   .   .   .   a24 .   .   .   .   .   .   | Ico & Shadow of the Colossus Collection, The (USA) (En,Fr,Es) (Beta) (2011-01-13)
+   .   .   .   .   .   .   .   .   .   a4  .   .   .   .   .   .   | Ico & Shadow of the Colossus Collection, The (USA, Brazil) (En,Fr,Es)
+   w55 w55 w55 x40 x36 w55 x35 w55 .   w24 .   x40 x36 .   x35 .   | Ico (Japan)
 == ico & shadow of the colossus
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | Ico & Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It)
-   w55 w55 w55 x40 x36 w55 x35 w55 .   .   .   x40 x36 .   x35 .   | Ico & Shadow of the Colossus (UK)
+   g   g   g   g   g   g   g   g   .   .   gd  gd  g   .   g   .   |
+   w55 w55 w55 w55 x36 w55 x35 w55 .   .   w7  w24 x36 .   x35 .   | Ico & Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It)
+   w55 w55 w55 x40 x36 w55 x35 w55 .   .   a6  x40 x36 .   x35 .   | Ico & Shadow of the Colossus (UK)
+   .   .   .   .   .   .   .   .   .   .   a24 a24 .   .   .   .   | Ico & Shadow of the Colossus Collection, The (USA) (En,Fr,Es) (Beta) (2011-01-13)
+   .   .   .   .   .   .   .   .   .   .   a6  a6  .   .   .   .   | Ico & Shadow of the Colossus Collection, The (USA, Brazil) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   .   .   a7  .   .   .   .   .   | Ico (Japan)
+   .   .   .   .   .   .   .   .   .   .   a7  .   .   .   .   .   | Wander to Kyozou (Japan)
 == ico & shadow of the colossus collection, the
-   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   gd  gd  |
-   w55 w55 w55 w55 w55 w55 x35 x31 .   .   .   .   .   .   x35 x31 | Ico & Shadow of the Colossus Collection, The (USA) (En,Fr,Es) (Beta) (2011-01-13)
-   w55 w55 w55 w55 w55 w55 x35 w55 .   .   .   .   .   .   x35 .   | Ico & Shadow of the Colossus Collection, The (USA, Brazil) (En,Fr,Es)
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  gd  gd  gd  |
+   .   .   .   .   .   .   .   .   a5  .   .   .   .   a5  .   a5  | Ico & Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a6  .   .   .   .   a6  .   a6  | Ico & Shadow of the Colossus (UK)
+   w55 w55 w55 w55 w55 w55 x35 x31 a24 .   .   .   a24 a24 x35 x31 | Ico & Shadow of the Colossus Collection, The (USA) (En,Fr,Es) (Beta) (2011-01-13)
+   w55 w55 w55 w55 w55 w55 x35 w55 w7  .   .   .   w24 w7  x35 w7  | Ico & Shadow of the Colossus Collection, The (USA, Brazil) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a7  .   .   .   .   a7  .   a7  | Ico (Japan)
+   .   .   .   .   .   .   .   .   a7  .   .   .   .   a7  .   a7  | Wander to Kyozou (Japan)
 == idolmaster 2, the
    w55 w55 w55 x40 x36 w55 x35 w55 w50 w50 w50 x40 x36 w50 x35 w50 | Idolmaster 2, The (Japan)
 == idolmaster cinderella girls, the - gravure for you! vol. 1
@@ -3724,15 +3555,13 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == jurassic - the hunted
    w55 w55 w55 x40 w55 w55 x35 w55 w50 w50 w50 x40 w50 w50 x35 w50 | Jurassic - The Hunted (USA)
 == just cause 2
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Just Cause 2 (Europe) (En,Fr,De,Es,It)
-     alternative to Just Cause 2 (Japan) (En,Ja) [10]
-     alternative to Just Cause 2 (USA) (En,Fr,De,Es,It) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a47 .   a47 x40 x36 a47 x35 a47 | Just Cause 2 (Japan) (En,Ja)
-     alternative to Just Cause 2 (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Just Cause 2 (USA) (En,Fr,De,Es,It) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 .   .   x35 .   | Just Cause 2 (USA) (En,Fr,De,Es,It)
-     alternative to Just Cause 2 (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Just Cause 2 (Japan) (En,Ja) [10]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w8  w8  x36 a47 x35 a47 | Just Cause 2 (Europe) (En,Fr,De,Es,It)
+   w55 w55 w55 x40 x36 w55 x35 w55 a47 w53 a47 x40 x36 a47 x35 a47 | Just Cause 2 (Japan) (En,Ja)
+   w55 w55 w55 w55 w55 w55 x35 w55 w8  a53 a47 a47 w50 w8  x35 w8  | Just Cause 2 (USA) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a8  a11 a10 a10 .   a8  .   a8  | Ultimate Action Triple Pack (Europe) (En,Fr,De,Es,It,Nl,Pt) (BLES-02117)
+   .   .   .   .   .   .   .   .   a8  a11 a10 a10 .   a8  .   a8  | Ultimate Action Triple Pack (Europe) (En,Fr,De,Es,It,Nl,Pt) (BLES-02121)
+   .   .   .   .   .   .   .   .   a8  a11 a8  a8  .   a8  .   a8  | Ultimate Action Triple Pack (Germany) (En,Fr,De,Es,It,Nl,Pt)
+   .   .   .   .   .   .   .   .   a12 a11 a8  a8  a13 a9  .   a12 | Ultimate Action Triple Pack (USA) (En,Fr,De,Es,It,Pt)
 == just dance 2014
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w47 w47 x36 a47 x35 a47 | Just Dance 2014 (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi)
    w55 w55 w55 w55 w55 w55 x35 w55 w47 w47 a47 a47 w50 w47 x35 w47 | Just Dance 2014 (USA) (En,Fr,De,Es,It,Pt)
@@ -3840,32 +3669,17 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 x40 x36 w55 x35 w55 a53 w47 a53 x40 x36 a53 x35 a53 | Killer Is Dead (Japan)
    w55 w55 w55 x40 w55 w55 x35 w55 w47 a47 a47 x40 w50 w47 x35 w47 | Killer Is Dead (USA) (En,Ja)
 == killzone
-   g   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   |
-   w55 w55 w55 w55 x36 w55 x35 w55 a25 a25 .   w50 x36 a25 x35 a25 | Killzone (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Killzone Trilogy (USA) (Killzone + Killzone 2) [9-10,14,16]
+   g   g   g   g   g   g   g   g   .   .   g   g   g   .   g   .   |
+   w55 w55 w55 w55 x36 w55 x35 w55 .   .   w50 w50 x36 .   x35 .   | Killzone (Europe) (En,Fr,De,Es,It,Nl)
+   .   .   .   .   .   .   .   .   .   .   a26 .   .   .   .   .   | Killzone Trilogy (USA) (Killzone + Killzone 2)
 == killzone 2
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 a47 a47 x36 a47 x35 a47 | Killzone 2 (Asia) (En,Ja,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Zh,Ko,Pl,Ru)
-     alternative to Killzone 2 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11]
-     alternative to Killzone 2 (Japan) (En,Ja,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Zh,Ko,Pl,Ru) [10]
-     alternative to Killzone 2 (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [9,14,16]
    w55 w55 w55 x40 x36 w55 x35 x31 a42 a42 a42 x40 x36 a42 x35 x31 | Killzone 2 (Europe) (Beta) (2008-07-02)
-     alternative to Killzone 2 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11]
-     alternative to Killzone 2 (Japan) (En,Ja,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Zh,Ko,Pl,Ru) [10]
-     alternative to Killzone 2 (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [9,14]
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   w47 x36 a47 x35 a47 | Killzone 2 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru)
-     alternative to Killzone 2 (Japan) (En,Ja,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Zh,Ko,Pl,Ru) [10]
-     alternative to Killzone 2 (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [9,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w47 w47 x36 a47 x35 a47 | Killzone 2 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru)
    w55 w55 w55 w55 x36 w55 x35 x31 a42 a42 a42 a42 x36 a42 x35 x31 | Killzone 2 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) (Beta) (2008-12-05)
-     alternative to Killzone 2 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11]
-     alternative to Killzone 2 (Japan) (En,Ja,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Zh,Ko,Pl,Ru) [10]
-     alternative to Killzone 2 (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [9,14]
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 .   a47 a47 x36 a47 x35 a47 | Killzone 2 (Japan) (En,Ja,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Zh,Ko,Pl,Ru)
-     alternative to Killzone 2 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11]
-     alternative to Killzone 2 (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 .   .   x35 .   | Killzone 2 (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru)
-     alternative to Killzone 2 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11]
-     alternative to Killzone 2 (Japan) (En,Ja,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Zh,Ko,Pl,Ru) [10]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 w15 a47 a47 x36 a47 x35 a47 | Killzone 2 (Japan) (En,Ja,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Zh,Ko,Pl,Ru)
+   w55 w55 w55 w55 w55 w55 x35 w55 w16 a53 a47 a47 w16 w16 x35 w16 | Killzone 2 (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru)
 == killzone 3
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 a47 a47 x36 a47 x35 a47 | Killzone 3 (Asia) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Zh,Ko,Pl,Ru,Tr)
    w55 w55 w55 x40 x36 w55 x35 x31 a42 a42 a42 x40 x36 a42 x35 x31 | Killzone 3 (Europe) (Beta)
@@ -3873,8 +3687,9 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 x40 x36 w55 x35 w55 a47 w47 a47 x40 x36 a47 x35 a47 | Killzone 3 (Japan) (En,Ja)
    w55 w55 w55 w55 w55 w55 x35 w55 w47 a47 a47 a47 w50 w47 x35 w47 | Killzone 3 (USA, Brazil) (En,Ja,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Zh,Ko,Pl,Ru,Tr)
 == killzone trilogy
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w55 w55 w55 x40 w55 w55 x35 w55 .   .   .   x40 .   .   x35 .   | Killzone Trilogy (USA) (Killzone + Killzone 2)
+   g   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a25 a25 .   .   .   a25 .   a25 | Killzone (Europe) (En,Fr,De,Es,It,Nl)
+   w55 w55 w55 x40 w55 w55 x35 w55 w16 w15 .   x40 w16 w16 x35 w16 | Killzone Trilogy (USA) (Killzone + Killzone 2)
 == king of fighters xii, the
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w47 w47 x36 a47 x35 a47 | King of Fighters XII, The (Europe) (En,Ja,Fr,De,Es,It)
    w55 w55 w55 x40 x36 w55 x35 w55 a53 w47 a53 x40 x36 a53 x35 a53 | King of Fighters XII, The (Japan)
@@ -4381,15 +4196,10 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == medieval moves - deadmund's quest
    g   g   g   g   g   g   g   g   gd  gd  gd  gd  gd  gd  gd  gd  |
    .   .   .   .   .   .   .   .   a42 a42 a42 x40 x36 a42 x35 x31 | Medieval Moves (Europe) (Beta) (2011-09-20)
-     alternative to Medieval Moves (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11]
-     alternative to Medieval Moves - Deadmund's Quest (USA) (En,Fr,Es,Pt) [9-10,14]
-   .   .   .   .   .   .   .   .   a47 a47 .   .   x36 a47 x35 a47 | Medieval Moves (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru)
-     alternative to Medieval Moves - Deadmund's Quest (USA) (En,Fr,Es,Pt) [9-10,14,16]
+   .   .   .   .   .   .   .   .   a47 a47 w47 w47 x36 a47 x35 a47 | Medieval Moves (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru)
    .   .   .   .   .   .   .   .   a47 a47 a47 x40 x36 a47 x35 a47 | Medieval Moves (UK)
-     alternative to Medieval Moves (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11]
-     alternative to Medieval Moves - Deadmund's Quest (USA) (En,Fr,Es,Pt) [9-10,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   .   a47 a47 .   .   x35 .   | Medieval Moves - Deadmund's Quest (USA) (En,Fr,Es,Pt)
-     alternative to Medieval Moves (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11-12]
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 w47 a47 a47 w50 w47 x35 w47 | Medieval Moves - Deadmund's Quest (USA) (En,Fr,Es,Pt)
+   .   .   .   .   .   .   .   .   a22 a4  a26 a26 a22 a22 .   a22 | Sports Champions & Medieval Moves - Deadmund's Quest Combo Disc (USA) (En,Fr,Es,Pt)
 == megazone 23 - aoi garland
    w55 w55 w55 x40 x36 w55 x35 w55 w50 w50 w50 x40 x36 w50 x35 w50 | Megazone 23 - Aoi Garland (Japan)
 == meikyuu touro legasista
@@ -4769,40 +4579,21 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w55 w55 w55 x40 x36 w55 x35 w55 .   .   .   .   .   .   .   .   | Naruto - Narutimate Storm (Japan)
 == naruto - ultimate ninja storm
-   .   .   .   .   .   .   .   .   a53 .   a53 x40 x36 a53 x35 a53 | Naruto - Narutimate Storm (Japan)
-     alternative to Naruto - Ultimate Ninja Storm (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Naruto - Ultimate Ninja Storm (USA) (En,Fr) [9,14,16]
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Naruto - Ultimate Ninja Storm (Europe) (En,Fr,De,Es,It)
-     alternative to Naruto - Narutimate Storm (Japan) [10]
-     alternative to Naruto - Ultimate Ninja Storm (USA) (En,Fr) [9,14,16]
-   w55 w55 w55 x40 w55 w55 x35 w55 .   a53 a47 x40 w50 .   x35 .   | Naruto - Ultimate Ninja Storm (USA) (En,Fr)
-     alternative to Naruto - Narutimate Storm (Japan) [10]
-     alternative to Naruto - Ultimate Ninja Storm (Europe) (En,Fr,De,Es,It) [11]
+   .   .   .   .   .   .   .   .   a53 w53 a53 x40 x36 a53 x35 a53 | Naruto - Narutimate Storm (Japan)
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w47 w50 x36 a47 x35 a47 | Naruto - Ultimate Ninja Storm (Europe) (En,Fr,De,Es,It)
+   w55 w55 w55 x40 w55 w55 x35 w55 w47 a53 a47 x40 w50 w47 x35 w47 | Naruto - Ultimate Ninja Storm (USA) (En,Fr)
+   .   .   .   .   .   .   .   .   a26 a4  a22 a22 .   a26 .   a26 | Naruto Shippuden - Ultimate Ninja Storm Collection (Europe) (En,Fr,De,Es,It)
 == naruto shippuden - ultimate ninja storm 2
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Naruto Shippuden - Ultimate Ninja Storm 2 (Europe) (En,Fr,De,Es,It)
-     alternative to Naruto Shippuden - Ultimate Ninja Storm 2 (USA) (En,Fr,Es) [9,14,16]
-     alternative to Naruto Shippuuden - Narutimate Storm 2 (Japan) [10]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 w50 .   x35 .   | Naruto Shippuden - Ultimate Ninja Storm 2 (USA) (En,Fr,Es)
-     alternative to Naruto Shippuden - Ultimate Ninja Storm 2 (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Naruto Shippuuden - Narutimate Storm 2 (Japan) [10]
-   .   .   .   .   .   .   .   .   a53 .   a53 x40 x36 a53 x35 a53 | Naruto Shippuuden - Narutimate Storm 2 (Japan)
-     alternative to Naruto Shippuden - Ultimate Ninja Storm 2 (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Naruto Shippuden - Ultimate Ninja Storm 2 (USA) (En,Fr,Es) [9,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w47 w47 x36 a47 x35 a47 | Naruto Shippuden - Ultimate Ninja Storm 2 (Europe) (En,Fr,De,Es,It)
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 a53 a47 a47 w50 w47 x35 w47 | Naruto Shippuden - Ultimate Ninja Storm 2 (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a53 w53 a53 x40 x36 a53 x35 a53 | Naruto Shippuuden - Narutimate Storm 2 (Japan)
 == naruto shippuden - ultimate ninja storm 3
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Naruto Shippuden - Ultimate Ninja Storm 3 (Europe) (En,Fr,De,Es,It,Ru)
-     alternative to Naruto Shippuden - Ultimate Ninja Storm 3 (USA) (En,Fr,Es,Pt) [9,14,16]
-     alternative to Naruto Shippuuden - Narutimate Storm 3 (Japan) [10]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 w50 .   x35 .   | Naruto Shippuden - Ultimate Ninja Storm 3 (USA) (En,Fr,Es,Pt)
-     alternative to Naruto Shippuden - Ultimate Ninja Storm 3 (Europe) (En,Fr,De,Es,It,Ru) [11-12]
-     alternative to Naruto Shippuuden - Narutimate Storm 3 (Japan) [10]
-   .   .   .   .   .   .   .   .   a53 .   a53 x40 x36 a53 x35 a53 | Naruto Shippuuden - Narutimate Storm 3 (Japan)
-     alternative to Naruto Shippuden - Ultimate Ninja Storm 3 (Europe) (En,Fr,De,Es,It,Ru) [11]
-     alternative to Naruto Shippuden - Ultimate Ninja Storm 3 (USA) (En,Fr,Es,Pt) [9,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w47 w47 x36 a47 x35 a47 | Naruto Shippuden - Ultimate Ninja Storm 3 (Europe) (En,Fr,De,Es,It,Ru)
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 a53 a47 a47 w50 w47 x35 w47 | Naruto Shippuden - Ultimate Ninja Storm 3 (USA) (En,Fr,Es,Pt)
+   .   .   .   .   .   .   .   .   a53 w53 a53 x40 x36 a53 x35 a53 | Naruto Shippuuden - Narutimate Storm 3 (Japan)
 == naruto shippuden - ultimate ninja storm 3 full burst
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 .   .   x36 a47 x35 a47 | Naruto Shippuden - Ultimate Ninja Storm 3 Full Burst (Europe) (En,Fr,De,Es,It,Ru)
-     alternative to Naruto Shippuden - Ultimate Ninja Storm 3 Full Burst (USA) (En,Fr,Es,Pt) [9-10,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   .   a47 a47 w50 .   x35 .   | Naruto Shippuden - Ultimate Ninja Storm 3 Full Burst (USA) (En,Fr,Es,Pt)
-     alternative to Naruto Shippuden - Ultimate Ninja Storm 3 Full Burst (Europe) (En,Fr,De,Es,It,Ru) [11-12]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w47 w47 x36 a47 x35 a47 | Naruto Shippuden - Ultimate Ninja Storm 3 Full Burst (Europe) (En,Fr,De,Es,It,Ru)
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 w47 a47 a47 w50 w47 x35 w47 | Naruto Shippuden - Ultimate Ninja Storm 3 Full Burst (USA) (En,Fr,Es,Pt)
 == naruto shippuden - ultimate ninja storm collection
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | Naruto Shippuden - Ultimate Ninja Storm Collection (Europe) (En,Fr,De,Es,It)
@@ -5353,24 +5144,17 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w55 w55 w55 x40 x36 w55 x35 w55 .   .   .   .   .   .   .   .   | One Piece - Kaizoku Musou 3 (Japan)
 == one piece - pirate warriors
-   .   .   .   .   .   .   .   .   a53 .   a53 x40 x36 a53 x35 a53 | One Piece - Kaizoku Musou (Japan, Asia)
-     alternative to One Piece - Pirate Warriors (Europe) (En,Fr,De,Es,It) (v02.00) [9,11,14,16]
+   .   .   .   .   .   .   .   .   a53 w53 a53 x40 x36 a53 x35 a53 | One Piece - Kaizoku Musou (Japan, Asia)
    w55 w55 w55 w55 x36 w55 x35 w55 a44 a44 a44 a44 x36 a44 x35 a44 | One Piece - Pirate Warriors (Europe) (En,Fr,De,Es,It) (v01.01)
-     alternative to One Piece - Kaizoku Musou (Japan, Asia) [10]
-     alternative to One Piece - Pirate Warriors (Europe) (En,Fr,De,Es,It) (v02.00) [9,11-12,14,16]
-   w55 w55 w55 w55 x36 w55 x35 w55 .   a53 .   .   x36 .   x35 .   | One Piece - Pirate Warriors (Europe) (En,Fr,De,Es,It) (v02.00)
-     alternative to One Piece - Kaizoku Musou (Japan, Asia) [10]
+   w55 w55 w55 w55 x36 w55 x35 w55 w53 a53 w53 w44 x36 w53 x35 w53 | One Piece - Pirate Warriors (Europe) (En,Fr,De,Es,It) (v02.00)
+   .   .   .   .   .   .   .   .   a22 a4  a22 a22 .   a22 .   a22 | One Piece - Pirate Warriors + One Piece - Pirate Warriors 2 (Europe) (En,Fr,De,Es,It)
 == one piece - pirate warriors + one piece - pirate warriors 2
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | One Piece - Pirate Warriors + One Piece - Pirate Warriors 2 (Europe) (En,Fr,De,Es,It)
 == one piece - pirate warriors 2
    .   .   .   .   .   .   .   .   a53 a53 x39 x40 x36 a53 x35 a53 | One Piece - Kaizoku Musou 2 (Asia)
-     alternative to One Piece - Kaizoku Musou 2 (Japan) [10]
-     alternative to One Piece - Pirate Warriors 2 (Europe) (En,Fr,De,Es,It) [9,14,16]
-   .   .   .   .   .   .   .   .   a53 .   a53 x40 x36 a53 x35 a53 | One Piece - Kaizoku Musou 2 (Japan)
-     alternative to One Piece - Pirate Warriors 2 (Europe) (En,Fr,De,Es,It) [9,11,14,16]
-   w55 w55 w55 w55 x36 w55 x35 w55 .   a53 .   .   x36 .   x35 .   | One Piece - Pirate Warriors 2 (Europe) (En,Fr,De,Es,It)
-     alternative to One Piece - Kaizoku Musou 2 (Japan) [10]
+   .   .   .   .   .   .   .   .   a53 w53 a53 x40 x36 a53 x35 a53 | One Piece - Kaizoku Musou 2 (Japan)
+   w55 w55 w55 w55 x36 w55 x35 w55 w53 a53 w53 w50 x36 w53 x35 w53 | One Piece - Pirate Warriors 2 (Europe) (En,Fr,De,Es,It)
 == one piece - pirate warriors 3
    .   .   .   .   .   .   .   .   a53 w53 a53 x40 x36 a53 x35 a53 | One Piece - Kaizoku Musou 3 (Japan)
    w55 w55 w55 w55 x36 w55 x35 w55 w53 a53 w53 w50 x36 w53 x35 w53 | One Piece - Pirate Warriors 3 (Europe) (En,Fr,De,Es,It)
@@ -5904,34 +5688,21 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   .   .   .   .   | Ratchet & Clank Trilogy, The (Europe) (En,Fr,De,Es,It)
 == rayman legends
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 .   .   x36 a47 x35 a47 | Rayman Legends (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi,Pl)
-     alternative to Rayman Legends (USA) (En,Fr,Es,Pt) [9-10,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w8  w47 x36 a47 x35 a47 | Rayman Legends (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi,Pl)
    w55 w55 w55 x40 x36 w55 x35 w55 a47 a47 a47 x40 x36 a47 x35 a47 | Rayman Legends (Russia) (En,Ru)
-     alternative to Rayman Legends (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi,Pl) [11]
-     alternative to Rayman Legends (USA) (En,Fr,Es,Pt) [9-10,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   .   a47 a47 w50 .   x35 .   | Rayman Legends (USA) (En,Fr,Es,Pt)
-     alternative to Rayman Legends (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi,Pl) [11-12]
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 w47 a47 a47 w50 w47 x35 w47 | Rayman Legends (USA) (En,Fr,Es,Pt)
+   .   .   .   .   .   .   .   .   a26 a26 a22 a22 .   a26 .   a26 | Rayman Legends + Rayman Origins (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi,Pl)
+   .   .   .   .   .   .   .   .   a26 a26 a8  .   .   a26 .   a26 | Rayman Legends + Rayman Origins (Russia) (En,Pl,Ru)
 == rayman legends + rayman origins
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
    w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | Rayman Legends + Rayman Origins (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi,Pl)
    w55 w55 w55 x40 x36 w55 x35 w55 .   .   .   x40 x36 .   x35 .   | Rayman Legends + Rayman Origins (Russia) (En,Pl,Ru)
 == rayman origins
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Rayman Origins (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Rayman Origins (Japan) (En,Ja) [10]
-     alternative to Rayman Origins (USA) (En,Fr,Es) [9,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w8  w47 x36 a47 x35 a47 | Rayman Origins (Europe) (En,Fr,De,Es,It,Nl)
    w55 w55 x39 x40 x36 w55 x35 w55 a43 a43 x39 x40 x36 a43 x35 a43 | Rayman Origins (Europe) (Pl,Ru)
-     alternative to Rayman Origins (Japan) (En,Ja) [10]
-     alternative to Rayman Origins (USA) (En,Fr,Es) [9,14,16]
    w55 w55 w55 x40 x36 w55 x35 w55 a48 a48 a48 x40 x36 a48 x35 a48 | Rayman Origins (Europe, Australia)
-     alternative to Rayman Origins (Europe) (En,Fr,De,Es,It,Nl) [11]
-     alternative to Rayman Origins (Japan) (En,Ja) [10]
-     alternative to Rayman Origins (USA) (En,Fr,Es) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a47 .   a47 x40 x36 a47 x35 a47 | Rayman Origins (Japan) (En,Ja)
-     alternative to Rayman Origins (Europe) (En,Fr,De,Es,It,Nl) [11]
-     alternative to Rayman Origins (USA) (En,Fr,Es) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 w50 .   x35 .   | Rayman Origins (USA) (En,Fr,Es)
-     alternative to Rayman Origins (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-     alternative to Rayman Origins (Japan) (En,Ja) [10]
+   w55 w55 w55 x40 x36 w55 x35 w55 a47 w53 a47 x40 x36 a47 x35 a47 | Rayman Origins (Japan) (En,Ja)
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 a53 a47 a47 w50 w47 x35 w47 | Rayman Origins (USA) (En,Fr,Es)
 == record of agarest war
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w55 w55 x39 x40 x36 w55 x35 w55 .   .   .   .   .   .   .   .   | Record of Agarest War (Korea)
@@ -6045,320 +5816,6 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a53 w47 a53 x40 x36 a53 x35 a53 | End of Eternity (Japan)
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w47 w47 x36 a47 x35 a47 | Resonance of Fate (Europe) (En,Ja,Fr,De,Es,It)
    w55 w55 w55 w55 w55 w55 x35 w55 w47 a47 a47 a47 w50 w47 x35 w47 | Resonance of Fate (USA) (En,Ja,Fr,De,Es,It)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  .   g   |
-   .   .   .   .   .   .   .   .   a8  a7  a23 a2  .   .   .   a8  | Assassin's Creed - Brotherhood + Assassin's Creed - Revelations (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
-     alternative to Assassin's Creed - Brotherhood (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (v02.00) [11-12]
-     alternative to Assassin's Creed - Brotherhood (Japan) (En,Ja,It) [10]
-     alternative to Assassin's Creed - Brotherhood (USA) (En,Fr,Es,It) [9,16]
-   .   .   .   .   .   .   .   .   a7  a22 a7  .   .   .   .   a7  | Assassin's Creed - Connor Saga (Japan)
-     alternative to Assassin's Creed III (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) (v02.00) [11]
-     alternative to Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v02.00) [10]
-     alternative to Assassin's Creed III (USA) (En,Fr,Es,Pt) (v02.00) [9,16]
-   .   .   .   .   .   .   .   .   a7  a23 a7  .   .   .   .   a7  | Assassin's Creed - Ezio Saga (Japan)
-     alternative to Assassin's Creed - Brotherhood (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (v02.00) [11]
-     alternative to Assassin's Creed - Brotherhood (Japan) (En,Ja,It) [10]
-     alternative to Assassin's Creed - Brotherhood (USA) (En,Fr,Es,It) [9,16]
-   .   .   .   .   .   .   .   .   a23 a7  a8  a8  a22 .   .   a23 | Assassin's Creed - Ezio Trilogy (USA) (En,Fr,De,Es,It,Pt)
-     alternative to Assassin's Creed - Brotherhood (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (v02.00) [11-12]
-     alternative to Assassin's Creed - Brotherhood (Japan) (En,Ja,It) [10]
-     alternative to Assassin's Creed - Brotherhood (USA) (En,Fr,Es,It) [9,13,16]
-   .   .   .   .   .   .   .   .   a8  a7  a22 a22 .   .   .   a8  | Assassin's Creed - Heritage Collection (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi)
-     alternative to Assassin's Creed (Europe, Australia) (En,Fr,De,Es,It) (FW2.00) [11-12]
-     alternative to Assassin's Creed (Japan) [10]
-     alternative to Assassin's Creed (USA) (En,Fr,De,Es,It) [9,16]
-   .   .   .   .   .   .   .   .   a26 a22 a8  a7  .   .   .   a26 | Assassin's Creed I + II Welcome Pack (Japan) (En,Ja,It)
-     alternative to Assassin's Creed (Europe, Australia) (En,Fr,De,Es,It) (FW2.00) [11-12]
-     alternative to Assassin's Creed (Japan) [10]
-     alternative to Assassin's Creed (USA) (En,Fr,De,Es,It) [9,16]
-   .   .   .   .   .   .   .   .   a26 a7  a22 a22 .   .   .   a26 | Assassin's Creed II - Game of the Year Edition + Assassin's Creed (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da)
-     alternative to Assassin's Creed (Europe, Australia) (En,Fr,De,Es,It) (FW2.00) [11-12]
-     alternative to Assassin's Creed (Japan) [10]
-     alternative to Assassin's Creed (USA) (En,Fr,De,Es,It) [9,16]
-   .   .   .   .   .   .   .   .   a26 a4  a22 a22 .   .   .   a26 | Assassin's Creed IV - Black Flag + Assassin's Creed - Rogue (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl)
-     alternative to Assassin's Creed - Rogue (Europe) (En,Fr,De,Es,It,Nl,Pt,Zh,Ko,Pl) [11-12]
-     alternative to Assassin's Creed - Rogue (Japan) (En,Ja) [10]
-     alternative to Assassin's Creed - Rogue (USA, Brazil) (En,Fr,Es,Pt) [9,16]
-   .   .   .   .   .   .   .   .   a26 a4  a8  .   .   .   .   a26 | Assassin's Creed IV - Black Flag + Assassin's Creed - Rogue (Russia) (En,Pl,Ru,Cs,Hu,Ar)
-     alternative to Assassin's Creed - Rogue (Europe) (En,Fr,De,Es,It,Nl,Pt,Zh,Ko,Pl) [11]
-     alternative to Assassin's Creed - Rogue (Japan) (En,Ja) [10]
-     alternative to Assassin's Creed - Rogue (USA, Brazil) (En,Fr,Es,Pt) [9,16]
-   .   .   .   .   .   .   .   .   a23 a23 a23 a23 .   a23 .   a23 | Dead Island - Double Pack (Europe) (En,Fr,De,Es,It,Pl)
-     alternative to Dead Island - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Pl) [11-12]
-     alternative to Dead Island - Game of the Year Edition (USA) (En,Fr,De,Es,It,Pl) [9,14,16]
-     alternative to Dead Island - Riptide (Japan) [10]
-   .   .   .   .   .   .   .   .   a23 a23 a23 .   .   a23 .   a23 | Dead Island - Double Zombie Pack (Japan)
-     alternative to Dead Island - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Pl) [11]
-     alternative to Dead Island - Game of the Year Edition (USA) (En,Fr,De,Es,It,Pl) [9,14,16]
-     alternative to Dead Island - Zombie of the Year Edition (Japan) [10]
-   .   .   .   .   .   .   .   .   a8  a4  a22 a22 .   a8  .   a8  | Far Cry 3 + Far Cry 4 - Double Pack (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Ko,Pl,Cs)
-     alternative to Far Cry - The Wild Expedition (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) [9-12,14,16]
-   .   .   .   .   .   .   .   .   a8  a4  a8  .   .   a8  .   a8  | Far Cry 3 + Far Cry 4 - Double Pack (Russia) (En,Pl,Ru)
-     alternative to Far Cry - The Wild Expedition (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) [9-11,14,16]
-   .   .   .   .   .   .   .   .   .   .   a8  a8  .   .   .   .   | Far Cry Compilation (USA) (En,Fr,De,Es,It,Pt) (v02.00)
-     alternative to Far Cry - The Wild Expedition (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) [11-12]
-   .   .   .   .   .   .   .   .   a22 a4  a8  .   a22 a22 .   a22 | Far Cry Compilation (USA) (v01.00)
-     alternative to Far Cry - The Wild Expedition (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) [9-11,14,16]
-     alternative to Far Cry 2 (USA) (En,Fr,De,Es,It) [13]
-   .   .   .   .   .   .   .   .   a26 a26 a22 a22 .   .   .   a26 | Ferrari Challenge - Trofeo Pirelli with Supercar Challenge (Europe) (En,Fr,De,Es,It)
-     alternative to Absolute Supercars (Europe) (En,Fr,De,Es,It) [9-12,16]
-   .   .   .   .   .   .   .   .   a26 a26 a22 a22 .   a26 .   a26 | Fighting Edition (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru)
-     alternative to Soulcalibur V (Europe) (En,Ja,Fr,De,Es,It,Ru) [11-12]
-     alternative to Soulcalibur V (Japan) [10]
-     alternative to Soulcalibur V (USA) (En,Ja,Fr,De,Es,It,Ru) [9,14,16]
-   .   .   .   .   .   .   .   .   a8  a7  a22 a22 .   a8  .   a8  | Grand Theft Auto IV & Episodes from Liberty City (Europe) (En,Fr,De,Es,It)
-     alternative to Grand Theft Auto - Episodes from Liberty City (Europe, Australia) (En,Fr,De,Es,It) [11-12]
-     alternative to Grand Theft Auto - Episodes from Liberty City (Japan) [10]
-     alternative to Grand Theft Auto - Episodes from Liberty City (USA) (En,Fr,De,Es,It) [9,14,16]
-   .   .   .   .   .   .   .   .   a7  a22 a7  .   .   a7  .   a7  | Grand Theft Auto IV & Episodes from Liberty City (Japan)
-     alternative to Grand Theft Auto - Episodes from Liberty City (Europe, Australia) (En,Fr,De,Es,It) [11]
-     alternative to Grand Theft Auto - Episodes from Liberty City (Japan) [10]
-     alternative to Grand Theft Auto - Episodes from Liberty City (USA) (En,Fr,De,Es,It) [9,14,16]
-   .   .   .   .   .   .   .   .   a22 a7  a8  a8  a22 a22 .   a22 | Grand Theft Auto IV & Episodes from Liberty City (USA, Asia) (En,Fr,De,Es,It)
-     alternative to Grand Theft Auto - Episodes from Liberty City (Europe, Australia) (En,Fr,De,Es,It) [11-12]
-     alternative to Grand Theft Auto - Episodes from Liberty City (Japan) [10]
-     alternative to Grand Theft Auto - Episodes from Liberty City (USA) (En,Fr,De,Es,It) [9,13-14,16]
-   .   .   .   .   .   .   .   .   a26 a4  a22 .   .   .   .   a26 | Hyperdimension Neptunia Hypercollection (Europe)
-     alternative to Chou Jigen Game Neptune (Japan) [10]
-     alternative to Hyperdimension Neptunia (Europe) [11]
-     alternative to Hyperdimension Neptunia (USA) [9,16]
-   .   .   .   .   .   .   .   .   a5  a4  .   .   .   a5  .   a5  | Ico & Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It)
-     alternative to Ico & Shadow of the Colossus Collection, The (USA, Brazil) (En,Fr,Es) [9,14,16]
-     alternative to Ico (Japan) [10]
-   .   .   .   .   .   .   .   .   a6  a4  a6  .   .   a6  .   a6  | Ico & Shadow of the Colossus (UK)
-     alternative to Ico & Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It) [11]
-     alternative to Ico & Shadow of the Colossus Collection, The (USA, Brazil) (En,Fr,Es) [9,14,16]
-     alternative to Ico (Japan) [10]
-   .   .   .   .   .   .   .   .   a24 a24 a24 a24 a24 a24 .   .   | Ico & Shadow of the Colossus Collection, The (USA) (En,Fr,Es) (Beta) (2011-01-13)
-     alternative to Ico & Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It) [11-12]
-     alternative to Ico & Shadow of the Colossus Collection, The (USA, Brazil) (En,Fr,Es) [9,13-14]
-     alternative to Ico (Japan) [10]
-   .   .   .   .   .   .   .   .   .   a4  a6  a6  .   .   .   .   | Ico & Shadow of the Colossus Collection, The (USA, Brazil) (En,Fr,Es)
-     alternative to Ico & Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It) [11-12]
-     alternative to Ico (Japan) [10]
-   .   .   .   .   .   .   .   .   a7  .   a7  .   .   a7  .   a7  | Ico (Japan)
-     alternative to Ico & Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It) [11]
-     alternative to Ico & Shadow of the Colossus Collection, The (USA, Brazil) (En,Fr,Es) [9,14,16]
-   .   .   .   .   .   .   .   .   a25 a25 .   .   .   a25 .   a25 | Killzone (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Killzone Trilogy (USA) (Killzone + Killzone 2) [9-10,14,16]
-   .   .   .   .   .   .   .   .   .   .   a26 .   .   .   .   .   | Killzone Trilogy (USA) (Killzone + Killzone 2)
-     alternative to Killzone (Europe) (En,Fr,De,Es,It,Nl) [11]
-   .   .   .   .   .   .   .   .   a26 a4  a22 a22 .   a26 .   a26 | Naruto Shippuden - Ultimate Ninja Storm Collection (Europe) (En,Fr,De,Es,It)
-     alternative to Naruto - Narutimate Storm (Japan) [10]
-     alternative to Naruto - Ultimate Ninja Storm (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Naruto - Ultimate Ninja Storm (USA) (En,Fr) [9,14,16]
-   .   .   .   .   .   .   .   .   a22 a4  a22 a22 .   a22 .   a22 | One Piece - Pirate Warriors + One Piece - Pirate Warriors 2 (Europe) (En,Fr,De,Es,It)
-     alternative to One Piece - Kaizoku Musou (Japan, Asia) [10]
-     alternative to One Piece - Pirate Warriors (Europe) (En,Fr,De,Es,It) (v02.00) [9,11-12,14,16]
-   .   .   .   .   .   .   .   .   a26 a26 a22 a22 .   a26 .   a26 | Rayman Legends + Rayman Origins (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi,Pl)
-     alternative to Rayman Legends (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi,Pl) [11-12]
-     alternative to Rayman Legends (USA) (En,Fr,Es,Pt) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a26 a26 a8  .   .   a26 .   a26 | Rayman Legends + Rayman Origins (Russia) (En,Pl,Ru)
-     alternative to Rayman Legends (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi,Pl) [11]
-     alternative to Rayman Legends (USA) (En,Fr,Es,Pt) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a22 a4  a26 a26 a22 a22 .   a22 | Sports Champions & Medieval Moves - Deadmund's Quest Combo Disc (USA) (En,Fr,Es,Pt)
-     alternative to Medieval Moves (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11-12]
-     alternative to Medieval Moves - Deadmund's Quest (USA) (En,Fr,Es,Pt) [9-10,13-14,16]
-   .   .   .   .   .   .   .   .   .   .   .   .   .   a1  .   .   | Supercar Challenge (Europe) (En,Fr,De,Es,It)
-     alternative to Ferrari Challenge - Trofeo Pirelli with Supercar Challenge (Europe) (En,Fr,De,Es,It) [14]
-   .   .   .   .   .   .   .   .   .   .   .   a3  .   .   .   .   | Tales of Graces f (Europe) (En,Fr,De)
-     alternative to Tales of Symphonia Chronicles + Tales of Graces f (Europe) (En,Fr,De,Es,It) [12]
-   .   .   .   .   .   .   .   .   a26 a26 a22 .   .   a26 .   a26 | Tales of Symphonia Chronicles + Tales of Graces f (Europe) (En,Fr,De,Es,It)
-     alternative to Tales of Graces f (Europe) (En,Fr,De) [11]
-     alternative to Tales of Graces f (Japan) [10]
-     alternative to Tales of Graces f (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a26 a4  a22 a22 .   a26 .   a26 | Tales of Xillia + Tales of Xillia 2 (Europe) (En,Fr,De,Es,It)
-     alternative to Tales of Xillia (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Tales of Xillia (Japan, Asia) [10]
-     alternative to Tales of Xillia (USA) (En,Fr,Es) [9,14,16]
-   .   .   .   .   .   .   .   .   a22 a4  a8  a8  a22 a22 .   a22 | Tom Clancy's Ghost Recon Anthology (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Europe, Australia) (En,Fr,De,Es,It) [11-12]
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Japan) [10]
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (USA) (En,Fr,De,Es,It) [9,13-14,16]
-   .   .   .   .   .   .   .   .   a8  a4  a22 a22 .   a8  .   a8  | Tom Clancy's Ghost Recon Double Pack (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Europe, Australia) (En,Fr,De,Es,It) [11-12]
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Japan) [10]
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (USA) (En,Fr,De,Es,It) [9,14,16]
-   .   .   .   .   .   .   .   .   a26 .   a22 a22 .   a26 .   a26 | Tom Clancy's Rainbow Six - Vegas + Tom Clancy's Splinter Cell - Double Agent (Europe, Asia) (En,Fr,De,Es,It)
-     alternative to Tom Clancy's Rainbow Six - Vegas (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Tom Clancy's Rainbow Six - Vegas (USA) (En,Fr,De,Es,It) [9,14,16]
-   .   .   .   .   .   .   .   .   a7  a22 a7  .   .   a7  .   a7  | Tom Clancy's Rainbow Six - Vegas 1 + 2 (Japan)
-     alternative to Tom Clancy's Rainbow Six - Vegas (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Tom Clancy's Rainbow Six - Vegas (Japan) [10]
-     alternative to Tom Clancy's Rainbow Six - Vegas (USA) (En,Fr,De,Es,It) [9,14,16]
-   .   .   .   .   .   .   .   .   a8  a7  a23 a23 .   a8  .   a8  | Tom Clancy's Rainbow Six - Vegas 2 - Complete Edition + Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Europe) (En,Fr,De,Es,It)
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Europe, Australia) (En,Fr,De,Es,It) [11-12]
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Japan) [10]
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (USA) (En,Fr,De,Es,It) [9,14,16]
-   .   .   .   .   .   .   .   .   .   a25 .   .   .   .   .   .   | Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v02.02)
-     alternative to Tom Clancy's Rainbow Six - Vegas + Tom Clancy's Splinter Cell - Double Agent (Europe, Asia) (En,Fr,De,Es,It) [10]
-   .   .   .   .   .   .   .   .   a8  a8  .   .   .   a8  .   a8  | Tomb Raider Trilogy, The (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Tomb Raider - Underworld (Japan) [10]
-     alternative to Tomb Raider - Underworld (USA) (En,Fr,De,Es,It,Nl) (FW3.50) [9,14,16]
-   .   .   .   .   .   .   .   .   .   .   a8  a8  .   .   .   .   | Tomb Raider Trilogy, The (USA) (En,Fr,De,Es,It,Nl)
-     alternative to Tomb Raider - Underworld (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-   .   .   .   .   .   .   .   .   a8  a11 a10 a10 .   a8  .   a8  | Ultimate Action Triple Pack (Europe) (En,Fr,De,Es,It,Nl,Pt) (BLES-02117)
-     alternative to Just Cause 2 (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Just Cause 2 (Japan) (En,Ja) [10]
-     alternative to Just Cause 2 (USA) (En,Fr,De,Es,It) [9,14,16]
-   .   .   .   .   .   .   .   .   a8  a11 a10 a10 .   a8  .   a8  | Ultimate Action Triple Pack (Europe) (En,Fr,De,Es,It,Nl,Pt) (BLES-02121)
-     alternative to Just Cause 2 (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Just Cause 2 (Japan) (En,Ja) [10]
-     alternative to Just Cause 2 (USA) (En,Fr,De,Es,It) [9,14,16]
-   .   .   .   .   .   .   .   .   a8  a11 a8  a8  .   a8  .   a8  | Ultimate Action Triple Pack (Germany) (En,Fr,De,Es,It,Nl,Pt)
-     alternative to Just Cause 2 (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Just Cause 2 (Japan) (En,Ja) [10]
-     alternative to Just Cause 2 (USA) (En,Fr,De,Es,It) [9,14,16]
-   .   .   .   .   .   .   .   .   a12 a11 a8  a8  a13 a9  .   a12 | Ultimate Action Triple Pack (USA) (En,Fr,De,Es,It,Pt)
-     alternative to Just Cause 2 (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Just Cause 2 (Japan) (En,Ja) [10]
-     alternative to Just Cause 2 (USA) (En,Fr,De,Es,It) [9,13-14,16]
-   .   .   .   .   .   .   .   .   a7  .   a7  .   .   a7  .   a7  | Wander to Kyozou (Japan)
-     alternative to Ico & Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It) [11]
-     alternative to Ico & Shadow of the Colossus Collection, The (USA, Brazil) (En,Fr,Es) [9,14,16]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   gd  g   g   g   g   gd  .   gd  |
-   .   .   .   .   .   .   .   .   w41 w41 w41 w41 .   .   .   w41 | Absolute Supercars (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w8  w7  .   .   .   .   | Assassin's Creed (Europe, Australia) (En,Fr,De,Es,It) (FW2.00)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Assassin's Creed (Japan)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   .   w47 | Assassin's Creed (USA) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w8  w8  .   .   .   .   | Assassin's Creed - Brotherhood (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (v02.00)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Assassin's Creed - Brotherhood (Japan) (En,Ja,It)
-   .   .   .   .   .   .   .   .   w8  .   .   .   w50 .   .   w8  | Assassin's Creed - Brotherhood (USA) (En,Fr,Es,It)
-   .   .   .   .   .   .   .   .   .   .   .   w47 .   .   .   .   | Assassin's Creed - Revelations (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) (BLES-01467)
-   .   .   .   .   .   .   .   .   .   .   .   .   w44 .   .   .   | Assassin's Creed - Revelations (USA) (En,Fr,Es,Pt) (BLUS-30905)
-   .   .   .   .   .   .   .   .   w68 w70 w68 .   .   .   .   w68 | Assassin's Creed - Revelations - Special Edition (Japan) (En,Ja)
-   .   .   .   .   .   .   .   .   .   .   w8  w47 .   .   .   .   | Assassin's Creed - Rogue (Europe) (En,Fr,De,Es,It,Nl,Pt,Zh,Ko,Pl)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Assassin's Creed - Rogue (Japan) (En,Ja)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   .   w47 | Assassin's Creed - Rogue (USA, Brazil) (En,Fr,Es,Pt)
-   .   .   .   .   .   .   .   .   .   .   .   .   w50 .   .   .   | Assassin's Creed II (USA, Asia) (En,Fr,Es,It)
-   .   .   .   .   .   .   .   .   w67 .   w67 w68 .   .   .   w67 | Assassin's Creed II - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da)
-   .   .   .   .   .   .   .   .   .   w70 .   .   .   .   .   .   | Assassin's Creed II - Special Edition (Japan) (En,Ja,It)
-   .   .   .   .   .   .   .   .   .   .   w7  w47 .   .   .   .   | Assassin's Creed III (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi) (v02.00)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Assassin's Creed III (Japan) (En,Ja,Zh,Ko) (v02.00)
-   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   w7  | Assassin's Creed III (USA) (En,Fr,Es,Pt) (v02.00)
-   .   .   .   .   .   .   .   .   .   .   w8  w47 .   .   .   .   | Assassin's Creed IV - Black Flag (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Assassin's Creed IV - Black Flag (Japan, Asia) (En,Ja,Zh,Ko)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   .   w47 | Assassin's Creed IV - Black Flag (USA) (En,Fr,Es,Pt)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Chou Jigen Game Neptune (Japan)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Chou Jigen Game Neptune mk2 (Japan, Asia)
-   .   .   .   .   .   .   .   .   .   .   w67 w67 .   .   .   .   | Dead Island - Game of the Year Edition (Europe) (En,Fr,De,Es,It,Pl)
-   .   .   .   .   .   .   .   .   w67 .   .   .   .   w67 .   w67 | Dead Island - Game of the Year Edition (USA) (En,Fr,De,Es,It,Pl)
-   .   .   .   .   .   .   .   .   .   w70 .   .   .   .   .   .   | Dead Island - Riptide (Japan)
-   .   .   .   .   .   .   .   .   w68 .   w68 w68 .   w68 .   w68 | Dead Island - Riptide - Complete Edition (Europe) (En,Fr,De,Es,It,Pl)
-   .   .   .   .   .   .   .   .   .   w70 .   .   .   .   .   .   | Dead Island - Zombie of the Year Edition (Japan)
-   .   .   .   .   .   .   .   .   w12 w11 w10 w10 .   w12 .   w12 | Far Cry - The Wild Expedition (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
-   .   .   .   .   .   .   .   .   .   .   w10 w10 .   .   .   .   | Far Cry 2 (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w11 .   .   .   .   .   .   | Far Cry 2 (Japan)
-   .   .   .   .   .   .   .   .   w12 .   .   .   w13 w12 .   w12 | Far Cry 2 (USA) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w10 w10 .   .   .   .   | Far Cry 3 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
-   .   .   .   .   .   .   .   .   .   w11 .   .   .   .   .   .   | Far Cry 3 (Japan) (En,Ja)
-   .   .   .   .   .   .   .   .   w12 .   .   .   w13 w12 .   w12 | Far Cry 3 (USA) (En,Fr,Es,Pt)
-   .   .   .   .   .   .   .   .   .   .   w8  w47 .   .   .   .   | Far Cry 4 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Ko,Pl,Cs)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Far Cry 4 (Japan)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w47 .   w47 | Far Cry 4 (USA) (En,Fr,Es,Pt)
-   .   .   .   .   .   .   .   .   w12 w11 .   .   w13 w12 .   w12 | Far Cry Compilation (USA) (En,Fr,De,Es,It,Pt) (v02.00)
-   .   .   .   .   .   .   .   .   .   .   w47 w50 .   .   .   .   | Ferrari Challenge - Trofeo Pirelli (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w47 w47 .   .   .   w9  .   w47 | Ferrari Challenge - Trofeo Pirelli (USA) (En,Fr)
-   .   .   .   .   .   .   .   .   .   .   .   .   .   w9  .   .   | Ferrari Challenge - Trofeo Pirelli with Supercar Challenge (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w8  w8  .   .   .   .   | Grand Theft Auto - Episodes from Liberty City (Europe, Australia) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Grand Theft Auto - Episodes from Liberty City (Japan)
-   .   .   .   .   .   .   .   .   w8  .   .   .   w50 w8  .   w8  | Grand Theft Auto - Episodes from Liberty City (USA) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w8  w8  .   .   .   .   | Grand Theft Auto IV (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Grand Theft Auto IV (Japan)
-   .   .   .   .   .   .   .   .   w8  .   .   .   w50 w8  .   w8  | Grand Theft Auto IV (USA) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   | Hyperdimension Neptunia (Europe)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   .   w47 | Hyperdimension Neptunia (USA)
-   .   .   .   .   .   .   .   .   .   .   .   .   .   w14 .   .   | Hyperdimension Neptunia Hypercollection (Europe)
-   .   .   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   | Hyperdimension Neptunia Victory (Europe)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w14 .   w47 | Hyperdimension Neptunia Victory (USA)
-   .   .   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   | Hyperdimension Neptunia mk2 (Europe)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   .   w47 | Hyperdimension Neptunia mk2 (USA)
-   .   .   .   .   .   .   .   .   .   .   w7  w24 .   .   .   .   | Ico & Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w7  .   .   .   w24 w7  .   w7  | Ico & Shadow of the Colossus Collection, The (USA, Brazil) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   w24 .   .   .   .   .   .   | Ico (Japan)
-   .   .   .   .   .   .   .   .   .   .   w8  w8  .   .   .   .   | Just Cause 2 (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Just Cause 2 (Japan) (En,Ja)
-   .   .   .   .   .   .   .   .   w8  .   .   .   w50 w8  .   w8  | Just Cause 2 (USA) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Kami Jigen Game Neptune V (Japan, Asia)
-   .   .   .   .   .   .   .   .   .   .   w50 .   .   .   .   .   | Killzone (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   | Killzone 2 (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru)
-   .   .   .   .   .   .   .   .   .   w15 .   .   .   .   .   .   | Killzone 2 (Japan) (En,Ja,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Zh,Ko,Pl,Ru)
-   .   .   .   .   .   .   .   .   w16 .   .   .   w16 w16 .   w16 | Killzone 2 (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru)
-   .   .   .   .   .   .   .   .   w16 w15 .   .   w16 w16 .   w16 | Killzone Trilogy (USA) (Killzone + Killzone 2)
-   .   .   .   .   .   .   .   .   .   .   w47 w47 .   .   .   .   | Medieval Moves (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru)
-   .   .   .   .   .   .   .   .   w47 w47 .   .   w50 w47 .   w47 | Medieval Moves - Deadmund's Quest (USA) (En,Fr,Es,Pt)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Naruto - Narutimate Storm (Japan)
-   .   .   .   .   .   .   .   .   .   .   w47 w50 .   .   .   .   | Naruto - Ultimate Ninja Storm (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w47 .   w47 | Naruto - Ultimate Ninja Storm (USA) (En,Fr)
-   .   .   .   .   .   .   .   .   .   .   w47 w47 .   .   .   .   | Naruto Shippuden - Ultimate Ninja Storm 2 (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w47 .   w47 | Naruto Shippuden - Ultimate Ninja Storm 2 (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w47 w47 .   .   .   .   | Naruto Shippuden - Ultimate Ninja Storm 3 (Europe) (En,Fr,De,Es,It,Ru)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w47 .   w47 | Naruto Shippuden - Ultimate Ninja Storm 3 (USA) (En,Fr,Es,Pt)
-   .   .   .   .   .   .   .   .   .   .   w47 w47 .   .   .   .   | Naruto Shippuden - Ultimate Ninja Storm 3 Full Burst (Europe) (En,Fr,De,Es,It,Ru)
-   .   .   .   .   .   .   .   .   w47 w47 .   .   .   w47 .   w47 | Naruto Shippuden - Ultimate Ninja Storm 3 Full Burst (USA) (En,Fr,Es,Pt)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Naruto Shippuuden - Narutimate Storm 2 (Japan)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Naruto Shippuuden - Narutimate Storm 3 (Japan)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | One Piece - Kaizoku Musou (Japan, Asia)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | One Piece - Kaizoku Musou 2 (Japan)
-   .   .   .   .   .   .   .   .   w53 .   w53 w44 .   w53 .   w53 | One Piece - Pirate Warriors (Europe) (En,Fr,De,Es,It) (v02.00)
-   .   .   .   .   .   .   .   .   w53 .   w53 w50 .   w53 .   w53 | One Piece - Pirate Warriors 2 (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w8  w47 .   .   .   .   | Rayman Legends (Europe) (En,Fr,De,Es,It,Nl,Sv,No,Da,Fi,Pl)
-   .   .   .   .   .   .   .   .   w47 w47 .   .   .   w47 .   w47 | Rayman Legends (USA) (En,Fr,Es,Pt)
-   .   .   .   .   .   .   .   .   .   .   w8  w47 .   .   .   .   | Rayman Origins (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Rayman Origins (Japan) (En,Ja)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w47 .   w47 | Rayman Origins (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w8  .   .   .   .   .   | Sleeping Dogs (Europe) (En,Fr,De)
-   .   .   .   .   .   .   .   .   .   .   .   w8  .   .   .   .   | Sleeping Dogs (Europe) (Es,It)
-   .   .   .   .   .   .   .   .   w8  .   .   .   w42 w8  .   w8  | Sleeping Dogs (USA, Asia) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Sleeping Dogs - Hong Kong Himitsu Keisatsu (Japan)
-   .   .   .   .   .   .   .   .   .   .   w47 w47 .   .   .   .   | Soulcalibur V (Europe) (En,Ja,Fr,De,Es,It,Ru)
-   .   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   .   | Soulcalibur V (Japan)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w47 .   w47 | Soulcalibur V (USA) (En,Ja,Fr,De,Es,It,Ru)
-   .   .   .   .   .   .   .   .   .   .   w47 w47 .   .   .   .   | Sports Champions (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Sports Champions (Japan) (En,Ja)
-   .   .   .   .   .   .   .   .   w47 .   .   .   w44 w47 .   w47 | Sports Champions (USA) (En,Fr,Es,Pt) (FW3.50)
-   .   .   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   | Tales of Graces f (Europe) (En,Fr,De)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Tales of Graces f (Japan)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w47 .   w47 | Tales of Graces f (USA)
-   .   .   .   .   .   .   .   .   .   .   w47 w17 .   .   .   .   | Tales of Symphonia Chronicles (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w47 w47 .   .   .   w47 .   w47 | Tales of Symphonia Chronicles (USA) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   .   w17 .   .   .   .   | Tales of Symphonia Chronicles + Tales of Graces f (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w47 w47 .   .   .   .   | Tales of Xillia (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Tales of Xillia (Japan, Asia)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w47 .   w47 | Tales of Xillia (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w47 w47 .   .   .   .   | Tales of Xillia 2 (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Tales of Xillia 2 (Japan)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w47 .   w47 | Tales of Xillia 2 (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w47 w47 .   .   .   .   | Tekken 6 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru) (v02.00)
-   .   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   .   | Tekken 6 (Japan) (v02.00)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w47 .   w47 | Tekken 6 (USA) (En,Ja,Fr,De,Es,It,Ko,Ru)
-   .   .   .   .   .   .   .   .   .   .   w47 w47 .   .   .   .   | Tekken Tag Tournament 2 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru)
-   .   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   .   | Tekken Tag Tournament 2 (Japan, Asia) (En,Ja,Fr,De,Es,It,Ko,Ru)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w47 .   w47 | Tekken Tag Tournament 2 (USA) (En,Ja,Fr,De,Es,It,Ko,Ru)
-   .   .   .   .   .   .   .   .   .   .   w8  w8  .   .   .   .   | Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Europe, Australia) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Japan)
-   .   .   .   .   .   .   .   .   w8  .   .   .   w50 w8  .   w8  | Tom Clancy's Ghost Recon - Advanced Warfighter 2 (USA) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w8  w8  .   .   .   .   | Tom Clancy's Ghost Recon - Future Soldier (Europe, Asia) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Tom Clancy's Ghost Recon - Future Soldier (Japan)
-   .   .   .   .   .   .   .   .   w8  .   .   .   w50 w8  .   w8  | Tom Clancy's Ghost Recon - Future Soldier (USA) (En,Fr,De,Es,It,Nl,Pt)
-   .   .   .   .   .   .   .   .   .   .   w7  w47 .   .   .   .   | Tom Clancy's Rainbow Six - Vegas (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w21 .   .   .   .   .   .   | Tom Clancy's Rainbow Six - Vegas (Japan)
-   .   .   .   .   .   .   .   .   w7  .   .   .   .   w7  .   w7  | Tom Clancy's Rainbow Six - Vegas (USA) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w21 .   .   .   .   .   .   | Tom Clancy's Rainbow Six - Vegas + Tom Clancy's Splinter Cell - Double Agent (Europe, Asia) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Tom Clancy's Rainbow Six - Vegas 2 (Japan)
-   .   .   .   .   .   .   .   .   w67 .   w67 w67 .   w67 .   w67 | Tom Clancy's Rainbow Six - Vegas 2 - Complete Edition (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w47 w47 .   .   .   .   | Tom Clancy's Splinter Cell - Double Agent (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w47 .   w47 | Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v02.02)
-   .   .   .   .   .   .   .   .   .   .   w8  w8  .   .   .   .   | Tomb Raider (Europe) (En,Fr,De,Es,It,Nl,Pt)
-   .   .   .   .   .   .   .   .   .   w53 .   .   .   .   .   .   | Tomb Raider (Japan)
-   .   .   .   .   .   .   .   .   w8  .   .   .   w50 w8  .   w8  | Tomb Raider (USA) (En,Fr,Es,Pt)
-   .   .   .   .   .   .   .   .   .   .   w18 w18 .   .   .   .   | Tomb Raider - Underworld (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   .   w19 .   .   .   .   .   .   | Tomb Raider - Underworld (Japan)
-   .   .   .   .   .   .   .   .   w20 .   .   .   w20 w20 .   w20 | Tomb Raider - Underworld (USA) (En,Fr,De,Es,It,Nl) (FW3.50)
-   .   .   .   .   .   .   .   .   .   .   w18 w18 .   .   .   .   | Tomb Raider Trilogy, The (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   w20 w19 .   .   w20 w20 .   w20 | Tomb Raider Trilogy, The (USA) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   .   w24 .   .   .   .   .   .   | Wander to Kyozou (Japan)
 == retro city rampage dx
    w55 w55 w55 x40 w55 w55 x35 w55 w50 w50 w50 x40 w50 w50 x35 w50 | Retro City Rampage DX (USA)
 == rewrite
@@ -7114,33 +6571,13 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 w55 w55 w55 x35 w55 w47 w47 a47 a47 w50 w47 x35 w47 | Skylanders - Trap Team (USA) (En,Fr,Es,Pt)
 == sleeping dogs
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   a43 x36 a47 x35 a47 | Sleeping Dogs (Europe) (En,Fr,De)
-     alternative to Sleeping Dogs (Europe) (Es,It) [12]
-     alternative to Sleeping Dogs (USA, Asia) (En,Fr,Es) [9,14,16]
-     alternative to Sleeping Dogs - Hong Kong Himitsu Keisatsu (Japan) [10]
-   w55 w55 w55 w55 x36 w55 x35 w55 a43 a43 a43 .   x36 a43 x35 a43 | Sleeping Dogs (Europe) (Es,It)
-     alternative to Sleeping Dogs (Europe) (En,Fr,De) [11]
-     alternative to Sleeping Dogs (USA, Asia) (En,Fr,Es) [9,14,16]
-     alternative to Sleeping Dogs - Hong Kong Himitsu Keisatsu (Japan) [10]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w8  a43 x36 a47 x35 a47 | Sleeping Dogs (Europe) (En,Fr,De)
+   w55 w55 w55 w55 x36 w55 x35 w55 a43 a43 a43 w8  x36 a43 x35 a43 | Sleeping Dogs (Europe) (Es,It)
    w55 w55 x39 x40 x36 w55 x35 w55 a43 a43 x39 x40 x36 a43 x35 a43 | Sleeping Dogs (Europe) (Pl,Ru)
-     alternative to Sleeping Dogs (USA, Asia) (En,Fr,Es) [9,14,16]
-     alternative to Sleeping Dogs - Hong Kong Himitsu Keisatsu (Japan) [10]
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 a47 a53 x36 a47 x35 a47 | Sleeping Dogs (Germany) (En,Fr,De)
-     alternative to Sleeping Dogs (Europe) (En,Fr,De) [11]
-     alternative to Sleeping Dogs (Europe) (Es,It) [12]
-     alternative to Sleeping Dogs (USA, Asia) (En,Fr,Es) [9,14,16]
-     alternative to Sleeping Dogs - Hong Kong Himitsu Keisatsu (Japan) [10]
    w55 w55 w55 x40 w55 w55 x35 x31 a42 a53 a42 x40 a42 a42 x35 x31 | Sleeping Dogs (USA) (Beta) (2012-06-24)
-     alternative to Sleeping Dogs (Europe) (En,Fr,De) [11]
-     alternative to Sleeping Dogs (USA, Asia) (En,Fr,Es) [9,13-14]
-     alternative to Sleeping Dogs - Hong Kong Himitsu Keisatsu (Japan) [10]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 .   .   x35 .   | Sleeping Dogs (USA, Asia) (En,Fr,Es)
-     alternative to Sleeping Dogs (Europe) (En,Fr,De) [11]
-     alternative to Sleeping Dogs (Europe) (Es,It) [12]
-     alternative to Sleeping Dogs - Hong Kong Himitsu Keisatsu (Japan) [10]
-   .   .   .   .   .   .   .   .   a53 .   a53 x40 x36 a53 x35 a53 | Sleeping Dogs - Hong Kong Himitsu Keisatsu (Japan)
-     alternative to Sleeping Dogs (Europe) (En,Fr,De) [11]
-     alternative to Sleeping Dogs (USA, Asia) (En,Fr,Es) [9,14,16]
+   w55 w55 w55 w55 w55 w55 x35 w55 w8  a53 a47 a47 w42 w8  x35 w8  | Sleeping Dogs (USA, Asia) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a53 w53 a53 x40 x36 a53 x35 a53 | Sleeping Dogs - Hong Kong Himitsu Keisatsu (Japan)
 == sleeping dogs - hong kong himitsu keisatsu
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w55 w55 w55 x40 x36 w55 x35 w55 .   .   .   .   .   .   .   .   | Sleeping Dogs - Hong Kong Himitsu Keisatsu (Japan)
@@ -7264,15 +6701,10 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 w55 x36 w55 x35 w55 a47 w47 a47 a47 x36 a47 x35 a47 | Soulcalibur IV (Japan) (En,Ja,Fr,De,Es,It)
    w55 w55 w55 w55 w55 w55 x35 w55 w47 a47 a47 a47 w50 w47 x35 w47 | Soulcalibur IV (USA) (En,Ja,Fr,De,Es,It)
 == soulcalibur v
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 .   .   x36 a47 x35 a47 | Soulcalibur V (Europe) (En,Ja,Fr,De,Es,It,Ru)
-     alternative to Soulcalibur V (Japan) [10]
-     alternative to Soulcalibur V (USA) (En,Ja,Fr,De,Es,It,Ru) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a53 .   a53 x40 x36 a53 x35 a53 | Soulcalibur V (Japan)
-     alternative to Soulcalibur V (Europe) (En,Ja,Fr,De,Es,It,Ru) [11]
-     alternative to Soulcalibur V (USA) (En,Ja,Fr,De,Es,It,Ru) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a47 a47 a47 w50 .   x35 .   | Soulcalibur V (USA) (En,Ja,Fr,De,Es,It,Ru)
-     alternative to Soulcalibur V (Europe) (En,Ja,Fr,De,Es,It,Ru) [11-12]
-     alternative to Soulcalibur V (Japan) [10]
+   .   .   .   .   .   .   .   .   a26 a26 a22 a22 .   a26 .   a26 | Fighting Edition (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru)
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w47 w47 x36 a47 x35 a47 | Soulcalibur V (Europe) (En,Ja,Fr,De,Es,It,Ru)
+   w55 w55 w55 x40 x36 w55 x35 w55 a53 w47 a53 x40 x36 a53 x35 a53 | Soulcalibur V (Japan)
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 a47 a47 a47 w50 w47 x35 w47 | Soulcalibur V (USA) (En,Ja,Fr,De,Es,It,Ru)
 == south park - der stab der wahrheit
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   .   .   .   .   | South Park - Der Stab der Wahrheit (Germany) (En,De) (v01.00)
@@ -7324,26 +6756,11 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 x39 x40 x36 w55 x35 w55 .   .   .   .   .   .   .   .   | Split-Second - Velocity (Russia)
 == sports champions
    w55 w55 w55 x40 x36 w55 x35 w55 a47 a53 a47 x40 x36 a47 x35 a47 | Sports Champions (Asia) (En,Zh)
-     alternative to Sports Champions (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11]
-     alternative to Sports Champions (Japan) (En,Ja) [10]
-     alternative to Sports Champions (USA) (En,Fr,Es,Pt) (FW3.50) [9,14,16]
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Sports Champions (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru)
-     alternative to Sports Champions (Japan) (En,Ja) [10]
-     alternative to Sports Champions (USA) (En,Fr,Es,Pt) (FW3.50) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a47 .   a47 x40 x36 a47 x35 a47 | Sports Champions (Japan) (En,Ja)
-     alternative to Sports Champions (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11]
-     alternative to Sports Champions (USA) (En,Fr,Es,Pt) (FW3.50) [9,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w47 w47 x36 a47 x35 a47 | Sports Champions (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru)
+   w55 w55 w55 x40 x36 w55 x35 w55 a47 w53 a47 x40 x36 a47 x35 a47 | Sports Champions (Japan) (En,Ja)
    w55 w55 w55 x40 x36 w55 x35 w55 a47 a53 a47 x40 x36 a47 x35 a47 | Sports Champions (UK)
-     alternative to Sports Champions (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11]
-     alternative to Sports Champions (Japan) (En,Ja) [10]
-     alternative to Sports Champions (USA) (En,Fr,Es,Pt) (FW3.50) [9,14,16]
    w55 w55 w55 w55 w55 w55 x35 w55 a44 a44 a44 a44 a44 a44 x35 a44 | Sports Champions (USA) (En,Fr,Es,Pt) (FW3.40)
-     alternative to Sports Champions (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11-12]
-     alternative to Sports Champions (Japan) (En,Ja) [10]
-     alternative to Sports Champions (USA) (En,Fr,Es,Pt) (FW3.50) [9,13-14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 .   .   x35 .   | Sports Champions (USA) (En,Fr,Es,Pt) (FW3.50)
-     alternative to Sports Champions (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da,Fi,Pl,Ru) [11-12]
-     alternative to Sports Champions (Japan) (En,Ja) [10]
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 a53 a47 a47 w44 w47 x35 w47 | Sports Champions (USA) (En,Fr,Es,Pt) (FW3.50)
 == sports champions & medieval moves - deadmund's quest combo disc
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   g   .   |
    w55 w55 w55 w55 w55 w55 x35 w55 .   .   .   .   .   .   x35 .   | Sports Champions & Medieval Moves - Deadmund's Quest Combo Disc (USA) (En,Fr,Es,Pt)
@@ -7508,52 +6925,34 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == tales of berseria
    w55 w55 w55 x40 x36 w55 x35 w55 w50 w50 w50 x40 x36 w50 x35 w50 | Tales of Berseria (Japan)
 == tales of graces f
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   a3  x36 a47 x35 a47 | Tales of Graces f (Europe) (En,Fr,De)
-     alternative to Tales of Graces f (Japan) [10]
-     alternative to Tales of Graces f (USA) [9,14,16]
-     alternative to Tales of Symphonia Chronicles + Tales of Graces f (Europe) (En,Fr,De,Es,It) [12]
-   w55 w55 w55 x40 x36 w55 x35 w55 a53 .   a53 x40 x36 a53 x35 a53 | Tales of Graces f (Japan)
-     alternative to Tales of Graces f (Europe) (En,Fr,De) [11]
-     alternative to Tales of Graces f (USA) [9,14,16]
-   w55 w55 w55 x40 w55 w55 x35 w55 .   a53 a47 x40 w50 .   x35 .   | Tales of Graces f (USA)
-     alternative to Tales of Graces f (Europe) (En,Fr,De) [11]
-     alternative to Tales of Graces f (Japan) [10]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w47 .   x36 a47 x35 a47 | Tales of Graces f (Europe) (En,Fr,De)
+   w55 w55 w55 x40 x36 w55 x35 w55 a53 w53 a53 x40 x36 a53 x35 a53 | Tales of Graces f (Japan)
+   w55 w55 w55 x40 w55 w55 x35 w55 w47 a53 a47 x40 w50 w47 x35 w47 | Tales of Graces f (USA)
+   .   .   .   .   .   .   .   .   a26 a26 a22 .   .   a26 .   a26 | Tales of Symphonia Chronicles + Tales of Graces f (Europe) (En,Fr,De,Es,It)
 == tales of symphonia chronicles
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 .   .   x36 a47 x35 a47 | Tales of Symphonia Chronicles (Europe) (En,Fr,De,Es,It)
-     alternative to Tales of Symphonia Chronicles (USA) (En,Fr,De,Es,It) [9-10,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   .   a47 a47 w50 .   x35 .   | Tales of Symphonia Chronicles (USA) (En,Fr,De,Es,It)
-     alternative to Tales of Symphonia Chronicles (Europe) (En,Fr,De,Es,It) [11-12]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w47 w17 x36 a47 x35 a47 | Tales of Symphonia Chronicles (Europe) (En,Fr,De,Es,It)
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 w47 a47 a47 w50 w47 x35 w47 | Tales of Symphonia Chronicles (USA) (En,Fr,De,Es,It)
 == tales of symphonia chronicles + tales of graces f
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | Tales of Symphonia Chronicles + Tales of Graces f (Europe) (En,Fr,De,Es,It)
+   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   .   .   a3  .   .   .   .   | Tales of Graces f (Europe) (En,Fr,De)
+   w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   w17 x36 .   x35 .   | Tales of Symphonia Chronicles + Tales of Graces f (Europe) (En,Fr,De,Es,It)
 == tales of symphonia unisonant pack
    w55 w55 w55 x40 x36 w55 x35 w55 w50 w50 w50 x40 x36 w50 x35 w50 | Tales of Symphonia Unisonant Pack (Japan)
 == tales of vesperia
    w55 w55 w55 x40 x36 w55 x35 w55 w50 w50 w50 x40 x36 w50 x35 w50 | Tales of Vesperia (Japan)
 == tales of xillia
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Tales of Xillia (Europe) (En,Fr,De,Es,It)
-     alternative to Tales of Xillia (Japan, Asia) [10]
-     alternative to Tales of Xillia (USA) (En,Fr,Es) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a53 .   a53 x40 x36 a53 x35 a53 | Tales of Xillia (Japan, Asia)
-     alternative to Tales of Xillia (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Tales of Xillia (USA) (En,Fr,Es) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 w50 .   x35 .   | Tales of Xillia (USA) (En,Fr,Es)
-     alternative to Tales of Xillia (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Tales of Xillia (Japan, Asia) [10]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w47 w47 x36 a47 x35 a47 | Tales of Xillia (Europe) (En,Fr,De,Es,It)
+   w55 w55 w55 x40 x36 w55 x35 w55 a53 w53 a53 x40 x36 a53 x35 a53 | Tales of Xillia (Japan, Asia)
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 a53 a47 a47 w50 w47 x35 w47 | Tales of Xillia (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a26 a4  a22 a22 .   a26 .   a26 | Tales of Xillia + Tales of Xillia 2 (Europe) (En,Fr,De,Es,It)
 == tales of xillia + tales of xillia 2
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | Tales of Xillia + Tales of Xillia 2 (Europe) (En,Fr,De,Es,It)
 == tales of xillia 2
-   gd  gd  gd  gd  gd  gd  gd  gd  g   gd  gd  gd  gd  g   gd  g   |
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Tales of Xillia 2 (Europe) (En,Fr,De,Es,It)
-     alternative to Tales of Xillia 2 (Japan) [10]
-     alternative to Tales of Xillia 2 (USA) (En,Fr,Es) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a53 .   a53 x40 x36 a53 x35 a53 | Tales of Xillia 2 (Japan)
-     alternative to Tales of Xillia 2 (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Tales of Xillia 2 (USA) (En,Fr,Es) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 w50 .   x35 .   | Tales of Xillia 2 (USA) (En,Fr,Es)
-     alternative to Tales of Xillia 2 (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Tales of Xillia 2 (Japan) [10]
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w47 w47 x36 a47 x35 a47 | Tales of Xillia 2 (Europe) (En,Fr,De,Es,It)
+   w55 w55 w55 x40 x36 w55 x35 w55 a53 w53 a53 x40 x36 a53 x35 a53 | Tales of Xillia 2 (Japan)
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 a53 a47 a47 w50 w47 x35 w47 | Tales of Xillia 2 (USA) (En,Fr,Es)
 == tales of zestiria
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w47 w47 x36 a47 x35 a47 | Tales of Zestiria (Europe) (En,Fr,De,Es,It)
    w55 w55 w55 x40 x36 w55 x35 w55 a53 w53 a53 x40 x36 a53 x35 a53 | Tales of Zestiria (Japan, Korea)
@@ -7575,22 +6974,10 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 x40 w55 w55 x35 w55 w47 w47 a47 x40 w50 w47 x35 w47 | Teenage Mutant Ninja Turtles - Mutants in Manhattan (USA) (En,Fr)
 == tekken 6
    w55 w55 w55 w55 x36 w55 x35 w55 a44 a44 a44 a44 x36 a44 x35 a44 | Tekken 6 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru) (v01.00)
-     alternative to Tekken 6 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru) (v02.00) [11-12]
-     alternative to Tekken 6 (Japan) (v02.00) [10]
-     alternative to Tekken 6 (USA) (En,Ja,Fr,De,Es,It,Ko,Ru) [9,14,16]
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 .   .   x36 a47 x35 a47 | Tekken 6 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru) (v02.00)
-     alternative to Tekken 6 (Japan) (v02.00) [10]
-     alternative to Tekken 6 (USA) (En,Ja,Fr,De,Es,It,Ko,Ru) [9,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w47 w47 x36 a47 x35 a47 | Tekken 6 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru) (v02.00)
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a44 a47 a47 x36 a47 x35 a47 | Tekken 6 (Japan) (En,Ja,Fr,De,Es,It,Ko,Ru) (v01.00)
-     alternative to Tekken 6 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru) (v02.00) [11-12]
-     alternative to Tekken 6 (Japan) (v02.00) [10]
-     alternative to Tekken 6 (USA) (En,Ja,Fr,De,Es,It,Ko,Ru) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a43 .   a43 x40 x36 a43 x35 a43 | Tekken 6 (Japan) (v02.00)
-     alternative to Tekken 6 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru) (v02.00) [11]
-     alternative to Tekken 6 (USA) (En,Ja,Fr,De,Es,It,Ko,Ru) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a47 a47 a47 w50 .   x35 .   | Tekken 6 (USA) (En,Ja,Fr,De,Es,It,Ko,Ru)
-     alternative to Tekken 6 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru) (v02.00) [11-12]
-     alternative to Tekken 6 (Japan) (v02.00) [10]
+   w55 w55 w55 x40 x36 w55 x35 w55 a43 w47 a43 x40 x36 a43 x35 a43 | Tekken 6 (Japan) (v02.00)
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 a47 a47 a47 w50 w47 x35 w47 | Tekken 6 (USA) (En,Ja,Fr,De,Es,It,Ko,Ru)
 == tekken hybrid
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 a47 a47 x36 a47 x35 a47 | Tekken Hybrid (Asia) (En,Ja,Fr,De,Es,It,Ko)
@@ -7600,15 +6987,9 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 w55 x36 w55 x35 w55 a47 w47 a47 a47 x36 a47 x35 a47 | Tekken Hybrid (Japan) (En,Ja,Fr,De,Es,It,Ko)
    w55 w55 w55 w55 w55 w55 x35 w55 w47 a47 a47 a47 w50 w47 x35 w47 | Tekken Hybrid (USA) (En,Ja,Fr,De,Es,It,Ko)
 == tekken tag tournament 2
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 .   .   x36 a47 x35 a47 | Tekken Tag Tournament 2 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru)
-     alternative to Tekken Tag Tournament 2 (Japan, Asia) (En,Ja,Fr,De,Es,It,Ko,Ru) [10]
-     alternative to Tekken Tag Tournament 2 (USA) (En,Ja,Fr,De,Es,It,Ko,Ru) [9,14,16]
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 .   a47 a47 x36 a47 x35 a47 | Tekken Tag Tournament 2 (Japan, Asia) (En,Ja,Fr,De,Es,It,Ko,Ru)
-     alternative to Tekken Tag Tournament 2 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru) [11-12]
-     alternative to Tekken Tag Tournament 2 (USA) (En,Ja,Fr,De,Es,It,Ko,Ru) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a47 a47 a47 w50 .   x35 .   | Tekken Tag Tournament 2 (USA) (En,Ja,Fr,De,Es,It,Ko,Ru)
-     alternative to Tekken Tag Tournament 2 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru) [11-12]
-     alternative to Tekken Tag Tournament 2 (Japan, Asia) (En,Ja,Fr,De,Es,It,Ko,Ru) [10]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w47 w47 x36 a47 x35 a47 | Tekken Tag Tournament 2 (Europe) (En,Ja,Fr,De,Es,It,Ko,Ru)
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 w47 a47 a47 x36 a47 x35 a47 | Tekken Tag Tournament 2 (Japan, Asia) (En,Ja,Fr,De,Es,It,Ko,Ru)
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 a47 a47 a47 w50 w47 x35 w47 | Tekken Tag Tournament 2 (USA) (En,Ja,Fr,De,Es,It,Ko,Ru)
 == tenchou no igo
    w55 w55 w55 x40 x36 w55 x35 w55 w50 w50 w50 x40 x36 w50 x35 w50 | Tenchou no Igo (Japan)
 == terminator salvation
@@ -7722,32 +7103,18 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 x40 x36 w55 x35 w55 a53 w53 a53 x40 x36 a53 x35 a53 | Tom Clancy's EndWar (Japan)
    w55 w55 w55 w55 w55 w55 x35 w55 w47 a53 a47 a47 w50 w47 x35 w47 | Tom Clancy's EndWar (USA) (En,Fr,De,Es,It)
 == tom clancy's ghost recon - advanced warfighter 2
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Europe, Australia) (En,Fr,De,Es,It)
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Japan) [10]
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (USA) (En,Fr,De,Es,It) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a53 .   a53 x40 x36 a53 x35 a53 | Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Japan)
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Europe, Australia) (En,Fr,De,Es,It) [11]
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (USA) (En,Fr,De,Es,It) [9,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w8  w8  x36 a47 x35 a47 | Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Europe, Australia) (En,Fr,De,Es,It)
+   w55 w55 w55 x40 x36 w55 x35 w55 a53 w53 a53 x40 x36 a53 x35 a53 | Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Japan)
    w55 w55 x39 x40 x36 w55 x35 w55 a53 a53 x39 x40 x36 a53 x35 a53 | Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Korea)
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Japan) [10]
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (USA) (En,Fr,De,Es,It) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 .   .   x35 .   | Tom Clancy's Ghost Recon - Advanced Warfighter 2 (USA) (En,Fr,De,Es,It)
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Europe, Australia) (En,Fr,De,Es,It) [11-12]
-     alternative to Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Japan) [10]
+   w55 w55 w55 w55 w55 w55 x35 w55 w8  a53 a47 a47 w50 w8  x35 w8  | Tom Clancy's Ghost Recon - Advanced Warfighter 2 (USA) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a22 a4  a8  a8  a22 a22 .   a22 | Tom Clancy's Ghost Recon Anthology (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
+   .   .   .   .   .   .   .   .   a8  a4  a22 a22 .   a8  .   a8  | Tom Clancy's Ghost Recon Double Pack (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
+   .   .   .   .   .   .   .   .   a8  a7  a23 a23 .   a8  .   a8  | Tom Clancy's Rainbow Six - Vegas 2 - Complete Edition + Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Europe) (En,Fr,De,Es,It)
 == tom clancy's ghost recon - future soldier
    w55 w55 w55 x40 x36 w55 x35 w55 a48 a53 a48 x40 x36 a48 x35 a48 | Tom Clancy's Ghost Recon - Future Soldier (Europe) (En,Pl,Ru)
-     alternative to Tom Clancy's Ghost Recon - Future Soldier (Europe, Asia) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) [11]
-     alternative to Tom Clancy's Ghost Recon - Future Soldier (Japan) [10]
-     alternative to Tom Clancy's Ghost Recon - Future Soldier (USA) (En,Fr,De,Es,It,Nl,Pt) [9,14,16]
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Tom Clancy's Ghost Recon - Future Soldier (Europe, Asia) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
-     alternative to Tom Clancy's Ghost Recon - Future Soldier (Japan) [10]
-     alternative to Tom Clancy's Ghost Recon - Future Soldier (USA) (En,Fr,De,Es,It,Nl,Pt) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a53 .   a53 x40 x36 a53 x35 a53 | Tom Clancy's Ghost Recon - Future Soldier (Japan)
-     alternative to Tom Clancy's Ghost Recon - Future Soldier (Europe, Asia) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) [11]
-     alternative to Tom Clancy's Ghost Recon - Future Soldier (USA) (En,Fr,De,Es,It,Nl,Pt) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 .   .   x35 .   | Tom Clancy's Ghost Recon - Future Soldier (USA) (En,Fr,De,Es,It,Nl,Pt)
-     alternative to Tom Clancy's Ghost Recon - Future Soldier (Europe, Asia) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da) [11-12]
-     alternative to Tom Clancy's Ghost Recon - Future Soldier (Japan) [10]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w8  w8  x36 a47 x35 a47 | Tom Clancy's Ghost Recon - Future Soldier (Europe, Asia) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
+   w55 w55 w55 x40 x36 w55 x35 w55 a53 w53 a53 x40 x36 a53 x35 a53 | Tom Clancy's Ghost Recon - Future Soldier (Japan)
+   w55 w55 w55 w55 w55 w55 x35 w55 w8  a53 a47 a47 w50 w8  x35 w8  | Tom Clancy's Ghost Recon - Future Soldier (USA) (En,Fr,De,Es,It,Nl,Pt)
 == tom clancy's ghost recon anthology
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   g   .   |
    w55 w55 w55 w55 w55 w55 x35 w55 .   .   .   .   .   .   x35 .   | Tom Clancy's Ghost Recon Anthology (USA) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
@@ -7770,28 +7137,21 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 x40 x36 w55 x35 w55 .   .   .   .   .   .   .   .   | Tom Clancy's Rainbow Six - Vegas (Japan)
    w55 w55 w55 w55 w55 w55 x35 w55 .   .   .   .   .   .   .   .   | Tom Clancy's Rainbow Six - Vegas (USA) (En,Fr,De,Es,It)
 == tom clancy's rainbow six - vegas + tom clancy's splinter cell - double agent
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | Tom Clancy's Rainbow Six - Vegas + Tom Clancy's Splinter Cell - Double Agent (Europe, Asia) (En,Fr,De,Es,It)
+   g   g   g   g   g   g   g   g   .   g   .   .   g   .   g   .   |
+   w55 w55 w55 w55 x36 w55 x35 w55 .   w21 .   .   x36 .   x35 .   | Tom Clancy's Rainbow Six - Vegas + Tom Clancy's Splinter Cell - Double Agent (Europe, Asia) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   a47 .   .   .   .   .   .   | Tom Clancy's Splinter Cell - Double Agent (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   a44 .   .   .   .   .   .   | Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v01.02)
+   .   .   .   .   .   .   .   .   .   a25 .   .   .   .   .   .   | Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v02.02)
 == tom clancy's rainbow six - vegas 1 + 2
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
    w55 w55 w55 x40 x36 w55 x35 w55 .   .   .   x40 x36 .   x35 .   | Tom Clancy's Rainbow Six - Vegas 1 + 2 (Japan)
 == tom clancy's rainbow six - vegas 2
    w55 w55 w55 w55 x36 w55 x35 w55 a66 a66 a66 a66 x36 a66 x35 a66 | Tom Clancy's Rainbow Six - Vegas 2 (Europe) (En,Fr,De,Es,It)
-     alternative to Tom Clancy's Rainbow Six - Vegas 2 (Japan) [10]
-     alternative to Tom Clancy's Rainbow Six - Vegas 2 - Complete Edition (Europe) (En,Fr,De,Es,It) [9,11-12,14,16]
    w55 w55 w55 w55 x36 w55 x35 w55 a66 a66 a66 a66 x36 a66 x35 a66 | Tom Clancy's Rainbow Six - Vegas 2 (Germany) (En,Fr,De,Es,It)
-     alternative to Tom Clancy's Rainbow Six - Vegas 2 (Japan) [10]
-     alternative to Tom Clancy's Rainbow Six - Vegas 2 - Complete Edition (Europe) (En,Fr,De,Es,It) [9,11-12,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a70 .   a70 x40 x36 a70 x35 a70 | Tom Clancy's Rainbow Six - Vegas 2 (Japan)
-     alternative to Tom Clancy's Rainbow Six - Vegas 2 - Complete Edition (Europe) (En,Fr,De,Es,It) [9,11,14,16]
+   w55 w55 w55 x40 x36 w55 x35 w55 a70 w7  a70 x40 x36 a70 x35 a70 | Tom Clancy's Rainbow Six - Vegas 2 (Japan)
    w55 w55 w55 w55 w55 w55 x35 w55 a68 a70 a68 a68 w50 a68 x35 a68 | Tom Clancy's Rainbow Six - Vegas 2 (USA, Asia) (En,Fr,De,Es,It)
-     alternative to Tom Clancy's Rainbow Six - Vegas 2 (Japan) [10]
-     alternative to Tom Clancy's Rainbow Six - Vegas 2 - Complete Edition (Europe) (En,Fr,De,Es,It) [9,11-12,14,16]
-   .   .   .   .   .   .   .   .   .   a70 .   .   x36 .   x35 .   | Tom Clancy's Rainbow Six - Vegas 2 - Complete Edition (Europe) (En,Fr,De,Es,It)
-     alternative to Tom Clancy's Rainbow Six - Vegas 2 (Japan) [10]
+   .   .   .   .   .   .   .   .   w67 a70 w67 w67 x36 w67 x35 w67 | Tom Clancy's Rainbow Six - Vegas 2 - Complete Edition (Europe) (En,Fr,De,Es,It)
    .   .   .   .   .   .   .   .   a67 a70 a67 a67 x36 a67 x35 a67 | Tom Clancy's Rainbow Six - Vegas 2 - Complete Edition (Germany) (En,Fr,De,Es,It)
-     alternative to Tom Clancy's Rainbow Six - Vegas 2 (Japan) [10]
-     alternative to Tom Clancy's Rainbow Six - Vegas 2 - Complete Edition (Europe) (En,Fr,De,Es,It) [9,11-12,14,16]
 == tom clancy's rainbow six - vegas 2 - complete edition
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   .   .   .   .   | Tom Clancy's Rainbow Six - Vegas 2 - Complete Edition (Europe) (En,Fr,De,Es,It)
@@ -7801,15 +7161,11 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | Tom Clancy's Rainbow Six - Vegas 2 - Complete Edition + Tom Clancy's Ghost Recon - Advanced Warfighter 2 (Europe) (En,Fr,De,Es,It)
 == tom clancy's rainbox six - vegas
    .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
-   .   .   .   .   .   .   .   .   a47 a53 .   .   x36 a47 x35 a47 | Tom Clancy's Rainbow Six - Vegas (Europe) (En,Fr,De,Es,It)
-     alternative to Tom Clancy's Rainbow Six - Vegas (Japan) [10]
-     alternative to Tom Clancy's Rainbow Six - Vegas (USA) (En,Fr,De,Es,It) [9,14,16]
-   .   .   .   .   .   .   .   .   a53 .   a53 x40 x36 a53 x35 a53 | Tom Clancy's Rainbow Six - Vegas (Japan)
-     alternative to Tom Clancy's Rainbow Six - Vegas (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Tom Clancy's Rainbow Six - Vegas (USA) (En,Fr,De,Es,It) [9,14,16]
-   .   .   .   .   .   .   .   .   .   a53 a47 a47 w50 .   x35 .   | Tom Clancy's Rainbow Six - Vegas (USA) (En,Fr,De,Es,It)
-     alternative to Tom Clancy's Rainbow Six - Vegas (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Tom Clancy's Rainbow Six - Vegas (Japan) [10]
+   .   .   .   .   .   .   .   .   a47 a53 w7  w47 x36 a47 x35 a47 | Tom Clancy's Rainbow Six - Vegas (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a53 w21 a53 x40 x36 a53 x35 a53 | Tom Clancy's Rainbow Six - Vegas (Japan)
+   .   .   .   .   .   .   .   .   w7  a53 a47 a47 w50 w7  x35 w7  | Tom Clancy's Rainbow Six - Vegas (USA) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a26 .   a22 a22 .   a26 .   a26 | Tom Clancy's Rainbow Six - Vegas + Tom Clancy's Splinter Cell - Double Agent (Europe, Asia) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a7  a22 a7  .   .   a7  .   a7  | Tom Clancy's Rainbow Six - Vegas 1 + 2 (Japan)
 == tom clancy's splinter cell - blacklist
    w55 w55 w55 x40 x36 w55 x35 w55 a47 w53 a47 x40 x36 a47 x35 a47 | Tom Clancy's Splinter Cell - Blacklist (Asia) (En,Ja,Zh,Ko)
    w55 w55 w55 x40 x36 w55 x35 w55 a48 a48 a48 x40 x36 a48 x35 a48 | Tom Clancy's Splinter Cell - Blacklist (Europe) (En,Cs,Hu)
@@ -7817,59 +7173,30 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 x39 x40 x36 w55 x35 w55 a53 a53 x39 x40 x36 a53 x35 a53 | Tom Clancy's Splinter Cell - Blacklist (Russia)
    w55 w55 w55 w55 w55 w55 x35 w55 w47 a53 a47 a47 w50 w47 x35 w47 | Tom Clancy's Splinter Cell - Blacklist (USA) (En,Fr,Es,Pt)
 == tom clancy's splinter cell - double agent
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 .   .   x36 a47 x35 a47 | Tom Clancy's Splinter Cell - Double Agent (Europe) (En,Fr,De,Es,It)
-     alternative to Tom Clancy's Rainbow Six - Vegas + Tom Clancy's Splinter Cell - Double Agent (Europe, Asia) (En,Fr,De,Es,It) [10]
-     alternative to Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v02.02) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 a44 a44 a44 a44 a44 a44 x35 a44 | Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v01.02)
-     alternative to Tom Clancy's Rainbow Six - Vegas + Tom Clancy's Splinter Cell - Double Agent (Europe, Asia) (En,Fr,De,Es,It) [10]
-     alternative to Tom Clancy's Splinter Cell - Double Agent (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v02.02) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a25 a47 a47 w44 .   x35 .   | Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v02.02)
-     alternative to Tom Clancy's Rainbow Six - Vegas + Tom Clancy's Splinter Cell - Double Agent (Europe, Asia) (En,Fr,De,Es,It) [10]
-     alternative to Tom Clancy's Splinter Cell - Double Agent (Europe) (En,Fr,De,Es,It) [11-12]
+   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 .   w47 w47 x36 a47 x35 a47 | Tom Clancy's Splinter Cell - Double Agent (Europe) (En,Fr,De,Es,It)
+   w55 w55 w55 w55 w55 w55 x35 w55 a44 .   a44 a44 a44 a44 x35 a44 | Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v01.02)
+   w55 w55 w55 w55 w55 w55 x35 w55 w47 .   a47 a47 w44 w47 x35 w47 | Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v02.02)
 == tom clancy's splinter cell trilogy
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w47 w47 x36 a47 x35 a47 | Tom Clancy's Splinter Cell Trilogy (Europe) (En,Fr,De,Es,It)
    w55 w55 w55 w55 w55 w55 x35 w55 w47 w47 a47 a47 w50 w47 x35 w47 | Tom Clancy's Splinter Cell Trilogy (USA, Korea) (En,Fr,De,Es,It)
 == tomb raider
    w55 w55 w55 x40 x36 w55 x35 w55 a47 a53 a47 x40 x36 a47 x35 a47 | Tomb Raider (Asia) (En,Zh,Ko)
-     alternative to Tomb Raider (Europe) (En,Fr,De,Es,It,Nl,Pt) [11]
-     alternative to Tomb Raider (Japan) [10]
-     alternative to Tomb Raider (USA) (En,Fr,Es,Pt) [9,14,16]
    w55 w55 w55 x40 x36 w55 x35 w55 a48 a48 a48 x40 x36 a48 x35 a48 | Tomb Raider (Europe) (En,Ar)
-     alternative to Tomb Raider (Europe) (En,Fr,De,Es,It,Nl,Pt) [11]
-     alternative to Tomb Raider (Japan) [10]
-     alternative to Tomb Raider (USA) (En,Fr,Es,Pt) [9,14,16]
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Tomb Raider (Europe) (En,Fr,De,Es,It,Nl,Pt)
-     alternative to Tomb Raider (Japan) [10]
-     alternative to Tomb Raider (USA) (En,Fr,Es,Pt) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a53 .   a53 x40 x36 a53 x35 a53 | Tomb Raider (Japan)
-     alternative to Tomb Raider (Europe) (En,Fr,De,Es,It,Nl,Pt) [11]
-     alternative to Tomb Raider (USA) (En,Fr,Es,Pt) [9,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w8  w8  x36 a47 x35 a47 | Tomb Raider (Europe) (En,Fr,De,Es,It,Nl,Pt)
+   w55 w55 w55 x40 x36 w55 x35 w55 a53 w53 a53 x40 x36 a53 x35 a53 | Tomb Raider (Japan)
    w55 w55 w55 x40 x36 w55 x35 w55 a47 a53 a47 x40 x36 a47 x35 a47 | Tomb Raider (Russia) (En,Pl,Ru)
-     alternative to Tomb Raider (Europe) (En,Fr,De,Es,It,Nl,Pt) [11]
-     alternative to Tomb Raider (Japan) [10]
-     alternative to Tomb Raider (USA) (En,Fr,Es,Pt) [9,14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 .   .   x35 .   | Tomb Raider (USA) (En,Fr,Es,Pt)
-     alternative to Tomb Raider (Europe) (En,Fr,De,Es,It,Nl,Pt) [11-12]
-     alternative to Tomb Raider (Japan) [10]
+   w55 w55 w55 w55 w55 w55 x35 w55 w8  a53 a47 a47 w50 w8  x35 w8  | Tomb Raider (USA) (En,Fr,Es,Pt)
 == tomb raider - underworld
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 .   .   x36 a47 x35 a47 | Tomb Raider - Underworld (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Tomb Raider - Underworld (Japan) [10]
-     alternative to Tomb Raider - Underworld (USA) (En,Fr,De,Es,It,Nl) (FW3.50) [9,14,16]
-   w55 w55 w55 x40 x36 w55 x35 w55 a53 .   a53 x40 x36 a53 x35 a53 | Tomb Raider - Underworld (Japan)
-     alternative to Tomb Raider - Underworld (Europe) (En,Fr,De,Es,It,Nl) [11]
-     alternative to Tomb Raider - Underworld (USA) (En,Fr,De,Es,It,Nl) (FW3.50) [9,14,16]
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 a53 w18 w18 x36 a47 x35 a47 | Tomb Raider - Underworld (Europe) (En,Fr,De,Es,It,Nl)
+   w55 w55 w55 x40 x36 w55 x35 w55 a53 w19 a53 x40 x36 a53 x35 a53 | Tomb Raider - Underworld (Japan)
    w55 w55 w55 w55 w55 w55 x35 w55 a44 a44 a44 a44 a44 a44 x35 a44 | Tomb Raider - Underworld (USA) (En,Fr,De,Es,It,Nl) (FW2.42)
-     alternative to Tomb Raider - Underworld (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-     alternative to Tomb Raider - Underworld (Japan) [10]
-     alternative to Tomb Raider - Underworld (USA) (En,Fr,De,Es,It,Nl) (FW3.50) [9,13-14,16]
-   w55 w55 w55 w55 w55 w55 x35 w55 .   a53 a47 a47 .   .   x35 .   | Tomb Raider - Underworld (USA) (En,Fr,De,Es,It,Nl) (FW3.50)
-     alternative to Tomb Raider - Underworld (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-     alternative to Tomb Raider - Underworld (Japan) [10]
+   w55 w55 w55 w55 w55 w55 x35 w55 w20 a53 a47 a47 w20 w20 x35 w20 | Tomb Raider - Underworld (USA) (En,Fr,De,Es,It,Nl) (FW3.50)
+   .   .   .   .   .   .   .   .   a8  a8  .   .   .   a8  .   a8  | Tomb Raider Trilogy, The (Europe) (En,Fr,De,Es,It,Nl)
+   .   .   .   .   .   .   .   .   .   .   a8  a8  .   .   .   .   | Tomb Raider Trilogy, The (USA) (En,Fr,De,Es,It,Nl)
 == tomb raider trilogy, the
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w55 w55 w55 w55 x36 w55 x35 w55 .   .   .   .   x36 .   x35 .   | Tomb Raider Trilogy, The (Europe) (En,Fr,De,Es,It,Nl)
-   w55 w55 w55 w55 w55 w55 x35 w55 .   .   .   .   .   .   x35 .   | Tomb Raider Trilogy, The (USA) (En,Fr,De,Es,It,Nl)
+   w55 w55 w55 w55 x36 w55 x35 w55 .   .   w18 w18 x36 .   x35 .   | Tomb Raider Trilogy, The (Europe) (En,Fr,De,Es,It,Nl)
+   w55 w55 w55 w55 w55 w55 x35 w55 w20 w19 .   .   w20 w20 x35 w20 | Tomb Raider Trilogy, The (USA) (En,Fr,De,Es,It,Nl)
 == tomoyo after - it's a wonderful life - cs edition
    w55 w55 w55 x40 x36 w55 x35 w55 w50 w50 w50 x40 x36 w50 x35 w50 | Tomoyo After - It's a Wonderful Life - CS Edition (Japan)
 == tony hawk - ride
@@ -8227,10 +7554,8 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == walt disney pictures bolt
    w55 w55 w55 w55 w55 w55 x35 w55 w50 w50 w50 w50 w50 w50 x35 w50 | Walt Disney Pictures Bolt (USA) (En,Fr,Es)
 == wander to kyozou
-   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
-   w55 w55 w55 x40 x36 w55 x35 w55 a7  .   a7  x40 x36 a7  x35 a7  | Wander to Kyozou (Japan)
-     alternative to Ico & Shadow of the Colossus (Europe, Australia) (En,Fr,De,Es,It) [11]
-     alternative to Ico & Shadow of the Colossus Collection, The (USA, Brazil) (En,Fr,Es) [9,14,16]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   w55 w55 w55 x40 x36 w55 x35 w55 .   w24 .   x40 x36 .   x35 .   | Wander to Kyozou (Japan)
 == wangan midnight
    w55 w55 w55 x40 x36 w55 x35 w55 w50 w50 w50 x40 x36 w50 x35 w50 | Wangan Midnight (Japan)
 == wanted - weapons of fate

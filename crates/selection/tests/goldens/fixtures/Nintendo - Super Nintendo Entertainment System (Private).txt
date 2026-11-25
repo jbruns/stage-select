@@ -1067,19 +1067,11 @@ rule r56: Superset parent selection REF0119: Group after good dump/production/re
 == congo - the movie - secret of zinj
    w50 w50 w50 x32 w50 w50 x26 x19 w46 w46 w46 x32 w46 w46 x26 x19 | Congo - The Movie - Secret of Zinj (USA) (Proto)
 == congo's caper
-   w50 w50 w50 x32 x27 w50 x26 w50 a42 a42 .   x32 x27 a42 x26 a42 | Congo's Caper (Europe)
-     alternative to Congo's Caper (USA) [9,14]
-     alternative to Tatakae Genshijin 2 - Rookie no Bouken (Japan) (En) [10]
-   w50 w50 w50 x32 w50 w50 x26 w50 .   a42 a42 x32 w35 .   x26 w42 | Congo's Caper (USA)
-     alternative to Congo's Caper (Europe) [11]
-     alternative to Tatakae Genshijin 2 - Rookie no Bouken (Japan) (En) [10]
+   w50 w50 w50 x32 x27 w50 x26 w50 a42 a42 w42 x32 x27 a42 x26 a42 | Congo's Caper (Europe)
+   w50 w50 w50 x32 w50 w50 x26 w50 w42 a42 a42 x32 w35 w42 x26 w42 | Congo's Caper (USA)
    w50 w50 w50 x32 w50 w50 x26 x19 a35 a35 a35 x32 a35 a35 x26 x19 | Congo's Caper (USA) (Beta)
-     alternative to Congo's Caper (Europe) [11]
-     alternative to Congo's Caper (USA) [9,14]
-     alternative to Tatakae Genshijin 2 - Rookie no Bouken (Japan) (En) [10]
-   .   .   .   .   .   .   .   .   a42 .   a42 x32 x27 a42 x26 a42 | Tatakae Genshijin 2 - Rookie no Bouken (Japan) (En)
-     alternative to Congo's Caper (Europe) [11]
-     alternative to Congo's Caper (USA) [9,14]
+   .   .   .   .   .   .   .   .   a10 .   a7  .   .   a10 .   .   | Joe & Mac - Ultimate Caveman Collection (Europe) (Aftermarket) (Unl)
+   .   .   .   .   .   .   .   .   a42 w42 a42 x32 x27 a42 x26 a42 | Tatakae Genshijin 2 - Rookie no Bouken (Japan) (En)
 == contra iii - the alien wars
    w50 w50 w50 x32 w50 w50 x26 w50 w42 a42 a42 x32 w48 w42 x26 w42 | Contra III - The Alien Wars (USA)
    w50 w50 w50 x32 w50 w50 x26 x19 a35 a35 a35 x32 a35 a35 x26 x19 | Contra III - The Alien Wars (USA) (Beta)
@@ -1660,15 +1652,19 @@ rule r56: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w50 w50 w50 x32 x27 w50 x26 w50 .   .   .   .   .   .   .   .   | Europe Sensen (Japan)
 == exertainment mountain bike rally
-   .   .   .   .   .   .   .   .   a34 a34 a34 x32 a34 a34 x26 a34 | Cannondale Cup (USA)
-     alternative to Exertainment Mountain Bike Rally (USA) [9-10,13-14,16]
-     alternative to Exertainment Mountain Bike Rally + Speed Racer (Europe) (En,Fr,De,Es,Nl) [11]
-   w50 w50 w50 x32 w50 w50 x26 w50 .   .   a9  x32 .   .   x26 .   | Exertainment Mountain Bike Rally (USA)
-     alternative to Exertainment Mountain Bike Rally + Speed Racer (Europe) (En,Fr,De,Es,Nl) [11]
+   g   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a34 a34 .   x32 a34 a34 x26 a34 | Cannondale Cup (USA)
+   w50 w50 w50 x32 w50 w50 x26 w50 w6  w6  .   x32 w34 w6  x26 w6  | Exertainment Mountain Bike Rally (USA)
+   .   .   .   .   .   .   .   .   a6  a6  .   .   .   a6  .   a6  | Exertainment Mountain Bike Rally + Speed Racer (Europe) (En,Fr,De,Es,Nl)
+   .   .   .   .   .   .   .   .   a7  a7  .   .   a7  a7  .   a7  | Exertainment Mountain Bike Rally + Speed Racer (USA)
 == exertainment mountain bike rally + speed racer
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w50 w50 w50 w50 x27 w50 x26 w50 .   .   .   .   x27 .   x26 .   | Exertainment Mountain Bike Rally + Speed Racer (Europe) (En,Fr,De,Es,Nl)
-   w50 w50 w50 x32 w50 w50 x26 w50 .   .   .   x32 .   .   x26 .   | Exertainment Mountain Bike Rally + Speed Racer (USA)
+   g   g   g   g   g   g   g   g   .   .   g   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   .   a34 .   .   .   .   .   | Cannondale Cup (USA)
+   .   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   | Exertainment Mountain Bike Rally (USA)
+   w50 w50 w50 w50 x27 w50 x26 w50 .   .   w5  w5  x27 .   x26 .   | Exertainment Mountain Bike Rally + Speed Racer (Europe) (En,Fr,De,Es,Nl)
+   w50 w50 w50 x32 w50 w50 x26 w50 .   .   a3  x32 .   .   x26 .   | Exertainment Mountain Bike Rally + Speed Racer (USA)
+   .   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   | Speed Racer (USA)
+   .   .   .   .   .   .   .   .   .   .   a35 .   .   .   .   .   | Speed Racer (USA) (Beta)
 == exhaust heat
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w50 w50 w50 x32 x27 w50 x26 w50 .   .   .   .   .   .   .   .   | Exhaust Heat (Europe)
@@ -2782,19 +2778,11 @@ rule r56: Superset parent selection REF0119: Group after good dump/production/re
 == jissen! pachi-slot hisshouhou! yamasa densetsu
    w50 w50 w50 x32 x27 w50 x26 w50 w46 w46 w46 x32 x27 w46 x26 w46 | Jissen! Pachi-Slot Hisshouhou! Yamasa Densetsu (Japan)
 == joe & mac
-   w50 w50 w50 x32 w50 w50 x26 w50 .   a48 a42 x32 w46 .   x26 w42 | Joe & Mac (USA)
-     alternative to Joe & Mac - Caveman Ninja (Europe) (En,Fr,De,Es,It,Nl) [11]
-     alternative to Joe & Mac - Tatakae Genshijin (Japan) [10]
-   .   .   .   .   .   .   .   .   a42 a48 .   w35 x27 a42 x26 a42 | Joe & Mac - Caveman Ninja (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Joe & Mac (USA) [9,14]
-     alternative to Joe & Mac - Tatakae Genshijin (Japan) [10]
+   w50 w50 w50 x32 w50 w50 x26 w50 w42 a48 a42 x32 w46 w42 x26 w42 | Joe & Mac (USA)
+   .   .   .   .   .   .   .   .   a42 a48 w42 w35 x27 a42 x26 a42 | Joe & Mac - Caveman Ninja (Europe) (En,Fr,De,Es,It,Nl)
    .   .   .   .   .   .   .   .   a35 a35 a35 a35 x27 a35 x26 x19 | Joe & Mac - Caveman Ninja (Europe) (En,Fr,De,Es,It,Nl) (Beta)
-     alternative to Joe & Mac (USA) [9,14]
-     alternative to Joe & Mac - Caveman Ninja (Europe) (En,Fr,De,Es,It,Nl) [11]
-     alternative to Joe & Mac - Tatakae Genshijin (Japan) [10]
-   .   .   .   .   .   .   .   .   a48 .   a48 x32 x27 a48 x26 a48 | Joe & Mac - Tatakae Genshijin (Japan)
-     alternative to Joe & Mac (USA) [9,14]
-     alternative to Joe & Mac - Caveman Ninja (Europe) (En,Fr,De,Es,It,Nl) [11]
+   .   .   .   .   .   .   .   .   a48 w48 a48 x32 x27 a48 x26 a48 | Joe & Mac - Tatakae Genshijin (Japan)
+   .   .   .   .   .   .   .   .   .   a10 .   .   .   .   .   .   | Joe & Mac - Ultimate Caveman Collection (Europe) (Aftermarket) (Unl)
 == joe & mac - caveman ninja
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w50 w50 w50 w50 x27 w50 x26 w50 .   .   .   .   .   .   .   .   | Joe & Mac - Caveman Ninja (Europe) (En,Fr,De,Es,It,Nl)
@@ -2806,27 +2794,12 @@ rule r56: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
    w50 w50 w50 x32 x27 w50 x26 x22 .   .   .   x32 x27 .   x26 x22 | Joe & Mac - Ultimate Caveman Collection (Europe) (Aftermarket) (Unl)
 == joe & mac 2 - lost in the tropics
-   w50 w50 w50 x32 w50 w50 x26 w50 .   a48 a42 x32 w35 .   x26 w42 | Joe & Mac 2 - Lost in the Tropics (USA)
-     alternative to Joe & Mac 3 - Lost in the Tropics (Europe) (En,Fr,De) [11]
-     alternative to Tatakae Genshijin 3 - Shuyaku wa Yappari Joe & Mac (Japan) [10]
+   w50 w50 w50 x32 w50 w50 x26 w50 w42 a48 a42 x32 w35 w42 x26 w42 | Joe & Mac 2 - Lost in the Tropics (USA)
    w50 w50 w50 x32 w50 w50 x26 x19 a35 a35 a35 x32 a35 a35 x26 x19 | Joe & Mac 2 - Lost in the Tropics (USA) (Beta 1)
-     alternative to Joe & Mac 2 - Lost in the Tropics (USA) [9,14]
-     alternative to Joe & Mac 3 - Lost in the Tropics (Europe) (En,Fr,De) [11]
-     alternative to Tatakae Genshijin 3 - Shuyaku wa Yappari Joe & Mac (Japan) [10]
    w50 w50 w50 x32 w50 w50 x26 x19 a35 a35 a35 x32 a35 a35 x26 x19 | Joe & Mac 2 - Lost in the Tropics (USA) (Beta 2)
-     alternative to Joe & Mac 2 - Lost in the Tropics (USA) [9,14]
-     alternative to Joe & Mac 3 - Lost in the Tropics (Europe) (En,Fr,De) [11]
-     alternative to Tatakae Genshijin 3 - Shuyaku wa Yappari Joe & Mac (Japan) [10]
-   .   .   .   .   .   .   .   .   a42 a48 .   w35 x27 a42 x26 a42 | Joe & Mac 3 - Lost in the Tropics (Europe) (En,Fr,De)
-     alternative to Joe & Mac 2 - Lost in the Tropics (USA) [9,14]
-     alternative to Tatakae Genshijin 3 - Shuyaku wa Yappari Joe & Mac (Japan) [10]
+   .   .   .   .   .   .   .   .   a42 a48 w42 w35 x27 a42 x26 a42 | Joe & Mac 3 - Lost in the Tropics (Europe) (En,Fr,De)
    .   .   .   .   .   .   .   .   a35 a35 a35 a35 x27 a35 x26 x19 | Joe & Mac 3 - Lost in the Tropics (Europe) (En,Fr,De) (Beta)
-     alternative to Joe & Mac 2 - Lost in the Tropics (USA) [9,14]
-     alternative to Joe & Mac 3 - Lost in the Tropics (Europe) (En,Fr,De) [11]
-     alternative to Tatakae Genshijin 3 - Shuyaku wa Yappari Joe & Mac (Japan) [10]
-   .   .   .   .   .   .   .   .   a48 .   a48 x32 x27 a48 x26 a48 | Tatakae Genshijin 3 - Shuyaku wa Yappari Joe & Mac (Japan)
-     alternative to Joe & Mac 2 - Lost in the Tropics (USA) [9,14]
-     alternative to Joe & Mac 3 - Lost in the Tropics (Europe) (En,Fr,De) [11]
+   .   .   .   .   .   .   .   .   a48 w48 a48 x32 x27 a48 x26 a48 | Tatakae Genshijin 3 - Shuyaku wa Yappari Joe & Mac (Japan)
 == joe & mac 3 - lost in the tropics
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w50 w50 w50 w50 x27 w50 x26 w50 .   .   .   .   .   .   .   .   | Joe & Mac 3 - Lost in the Tropics (Europe) (En,Fr,De)
@@ -4859,53 +4832,6 @@ rule r56: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a48 a48 a48 x32 x27 a48 x26 x19 | Targa (Europe) (Proto)
 == res arcana - diana ray - uranai no meikyuu
    w50 w50 w50 x32 x27 w50 x26 w50 w46 w46 w46 x32 x27 w46 x26 w46 | Res Arcana - Diana Ray - Uranai no Meikyuu (Japan)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   g   g   g   .   g   g   .   g   |
-   .   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   | Exertainment Mountain Bike Rally (USA)
-     alternative to Exertainment Mountain Bike Rally + Speed Racer (Europe) (En,Fr,De,Es,Nl) [11]
-   .   .   .   .   .   .   .   .   a6  a6  .   .   .   a6  .   a6  | Exertainment Mountain Bike Rally + Speed Racer (Europe) (En,Fr,De,Es,Nl)
-     alternative to Exertainment Mountain Bike Rally (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a7  a7  a3  .   a7  a7  .   a7  | Exertainment Mountain Bike Rally + Speed Racer (USA)
-     alternative to Exertainment Mountain Bike Rally (USA) [9-10,13-14,16]
-     alternative to Exertainment Mountain Bike Rally + Speed Racer (Europe) (En,Fr,De,Es,Nl) [11]
-   .   .   .   .   .   .   .   .   a10 a10 a7  .   .   a10 .   .   | Joe & Mac - Ultimate Caveman Collection (Europe) (Aftermarket) (Unl)
-     alternative to Congo's Caper (Europe) [11]
-     alternative to Congo's Caper (USA) [9,14]
-     alternative to Joe & Mac - Tatakae Genshijin (Japan) [10]
-   .   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   | Speed Racer (USA)
-     alternative to Exertainment Mountain Bike Rally + Speed Racer (Europe) (En,Fr,De,Es,Nl) [11]
-   .   .   .   .   .   .   .   .   .   .   a8  .   .   .   .   .   | Super Mario All-Stars (Europe)
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-   .   .   .   .   .   .   .   .   a8  .   .   .   a1  a8  .   a8  | Super Mario All-Stars (USA)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,13-14,16]
-   .   .   .   .   .   .   .   .   .   a2  a4  .   .   .   .   .   | Super Mario All-Stars + Super Mario World (USA)
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario Collection (Japan) (Rev 1) [10]
-   .   .   .   .   .   .   .   .   a3  a2  .   .   .   a3  .   a3  | Super Mario All-Stars and Super Mario World (Europe)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,14,16]
-     alternative to Super Mario Collection (Japan) (Rev 1) [10]
-   .   .   .   .   .   .   .   .   .   .   a8  .   .   .   .   .   | Super Mario World (Europe) (Rev 1)
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-   .   .   .   .   .   .   .   .   a8  .   .   .   a1  a8  .   a8  | Super Mario World (USA)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,13-14,16]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   g   g   g   g   g   g   .   g   |
-   .   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   | Congo's Caper (Europe)
-   .   .   .   .   .   .   .   .   w42 .   .   .   .   w42 .   .   | Congo's Caper (USA)
-   .   .   .   .   .   .   .   .   w6  w6  .   .   w34 w6  .   w6  | Exertainment Mountain Bike Rally (USA)
-   .   .   .   .   .   .   .   .   .   .   w5  w5  .   .   .   .   | Exertainment Mountain Bike Rally + Speed Racer (Europe) (En,Fr,De,Es,Nl)
-   .   .   .   .   .   .   .   .   w42 .   .   .   .   w42 .   .   | Joe & Mac (USA)
-   .   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   | Joe & Mac - Caveman Ninja (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | Joe & Mac - Tatakae Genshijin (Japan)
-   .   .   .   .   .   .   .   .   w42 .   .   .   .   w42 .   .   | Joe & Mac 2 - Lost in the Tropics (USA)
-   .   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   | Joe & Mac 3 - Lost in the Tropics (Europe) (En,Fr,De)
-   .   .   .   .   .   .   .   .   w6  w6  .   .   w35 w6  .   w6  | Speed Racer (USA)
-   .   .   .   .   .   .   .   .   w8  .   .   .   w5  w8  .   w8  | Super Mario All-Stars + Super Mario World (USA)
-   .   .   .   .   .   .   .   .   .   .   w8  .   .   .   .   .   | Super Mario All-Stars and Super Mario World (Europe)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | Super Mario Collection (Japan) (Rev 1)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | Super Mario World - Super Mario Bros. 4 (Japan)
-   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   .   | Tatakae Genshijin 2 - Rookie no Bouken (Japan) (En)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | Tatakae Genshijin 3 - Shuyaku wa Yappari Joe & Mac (Japan)
 == return of double dragon
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w50 w50 w50 x32 x27 w50 x26 w50 .   .   .   .   .   .   .   .   | Return of Double Dragon (Japan) (En)
@@ -5613,11 +5539,9 @@ rule r56: Superset parent selection REF0119: Group after good dump/production/re
    w50 w50 w50 x32 x27 w50 x26 w50 a42 a42 w42 x32 x27 a42 x26 a42 | Spectre (Europe)
    w50 w50 w50 x32 w50 w50 x26 w50 w42 w42 a42 x32 w46 w42 x26 w42 | Spectre (USA)
 == speed racer
-   w50 w50 w50 x32 w50 w50 x26 w50 .   .   a9  x32 .   .   x26 .   | Speed Racer (USA)
-     alternative to Exertainment Mountain Bike Rally + Speed Racer (Europe) (En,Fr,De,Es,Nl) [11]
-   w50 w50 w50 x32 w50 w50 x26 x19 a35 a35 a35 x32 a35 a35 x26 x19 | Speed Racer (USA) (Beta)
-     alternative to Exertainment Mountain Bike Rally + Speed Racer (Europe) (En,Fr,De,Es,Nl) [11]
-     alternative to Speed Racer (USA) [9-10,13-14]
+   g   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   |
+   w50 w50 w50 x32 w50 w50 x26 w50 w6  w6  .   x32 w35 w6  x26 w6  | Speed Racer (USA)
+   w50 w50 w50 x32 w50 w50 x26 x19 a35 a35 .   x32 a35 a35 x26 x19 | Speed Racer (USA) (Beta)
 == speedy gonzales - los gatos bandidos
    w50 w50 w50 x32 w50 w50 x26 w50 a38 a38 a38 x32 a38 a38 x26 a38 | Speedy Gonzales - Los Gatos Bandidos (USA)
    w50 w50 w50 x32 w50 w50 x26 w50 w48 w48 w48 x32 w38 w48 x26 w38 | Speedy Gonzales - Los Gatos Bandidos (USA) (Rev 1)
@@ -6341,47 +6265,60 @@ rule r56: Superset parent selection REF0119: Group after good dump/production/re
    w50 w50 w50 x32 x27 w50 x26 w50 .   .   .   .   .   .   .   .   | Super Mario - Yoshi Island (Japan) (Rev 2)
    w50 w50 w50 x32 x27 w50 x26 x19 .   .   .   .   .   .   .   .   | Super Mario - Yoshi Island (Japan) (Rev 2) (Beta) (1995-10-02)
 == super mario all-stars
-   w50 w50 w50 x32 x27 w50 x26 w50 a42 a48 a8  x32 x27 a42 x26 a42 | Super Mario All-Stars (Europe)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario Collection (Japan) (Rev 1) [10]
-   w50 w50 w50 x32 x27 w50 x26 w50 a36 a36 a36 x32 x27 a36 x26 a36 | Super Mario All-Stars (Europe) (Wii)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario Collection (Japan) (Rev 1) [10]
-   w50 w50 w50 x32 w50 w50 x26 w50 a8  a48 a42 x32 a1  a8  x26 a8  | Super Mario All-Stars (USA)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,13-14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario Collection (Japan) (Rev 1) [10]
-   w50 w50 w50 x32 w50 w50 x26 w50 a36 a36 a36 x32 a36 a36 x26 a36 | Super Mario All-Stars (USA) (Wii)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,13-14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario Collection (Japan) (Rev 1) [10]
-   w50 w50 w50 x32 w50 w50 x26 w50 a36 a36 a36 x32 a36 a36 x26 a36 | Super Mario All-Stars (USA, Europe) (Switch Online)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,13-14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario Collection (Japan) (Rev 1) [10]
-   .   .   .   .   .   .   .   .   a38 a38 a38 x32 x27 a38 x26 a38 | Super Mario Collection (Japan)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario Collection (Japan) (Rev 1) [10]
-   .   .   .   .   .   .   .   .   a48 .   a48 x32 x27 a48 x26 a48 | Super Mario Collection (Japan) (Rev 1)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-   .   .   .   .   .   .   .   .   a36 a36 a36 x32 x27 a36 x26 a36 | Super Mario Collection (Japan) (Rev 1) (Switch Online)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario Collection (Japan) (Rev 1) [10]
-   .   .   .   .   .   .   .   .   a36 a36 a36 x32 x27 a36 x26 a36 | Super Mario Collection (Japan) (Rev 1) (Wii)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario Collection (Japan) (Rev 1) [10]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   w50 w50 w50 x32 x27 w50 x26 w50 .   a48 .   x32 x27 .   x26 .   | Super Mario All-Stars (Europe)
+   w50 w50 w50 x32 x27 w50 x26 w50 .   a36 .   x32 x27 .   x26 .   | Super Mario All-Stars (Europe) (Wii)
+   w50 w50 w50 x32 w50 w50 x26 w50 .   a48 .   x32 .   .   x26 .   | Super Mario All-Stars (USA)
+   w50 w50 w50 x32 w50 w50 x26 w50 .   a36 .   x32 .   .   x26 .   | Super Mario All-Stars (USA) (Wii)
+   w50 w50 w50 x32 w50 w50 x26 w50 .   a36 .   x32 .   .   x26 .   | Super Mario All-Stars (USA, Europe) (Switch Online)
+   .   .   .   .   .   .   .   .   .   a2  .   .   .   .   .   .   | Super Mario All-Stars + Super Mario World (USA)
+   .   .   .   .   .   .   .   .   .   a2  .   .   .   .   .   .   | Super Mario All-Stars and Super Mario World (Europe)
+   .   .   .   .   .   .   .   .   .   a38 .   x32 x27 .   x26 .   | Super Mario Collection (Japan)
+   .   .   .   .   .   .   .   .   .   w48 .   x32 x27 .   x26 .   | Super Mario Collection (Japan) (Rev 1)
+   .   .   .   .   .   .   .   .   .   a36 .   x32 x27 .   x26 .   | Super Mario Collection (Japan) (Rev 1) (Switch Online)
+   .   .   .   .   .   .   .   .   .   a36 .   x32 x27 .   x26 .   | Super Mario Collection (Japan) (Rev 1) (Wii)
 == super mario all-stars + super mario world
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w50 w50 w50 x32 w50 w50 x26 w50 .   .   .   x32 .   .   x26 .   | Super Mario All-Stars + Super Mario World (USA)
+   g   g   g   g   g   g   g   g   g   .   .   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a42 .   .   .   .   a42 .   a42 | Super Mario All-Stars (Europe)
+   .   .   .   .   .   .   .   .   a36 .   .   .   .   a36 .   a36 | Super Mario All-Stars (Europe) (Wii)
+   .   .   .   .   .   .   .   .   a8  .   .   .   a1  a8  .   a8  | Super Mario All-Stars (USA)
+   .   .   .   .   .   .   .   .   a36 .   .   .   a36 a36 .   a36 | Super Mario All-Stars (USA) (Wii)
+   .   .   .   .   .   .   .   .   a36 .   .   .   a36 a36 .   a36 | Super Mario All-Stars (USA, Europe) (Switch Online)
+   w50 w50 w50 x32 w50 w50 x26 w50 w8  .   .   x32 w5  w8  x26 w8  | Super Mario All-Stars + Super Mario World (USA)
+   .   .   .   .   .   .   .   .   a3  .   .   .   .   a3  .   a3  | Super Mario All-Stars and Super Mario World (Europe)
+   .   .   .   .   .   .   .   .   a38 .   .   .   .   a38 .   a38 | Super Mario Collection (Japan)
+   .   .   .   .   .   .   .   .   a48 .   .   .   .   a48 .   a48 | Super Mario Collection (Japan) (Rev 1)
+   .   .   .   .   .   .   .   .   a36 .   .   .   .   a36 .   a36 | Super Mario Collection (Japan) (Rev 1) (Switch Online)
+   .   .   .   .   .   .   .   .   a36 .   .   .   .   a36 .   a36 | Super Mario Collection (Japan) (Rev 1) (Wii)
+   .   .   .   .   .   .   .   .   a38 .   .   .   .   a38 .   a38 | Super Mario World (Europe)
+   .   .   .   .   .   .   .   .   a42 .   .   .   .   a42 .   a42 | Super Mario World (Europe) (Rev 1)
+   .   .   .   .   .   .   .   .   a35 .   .   .   .   a35 .   .   | Super Mario World (Japan) (En) (Arcade) [b]
+   .   .   .   .   .   .   .   .   a8  .   .   .   a1  a8  .   a8  | Super Mario World (USA)
+   .   .   .   .   .   .   .   .   a35 .   .   .   a35 a35 .   .   | Super Mario World (USA) (Beta) (1990-10-25)
+   .   .   .   .   .   .   .   .   a36 .   .   .   a36 a36 .   a36 | Super Mario World (USA, Europe) (Virtual Console, Classic Mini, Switch Online)
+   .   .   .   .   .   .   .   .   a48 .   .   .   .   a48 .   a48 | Super Mario World - Super Mario Bros. 4 (Japan)
+   .   .   .   .   .   .   .   .   a36 .   .   .   .   a36 .   a36 | Super Mario World - Super Mario Bros. 4 (Japan) (Classic Mini, Switch Online)
 == super mario all-stars and super mario world
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w50 w50 w50 x32 x27 w50 x26 w50 .   .   .   x32 x27 .   x26 .   | Super Mario All-Stars and Super Mario World (Europe)
+   g   g   g   g   g   g   g   g   .   .   g   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   .   a8  .   .   .   .   .   | Super Mario All-Stars (Europe)
+   .   .   .   .   .   .   .   .   .   .   a36 .   .   .   .   .   | Super Mario All-Stars (Europe) (Wii)
+   .   .   .   .   .   .   .   .   .   .   a42 .   .   .   .   .   | Super Mario All-Stars (USA)
+   .   .   .   .   .   .   .   .   .   .   a36 .   .   .   .   .   | Super Mario All-Stars (USA) (Wii)
+   .   .   .   .   .   .   .   .   .   .   a36 .   .   .   .   .   | Super Mario All-Stars (USA, Europe) (Switch Online)
+   .   .   .   .   .   .   .   .   .   .   a4  .   .   .   .   .   | Super Mario All-Stars + Super Mario World (USA)
+   w50 w50 w50 x32 x27 w50 x26 w50 .   .   w8  x32 x27 .   x26 .   | Super Mario All-Stars and Super Mario World (Europe)
+   .   .   .   .   .   .   .   .   .   .   a38 .   .   .   .   .   | Super Mario Collection (Japan)
+   .   .   .   .   .   .   .   .   .   .   a48 .   .   .   .   .   | Super Mario Collection (Japan) (Rev 1)
+   .   .   .   .   .   .   .   .   .   .   a36 .   .   .   .   .   | Super Mario Collection (Japan) (Rev 1) (Switch Online)
+   .   .   .   .   .   .   .   .   .   .   a36 .   .   .   .   .   | Super Mario Collection (Japan) (Rev 1) (Wii)
+   .   .   .   .   .   .   .   .   .   .   a38 .   .   .   .   .   | Super Mario World (Europe)
+   .   .   .   .   .   .   .   .   .   .   a8  .   .   .   .   .   | Super Mario World (Europe) (Rev 1)
+   .   .   .   .   .   .   .   .   .   .   a35 .   .   .   .   .   | Super Mario World (Japan) (En) (Arcade) [b]
+   .   .   .   .   .   .   .   .   .   .   a42 .   .   .   .   .   | Super Mario World (USA)
+   .   .   .   .   .   .   .   .   .   .   a35 .   .   .   .   .   | Super Mario World (USA) (Beta) (1990-10-25)
+   .   .   .   .   .   .   .   .   .   .   a36 .   .   .   .   .   | Super Mario World (USA, Europe) (Virtual Console, Classic Mini, Switch Online)
+   .   .   .   .   .   .   .   .   .   .   a48 .   .   .   .   .   | Super Mario World - Super Mario Bros. 4 (Japan)
+   .   .   .   .   .   .   .   .   .   .   a36 .   .   .   .   .   | Super Mario World - Super Mario Bros. 4 (Japan) (Classic Mini, Switch Online)
 == super mario collection
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w50 w50 w50 x32 x27 w50 x26 w50 .   .   .   .   .   .   .   .   | Super Mario Collection (Japan)
@@ -6406,37 +6343,15 @@ rule r56: Superset parent selection REF0119: Group after good dump/production/re
    w50 w50 w50 x32 w50 w50 x26 w50 w48 a48 w48 x32 w36 w48 x26 w48 | Super Mario RPG - Legend of the Seven Stars (USA)
    w50 w50 w50 x32 w50 w50 x26 w50 a36 a36 a48 x32 a36 a36 x26 a36 | Super Mario RPG - Legend of the Seven Stars (USA, Europe) (Virtual Console)
 == super mario world
-   w50 w50 w50 x32 x27 w50 x26 w50 a38 a38 a38 x32 x27 a38 x26 a38 | Super Mario World (Europe)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario World - Super Mario Bros. 4 (Japan) [10]
-   w50 w50 w50 x32 x27 w50 x26 w50 a42 a48 a8  x32 x27 a42 x26 a42 | Super Mario World (Europe) (Rev 1)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario World - Super Mario Bros. 4 (Japan) [10]
-   w50 w50 w50 x32 x27 w50 x26 x23 a35 a35 a35 x32 x27 a35 x26 x23 | Super Mario World (Japan) (En) (Arcade) [b]
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,14]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario World - Super Mario Bros. 4 (Japan) [10]
-   w50 w50 w50 x32 w50 w50 x26 w50 a8  a48 a42 x32 a1  a8  x26 a8  | Super Mario World (USA)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,13-14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario World - Super Mario Bros. 4 (Japan) [10]
-   w50 w50 w50 x32 w50 w50 x26 x18 a35 a35 a35 x32 a35 a35 x26 x18 | Super Mario World (USA) (Beta) (1990-10-25)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,13-14]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario World - Super Mario Bros. 4 (Japan) [10]
-   w50 w50 w50 x32 w50 w50 x26 w50 a36 a36 a36 x32 a36 a36 x26 a36 | Super Mario World (USA, Europe) (Virtual Console, Classic Mini, Switch Online)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,13-14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario World - Super Mario Bros. 4 (Japan) [10]
-   .   .   .   .   .   .   .   .   a48 .   a48 x32 x27 a48 x26 a48 | Super Mario World - Super Mario Bros. 4 (Japan)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-   .   .   .   .   .   .   .   .   a36 a36 a36 x32 x27 a36 x26 a36 | Super Mario World - Super Mario Bros. 4 (Japan) (Classic Mini, Switch Online)
-     alternative to Super Mario All-Stars + Super Mario World (USA) [9,14,16]
-     alternative to Super Mario All-Stars and Super Mario World (Europe) [11]
-     alternative to Super Mario World - Super Mario Bros. 4 (Japan) [10]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   g   |
+   w50 w50 w50 x32 x27 w50 x26 w50 .   a38 .   x32 x27 .   x26 .   | Super Mario World (Europe)
+   w50 w50 w50 x32 x27 w50 x26 w50 .   a48 .   x32 x27 .   x26 .   | Super Mario World (Europe) (Rev 1)
+   w50 w50 w50 x32 x27 w50 x26 x23 .   a35 .   x32 x27 .   x26 x23 | Super Mario World (Japan) (En) (Arcade) [b]
+   w50 w50 w50 x32 w50 w50 x26 w50 .   a48 .   x32 .   .   x26 .   | Super Mario World (USA)
+   w50 w50 w50 x32 w50 w50 x26 x18 .   a35 .   x32 .   .   x26 x18 | Super Mario World (USA) (Beta) (1990-10-25)
+   w50 w50 w50 x32 w50 w50 x26 w50 .   a36 .   x32 .   .   x26 .   | Super Mario World (USA, Europe) (Virtual Console, Classic Mini, Switch Online)
+   .   .   .   .   .   .   .   .   .   w48 .   x32 x27 .   x26 .   | Super Mario World - Super Mario Bros. 4 (Japan)
+   .   .   .   .   .   .   .   .   .   a36 .   x32 x27 .   x26 .   | Super Mario World - Super Mario Bros. 4 (Japan) (Classic Mini, Switch Online)
 == super mario world - super mario bros. 4
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w50 w50 w50 x32 x27 w50 x26 w50 .   .   .   .   .   .   .   .   | Super Mario World - Super Mario Bros. 4 (Japan)

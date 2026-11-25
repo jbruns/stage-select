@@ -747,26 +747,16 @@ rule r22: Superset parent selection REF0076: Group after choosing superset title
    w21 w21 w21 w21 w21 w21 x8  w21 w19 w19 w19 w19 w19 w19 x8  w19 | NES Remix Pack (USA) (En,Fr,Es)
 == new super luigi u
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
-   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 .   .   x9  a17 x8  a17 | New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
-     alternative to New Super Luigi U (Japan) [10]
-     alternative to New Super Luigi U (USA) (En,Fr,Es) [9,14,16]
-   w21 w21 w21 x12 x9  w21 x8  w21 a20 .   a20 x12 x9  a20 x8  a20 | New Super Luigi U (Japan)
-     alternative to New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) [11]
-     alternative to New Super Luigi U (USA) (En,Fr,Es) [9,14,16]
-   w21 w21 w21 w21 w21 w21 x8  w21 .   a20 a17 a17 .   .   x8  .   | New Super Luigi U (USA) (En,Fr,Es)
-     alternative to New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) [11-12]
-     alternative to New Super Luigi U (Japan) [10]
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w2  w2  x9  a17 x8  a17 | New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | New Super Luigi U (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w2  a20 a17 a17 w19 w2  x8  w2  | New Super Luigi U (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a2  a1  a3  a3  .   a2  .   a2  | New Super Mario Bros. U + New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   .   .   .   .   .   .   .   .   a3  a1  a2  a2  a3  a3  .   a3  | New Super Mario Bros. U + New Super Luigi U (USA) (En,Fr,Es)
 == new super mario bros. u
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
-   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 .   .   x9  a17 x8  a17 | New Super Mario Bros. U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
-     alternative to New Super Mario Bros. U (Japan) [10]
-     alternative to New Super Mario Bros. U (USA) (En,Fr,Es) (Rev 2) [9,14,16]
-   w21 w21 w21 x12 x9  w21 x8  w21 a20 .   a20 x12 x9  a20 x8  a20 | New Super Mario Bros. U (Japan)
-     alternative to New Super Mario Bros. U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) [11]
-     alternative to New Super Mario Bros. U (USA) (En,Fr,Es) (Rev 2) [9,14,16]
-   w21 w21 w21 w21 w21 w21 x8  w21 .   a20 a17 a17 .   .   x8  .   | New Super Mario Bros. U (USA) (En,Fr,Es) (Rev 2)
-     alternative to New Super Mario Bros. U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) [11-12]
-     alternative to New Super Mario Bros. U (Japan) [10]
+   w21 w21 w21 w21 x9  w21 x8  w21 a17 a20 w2  w2  x9  a17 x8  a17 | New Super Mario Bros. U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
+   w21 w21 w21 x12 x9  w21 x8  w21 a20 w20 a20 x12 x9  a20 x8  a20 | New Super Mario Bros. U (Japan)
+   w21 w21 w21 w21 w21 w21 x8  w21 w2  a20 a17 a17 w19 w2  x8  w2  | New Super Mario Bros. U (USA) (En,Fr,Es) (Rev 2)
 == new super mario bros. u + new super luigi u
    gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   gd  .   gd  .   |
    w21 w21 w21 w21 x9  w21 x8  w21 .   .   .   .   x9  .   x8  .   | New Super Mario Bros. U + New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
@@ -842,24 +832,6 @@ rule r22: Superset parent selection REF0076: Group after choosing superset title
    .   .   .   .   .   .   .   .   a20 w17 a20 x12 x9  a20 x8  a20 | Biohazard - Revelations - Unveiled Edition (Japan) (Rev 1)
    w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Resident Evil - Revelations (Europe) (En,Ja,Fr,De,Es,It,Nl,Pt,Pl,Ru) (Rev 1)
    w21 w21 w21 w21 w21 w21 x8  w21 w17 a17 a17 a17 w19 w17 x8  w17 | Resident Evil - Revelations (USA) (En,Ja,Fr,De,Es,It,Nl,Pt,Pl,Ru) (Rev 1)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  .   gd  |
-   .   .   .   .   .   .   .   .   a2  a1  a3  a3  .   a2  .   a2  | New Super Mario Bros. U + New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
-     alternative to New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) [11-12]
-     alternative to New Super Luigi U (Japan) [10]
-     alternative to New Super Luigi U (USA) (En,Fr,Es) [9,14,16]
-   .   .   .   .   .   .   .   .   a3  a1  a2  a2  a3  a3  .   a3  | New Super Mario Bros. U + New Super Luigi U (USA) (En,Fr,Es)
-     alternative to New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru) [11-12]
-     alternative to New Super Luigi U (Japan) [10]
-     alternative to New Super Luigi U (USA) (En,Fr,Es) [9,13-14,16]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   gd  gd  gd  gd  gd  gd  .   gd  |
-   .   .   .   .   .   .   .   .   .   .   w2  w2  .   .   .   .   | New Super Luigi U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
-   .   .   .   .   .   .   .   .   .   w20 .   .   .   .   .   .   | New Super Luigi U (Japan)
-   .   .   .   .   .   .   .   .   w2  .   .   .   w19 w2  .   w2  | New Super Luigi U (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w2  w2  .   .   .   .   | New Super Mario Bros. U (Europe) (En,Fr,De,Es,It,Nl,Pt,Ru)
-   .   .   .   .   .   .   .   .   .   w20 .   .   .   .   .   .   | New Super Mario Bros. U (Japan)
-   .   .   .   .   .   .   .   .   w2  .   .   .   w19 w2  .   w2  | New Super Mario Bros. U (USA) (En,Fr,Es) (Rev 2)
 == rodea the sky soldier
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w21 w21 w21 w21 x9  w21 x8  w21 a17 a17 w17 w17 x9  a17 x8  a17 | Rodea the Sky Soldier (Europe) (En,Ja,Fr,De)

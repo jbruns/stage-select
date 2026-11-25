@@ -600,12 +600,11 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 x41 x43 w65 .   .   .   .   .   .   .   .   | Action in New York (Europe)
 == adam & eve
-   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
-   w65 w65 w65 x46 x44 x41 x43 x38 a3  .   a3  x46 x44 .   x43 x38 | Adam & Eve (Asia) (En) (Mega Soft) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-   w65 w65 w65 x46 x44 x41 x43 x38 a56 a56 a56 x46 x44 .   x43 x38 | Adam & Eve (Spain) (En) (NTDEC) (Unl)
-     alternative to Adam & Eve (Asia) (En) (Mega Soft) (Unl) [10]
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
+   gd  gd  gd  gd  gd  gd  gd  gd  .   gd  .   gd  gd  .   gd  gd  |
+   w65 w65 w65 x46 x44 x41 x43 x38 .   w7  .   x46 x44 .   x43 x38 | Adam & Eve (Asia) (En) (Mega Soft) (Unl)
+   w65 w65 w65 x46 x44 x41 x43 x38 .   a56 .   x46 x44 .   x43 x38 | Adam & Eve (Spain) (En) (NTDEC) (Unl)
+   .   .   .   .   .   .   .   .   .   a15 .   .   .   .   .   .   | Caltron - 6 in 1 (USA) (Unl)
+   .   .   .   .   .   .   .   .   .   a15 .   .   .   .   .   .   | HES 6-Pak - Real Player's Pak (Australia) (Unl)
 == addams family, the
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 w65 x44 x41 x43 w65 a56 a56 w56 w60 x44 .   x43 a56 | Addams Family, The (Europe) (En,Fr,De)
@@ -1119,11 +1118,10 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 x41 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Arctic (Japan)
 == arctic adventure - penguin & seal
-   g   g   g   g   g   g   g   g   gd  g   gd  gd  gd  .   gd  gd  |
-   w65 w65 w65 x46 x44 x41 x43 x38 .   a56 .   x46 x44 .   x43 x38 | Arctic Adventure - Penguin & Seal (Australia) (Unl)
-     alternative to Dong Dongnao 1 (Asia) (En) (Unl) [10]
-   .   .   .   .   .   .   .   .   a56 .   a56 x46 x44 .   x43 x38 | Dong Dongnao 1 (Asia) (En) (Unl)
-     alternative to Arctic Adventure - Penguin & Seal (Australia) (Unl) [9,11]
+   g   g   g   g   g   g   g   g   gd  gd  gd  gd  gd  .   gd  gd  |
+   w65 w65 w65 x46 x44 x41 x43 x38 w8  a56 w8  x46 x44 .   x43 x38 | Arctic Adventure - Penguin & Seal (Australia) (Unl)
+   .   .   .   .   .   .   .   .   a56 w56 a56 x46 x44 .   x43 x38 | Dong Dongnao 1 (Asia) (En) (Unl)
+   .   .   .   .   .   .   .   .   .   a11 .   .   .   .   .   .   | Mindblower Pak (Australia) (Unl)
 == argos no senshi
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 x41 x43 w65 .   .   .   .   .   .   .   .   | Argos no Senshi (Japan) (FamicomBox)
@@ -1212,8 +1210,29 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 w65 x41 x43 x32 w60 w60 w60 x46 w60 .   x43 x32 | Artix (World) (Beta) (Aftermarket) (Unl)
 == asder - 20 in 1
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
-   w65 w65 w65 x46 w65 x41 x43 x38 .   .   .   x46 .   .   x43 x38 | Asder - 20 in 1 (USA) (Unl)
+   g   g   g   g   g   g   g   g   gd  g   gd  g   g   .   g   g   |
+   .   .   .   .   .   .   .   .   a3  .   a3  .   .   .   .   .   | Adam & Eve (Asia) (En) (Mega Soft) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   a56 .   .   .   .   .   | Adam & Eve (Spain) (En) (NTDEC) (Unl)
+   w65 w65 w65 x46 w65 x41 x43 x38 w6  w7  w4  x46 w5  .   x43 x38 | Asder - 20 in 1 (USA) (Unl)
+   .   .   .   .   .   .   .   .   a3  .   .   .   .   .   .   .   | Balloon Monster (Europe, Asia) (En) (Mega Soft) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   a56 .   .   .   .   .   | Booky Man (Brazil) (En) (Mega Soft) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   a56 .   .   .   .   .   | Booky Man (Spain) (En) (NTDEC) (Unl)
+   .   .   .   .   .   .   .   .   a3  .   a3  .   .   .   .   .   | Brush Roller (Asia) (En) (Hwang Shinwei) (Unl)
+   .   .   .   .   .   .   .   .   a13 .   a13 .   a13 .   .   .   | Caltron - 6 in 1 (USA) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   a56 .   .   .   .   .   | Corre Benny (Spain) (En) (NTDEC) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   .   .   .   .   .   .   | Cosmos Cop (Asia) (En) (Mega Soft) (Unl)
+   .   .   .   .   .   .   .   .   a3  .   .   .   .   .   .   .   | Cosmos Cop (Europe, Asia) (En) (Caltron) (Unl)
+   .   .   .   .   .   .   .   .   a55 .   a55 .   .   .   .   .   | Dream Fighter (Asia) (En) (Asder) (Unl)
+   .   .   .   .   .   .   .   .   a14 .   a14 .   .   .   .   .   | Dream Fighter (Asia) (En) (Caltron) (Unl)
+   .   .   .   .   .   .   .   .   a14 .   a14 .   .   .   .   .   | Go! Benny! (Asia) (En) (Mega Soft) (Unl)
+   .   .   .   .   .   .   .   .   a3  .   a3  .   .   .   .   .   | HES 6-Pak - Real Player's Pak (Australia) (Unl)
+   .   .   .   .   .   .   .   .   a1  .   a1  .   .   .   .   .   | Master Shooter (Asia) (Ja) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   .   .   .   .   .   .   | Monstruo de los Globos, El (Spain) (En) (Caltron) (Unl)
+   .   .   .   .   .   .   .   .   a3  .   a3  .   .   .   .   .   | Porter (Asia) (En) (Unl)
+   .   .   .   .   .   .   .   .   a14 .   .   .   .   .   .   .   | Skate Boy (Europe, Asia) (En) (Unl)
+   .   .   .   .   .   .   .   .   a55 .   a55 .   .   .   .   .   | Tank (Asia) (En) (Asder) (Unl)
+   .   .   .   .   .   .   .   .   a14 .   a14 .   .   .   .   .   | Tank (Asia) (En) (Caltron) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   a56 .   .   .   .   .   | Tanque (Spain) (En) (NTDEC) (Unl)
 == ashen house
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 x41 x43 x31 w60 w60 w60 x46 w60 .   x43 x31 | Ashen House (World) (v0.2) (Demo) (Aftermarket) (Unl)
@@ -1366,8 +1385,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == baby boomer
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 x38 a56 a56 a56 x46 x44 .   x43 x38 | Baby Boomer (Korea) (En) (Unl)
-     alternative to Baby Boomer (USA) (Unl) [9-11]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Baby Boomer (USA) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w56 w56 w56 x46 w60 .   x43 x38 | Baby Boomer (USA) (Unl)
+   .   .   .   .   .   .   .   .   a12 a12 a12 .   a12 .   .   .   | Rumble Station - 15 in 1 (USA) (Unl)
 == back to the future
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 w65 w60 w60 w60 x46 w60 .   x43 w60 | Back to the Future (USA)
@@ -1436,12 +1455,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 w65 w56 a56 a56 x46 w49 .   x43 w56 | Balloon Fight (USA)
    w65 w65 w65 x46 w65 w65 x43 w65 a49 a49 a49 x46 a49 .   x43 a49 | Balloon Fight (USA) (e-Reader Edition)
 == balloon monster
-   gd  gd  gd  gd  gd  gd  gd  gd  gd  g   g   gd  gd  .   gd  gd  |
-   w65 w65 w65 x46 x44 w65 x43 x38 a3  .   .   x46 x44 .   x43 x38 | Balloon Monster (Europe, Asia) (En) (Mega Soft) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9]
-   .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Monstruo de los Globos, El (Spain) (En) (Caltron) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9]
-     alternative to Balloon Monster (Europe, Asia) (En) (Mega Soft) (Unl) [10-11]
+   gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  gd  gd  .   gd  gd  |
+   w65 w65 w65 x46 x44 w65 x43 x38 .   w7  w4  x46 x44 .   x43 x38 | Balloon Monster (Europe, Asia) (En) (Mega Soft) (Unl)
+   .   .   .   .   .   .   .   .   .   a56 a56 x46 x44 .   x43 x38 | Monstruo de los Globos, El (Spain) (En) (Caltron) (Unl)
 == balloon stand
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Balloon Stand (World) (Aftermarket) (Unl)
@@ -1932,8 +1948,10 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x25 a51 a51 a51 x46 a51 .   x43 x25 | Black Jewel Reborn (World) (v0.161) (Demo) (Aftermarket) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x25 w51 w51 w51 x46 w51 .   x43 x25 | Black Jewel Reborn (World) (v0.165) (Demo) (Aftermarket) (Unl)
 == blackjack
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 w60 .   x43 x38 | Blackjack (USA) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Blackjack (USA) (Unl)
+   .   .   .   .   .   .   .   .   a3  a3  a3  .   .   .   .   .   | Maxi-15 Pack (Australia) (Rev 1) (Unl)
+   .   .   .   .   .   .   .   .   a3  a3  a3  .   .   .   .   .   | Maxi-15 Pack (Australia) (Unl)
 == blade buster
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 x44 w65 x43 x38 a51 a51 a51 x46 x44 .   x43 x38 | Blade Buster (Japan) (En) (v1.0) (Aftermarket) (Unl)
@@ -2193,15 +2211,10 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x32 w60 w60 w60 x46 w60 .   x43 x32 | Brony Blaster (World) (Proto) (Aftermarket) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x32 w60 w60 w60 x46 w60 .   x43 x32 | Brony Blaster (World) (Proto) (NESWorld) (Aftermarket) (Unl)
 == brush roller
-   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Booky Man (Brazil) (En) (Mega Soft) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-     alternative to Brush Roller (Asia) (En) (Hwang Shinwei) (Unl) [10]
-   .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Booky Man (Spain) (En) (NTDEC) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-     alternative to Brush Roller (Asia) (En) (Hwang Shinwei) (Unl) [10]
-   w65 w65 w65 x46 x44 w65 x43 x38 a3  .   a3  x46 x44 .   x43 x38 | Brush Roller (Asia) (En) (Hwang Shinwei) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   g   |
+   .   .   .   .   .   .   .   .   .   a56 .   x46 x44 .   x43 x38 | Booky Man (Brazil) (En) (Mega Soft) (Unl)
+   .   .   .   .   .   .   .   .   .   a56 .   x46 x44 .   x43 x38 | Booky Man (Spain) (En) (NTDEC) (Unl)
+   w65 w65 w65 x46 x44 w65 x43 x38 .   w7  .   x46 x44 .   x43 x38 | Brush Roller (Asia) (En) (Hwang Shinwei) (Unl)
 == bubble bath babes
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   .   .   .   .   .   | Bubble Bath Babes (USA) (Unl)
@@ -2343,8 +2356,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Caltron - 6 in 1 (USA) (Unl)
 == caltron - 9 in 1
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x35 .   .   .   x46 .   .   x43 x35 | Caltron - 9 in 1 (USA) (Proto) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x35 w6  w7  w4  x46 w5  .   x43 x35 | Caltron - 9 in 1 (USA) (Proto) (Unl)
 == candelabra - estoscerro
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 w65 w65 x43 x38 w55 w55 w55 x46 w55 .   x43 x38 | Candelabra - Estoscerro (World) (Aftermarket) (Unl)
@@ -2371,11 +2384,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 x44 w65 x43 w65 a56 a56 a56 x46 x44 .   x43 a56 | Captain America and the Avengers (Australia)
    w65 w65 w65 x46 w65 w65 x43 w65 w56 w56 w56 x46 w60 .   x43 w56 | Captain America and the Avengers (USA)
 == captain comic - the adventure
-   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  g   gd  gd  .   gd  gd  |
-   w65 w65 w65 x46 x44 w65 x43 x38 a56 a56 .   x46 x44 .   x43 x38 | Captain Comic - The Adventure (Europe) (Unl)
-     alternative to Captain Comic - The Adventure (USA, Brazil) (En) (Unl) [9-10]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   a56 x46 .   .   x43 x38 | Captain Comic - The Adventure (USA, Brazil) (En) (Unl)
-     alternative to Captain Comic - The Adventure (Europe) (Unl) [11]
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
+   w65 w65 w65 x46 x44 w65 x43 x38 a56 a56 w56 x46 x44 .   x43 x38 | Captain Comic - The Adventure (Europe) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w56 w56 a56 x46 w60 .   x43 x38 | Captain Comic - The Adventure (USA, Brazil) (En) (Unl)
 == captain ed
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Captain ED (Japan)
@@ -2504,14 +2515,14 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 x40 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Chack'n Pop (Japan)
 == challenge of the dragon
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 x40 x43 x38 .   .   .   x46 x44 .   x43 x38 | Challenge of the Dragon (Asia) (En) (Sachen) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 x40 x43 x38 w60 w60 w60 x46 x44 .   x43 x38 | Challenge of the Dragon (Asia) (En) (Sachen) (Unl)
    w65 w65 w65 x46 w65 x40 x43 x38 .   .   .   .   .   .   .   .   | Challenge of the Dragon (USA) (Color Dreams) (Unl)
+   .   .   .   .   .   .   .   .   a11 a11 a11 .   .   .   .   .   | Super Cartridge Ver 9 - 3 in 1 (Asia) (En) (Unl)
 == challenge of the dragon - color dreams
    .   .   .   .   .   .   .   .   g   g   g   g   g   .   g   g   |
    .   .   .   .   .   .   .   .   a63 a63 x45 x46 x44 .   x43 x38 | Black Dragon (Korea) (Unl)
-     alternative to Challenge of the Dragon (USA) (Color Dreams) (Unl) [9-10]
-   .   .   .   .   .   .   .   .   .   .   .   x46 .   .   x43 x38 | Challenge of the Dragon (USA) (Color Dreams) (Unl)
+   .   .   .   .   .   .   .   .   w63 w63 w60 x46 w60 .   x43 x38 | Challenge of the Dragon (USA) (Color Dreams) (Unl)
 == challenger
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 x40 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Challenger (Japan)
@@ -2663,8 +2674,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == chiller
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 x40 x43 x38 a56 a56 a56 x46 x44 .   x43 x38 | Chiller (Australia) (Unl)
-     alternative to Chiller (USA) (Unl) [9-11]
-   w65 w65 w65 x46 w65 x40 x43 x38 .   .   .   x46 .   .   x43 x38 | Chiller (USA) (Unl)
+   w65 w65 w65 x46 w65 x40 x43 x38 w10 w9  w10 x46 w10 .   x43 x38 | Chiller (USA) (Unl)
+   .   .   .   .   .   .   .   .   a6  a7  a4  .   a5  .   .   .   | Maxi 15 (USA) (Unl)
 == chinese checkers
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 x40 x43 x38 a47 w47 a47 x46 x44 .   x43 x38 | Chinese Checkers (Asia) (En) (60 pin cart) (Unl)
@@ -3118,12 +3129,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Cosmo Police Galivan (Japan)
 == cosmos cop
-   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a56 a52 a56 x46 x44 .   x43 x38 | Cosmos Cop (Asia) (En) (Mega Soft) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9]
-     alternative to Cosmos Cop (Europe, Asia) (En) (Caltron) (Unl) [10-11]
-   w65 w65 w65 x46 x44 w65 x43 x38 a3  .   .   x46 x44 .   x43 x38 | Cosmos Cop (Europe, Asia) (En) (Caltron) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9]
+   g   g   g   g   g   g   g   g   .   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 .   a52 a56 x46 x44 .   x43 x38 | Cosmos Cop (Asia) (En) (Mega Soft) (Unl)
+   w65 w65 w65 x46 x44 w65 x43 x38 .   w7  w4  x46 x44 .   x43 x38 | Cosmos Cop (Europe, Asia) (En) (Caltron) (Unl)
 == cowboy kid
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 w65 w63 a63 w63 x46 w60 .   x43 w63 | Cowboy Kid (USA)
@@ -3132,14 +3140,15 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  gd  .   gd  gd  |
    w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   x46 x44 .   x43 x38 | Cowlitz Gamers Adventure Trilogy (Europe) (Evercade) (Aftermarket) (Unl)
 == cowlitz gamers adventure, the
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 w60 .   x43 x38 | Cowlitz Gamers Adventure, The (World) (Aftermarket) (Unl)
+   g   g   g   g   g   g   g   g   gd  gd  gd  g   g   .   g   g   |
+   .   .   .   .   .   .   .   .   a11 a11 a11 .   .   .   .   .   | Cowlitz Gamers Adventure Trilogy (Europe) (Evercade) (Aftermarket) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Cowlitz Gamers Adventure, The (World) (Aftermarket) (Unl)
 == cowlitz gamers' 2nd adventure, the
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 w60 .   x43 x38 | Cowlitz Gamers' 2nd Adventure, The (World) (Aftermarket) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Cowlitz Gamers' 2nd Adventure, The (World) (Aftermarket) (Unl)
 == cowlitz gamers' lost adventure, the
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 w60 .   x43 x38 | Cowlitz Gamers' Lost Adventure, The (World) (Aftermarket) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Cowlitz Gamers' Lost Adventure, The (World) (Aftermarket) (Unl)
 == crab carry the flag
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 x38 w60 w60 w60 x46 x44 .   x43 x38 | Crab Carry the Flag (Japan) (En) (Family BASIC) (Unl)
@@ -3227,8 +3236,7 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == crystal mines
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 x45 x46 x44 w65 x43 x38 a63 a63 x45 x46 x44 .   x43 x38 | Crystal Mines (Korea) (Unl)
-     alternative to Crystal Mines (USA) (Unl) [9-10]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Crystal Mines (USA) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w63 w63 w60 x46 w60 .   x43 x38 | Crystal Mines (USA) (Unl)
 == crystalis
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 w65 w63 a63 w63 x46 w49 .   x43 w63 | Crystalis (USA)
@@ -3463,13 +3471,12 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 w65 w63 a63 w63 x46 w60 .   x43 w63 | Deadly Towers (USA)
    .   .   .   .   .   .   .   .   a63 w63 a63 x46 x44 .   x43 a63 | Mashou (Japan)
 == death race
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 w60 .   x43 x38 | Death Race (USA) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Death Race (USA) (Unl)
 == deathbots
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Deathbots (USA) (Rev 1) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 w9  w10 x46 w10 .   x43 x38 | Deathbots (USA) (Rev 1) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x38 a51 a51 a51 x46 a51 .   x43 x38 | Deathbots (USA) (Unl)
-     alternative to Deathbots (USA) (Rev 1) (Unl) [9-11,13]
 == decathlon
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 x38 w60 w60 w60 x46 x44 .   x43 x38 | Decathlon (Asia) (Ja) (Unl)
@@ -3563,9 +3570,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a47 a47 x45 x46 x44 .   x43 x37 | Tunshi Tiandi (China) (Coolboy) (Pirate)
 == destroyer
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   x46 x44 .   x43 x38 | Destroyer (Asia) (En) (Mega Soft) (Unl)
+   w65 w65 w65 x46 x44 w65 x43 x38 w6  w7  w4  x46 x44 .   x43 x38 | Destroyer (Asia) (En) (Mega Soft) (Unl)
    .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Destructor, El (Spain) (En) (NTDEC) (Unl)
-     alternative to Destroyer (Asia) (En) (Mega Soft) (Unl) [9-11]
 == destructor, el
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   .   .   .   .   .   | Destructor, El (Spain) (En) (NTDEC) (Unl)
@@ -3728,30 +3734,33 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 x45 x46 x44 w65 x43 x38 w47 w47 x45 x46 x44 .   x43 x38 | Dongzhou Lie Guozhi (China) (2006SR04301) (Aftermarket) (Unl)
    w65 w65 x45 x46 x44 w65 x43 x38 a47 a47 x45 x46 x44 .   x43 x38 | Dongzhou Lie Guozhi (China) (960100577) (Unl)
 == donkey kong
-   gd  gd  gd  gd  gd  gd  gd  gd  g   g   g   gd  g   .   gd  gd  |
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 x44 w65 x43 x37 a58 a58 a58 x46 x44 .   x43 x37 | Donkey Kong (Asia) (En) (LA03) (Pirate)
      alternative to Donkey Kong (Japan) [10]
      alternative to Donkey Kong (World) (Rev 1) [9,11]
    w65 w65 w65 x46 x44 w65 x43 x37 a63 a63 a63 x46 x44 .   x43 x37 | Donkey Kong (Asia) (En) (Pirate)
      alternative to Donkey Kong (Japan) [10]
      alternative to Donkey Kong (World) (Rev 1) [9,11]
-   w65 w65 w65 x46 x44 w65 x43 w65 a63 .   a63 x46 x44 .   x43 a63 | Donkey Kong (Japan)
-     alternative to Donkey Kong (World) (Rev 1) [9,11,16]
+   w65 w65 w65 x46 x44 w65 x43 w65 a63 w63 a63 x46 x44 .   x43 a63 | Donkey Kong (Japan)
+     alternative to Donkey Kong (World) (Rev 1) [9,11]
    w65 w65 w65 x46 w65 w65 x43 w65 a63 a63 a63 x46 a63 .   x43 a63 | Donkey Kong (USA) (Rev 1) (e-Reader Edition)
      alternative to Donkey Kong (Japan) [10]
-     alternative to Donkey Kong (World) (Rev 1) [9,11,13,16]
-   w65 w65 w65 x46 w65 w65 x43 x31 .   .   .   x46 .   .   x43 x31 | Donkey Kong (World) (Demo) (Vertical Orientation) (Aftermarket) (Pirate)
-   w65 w65 w65 x46 w65 w65 x43 w65 .   a63 .   x46 .   .   x43 .   | Donkey Kong (World) (Rev 1)
+     alternative to Donkey Kong (World) (Rev 1) [9,11,13]
+   w65 w65 w65 x46 w65 w65 x43 x31 w63 w63 w63 x46 w63 .   x43 x31 | Donkey Kong (World) (Demo) (Vertical Orientation) (Aftermarket) (Pirate)
+   w65 w65 w65 x46 w65 w65 x43 w65 w63 a63 w63 x46 w63 .   x43 w63 | Donkey Kong (World) (Rev 1)
      alternative to Donkey Kong (Japan) [10]
    w65 w65 w65 x46 w65 w65 x43 w65 a49 a49 a49 x46 a49 .   x43 a49 | Donkey Kong (World) (Rev 1) (GameCube Edition)
      alternative to Donkey Kong (Japan) [10]
-     alternative to Donkey Kong (World) (Rev 1) [9,11,13,16]
+     alternative to Donkey Kong (World) (Rev 1) [9,11,13]
    .   .   .   .   .   .   .   .   a63 a63 a49 x46 x44 .   x43 a63 | Donkey Kong - Original Edition (Europe) (Wii Virtual Console) (NTSC)
      alternative to Donkey Kong (Japan) [10]
-     alternative to Donkey Kong (World) (Rev 1) [9,11,16]
+     alternative to Donkey Kong (World) (Rev 1) [9,11]
    .   .   .   .   .   .   .   .   a49 a49 a63 x46 a49 .   x43 a49 | Donkey Kong - Original Edition (USA, Europe) (3DS Virtual Console)
      alternative to Donkey Kong (Japan) [10]
-     alternative to Donkey Kong (World) (Rev 1) [9,11,13,16]
+     alternative to Donkey Kong (World) (Rev 1) [9,11,13]
+   .   .   .   .   .   .   .   .   a11 a2  a11 .   a11 .   .   a11 | Donkey Kong Classics (USA, Europe)
+     alternative to Donkey Kong (Japan) [10]
+     alternative to Donkey Kong (World) (Rev 1) [9,11,13]
 == donkey kong - original edition
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 w65 .   .   .   .   .   .   .   .   | Donkey Kong - Original Edition (Europe) (Wii Virtual Console) (NTSC)
@@ -3775,18 +3784,10 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == donkey kong jr.
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 x37 a63 a63 a63 x46 x44 .   x43 x37 | Donkey Kong Jr. (Asia) (En) (LA04) (Pirate)
-     alternative to Donkey Kong Jr. (Japan) [10]
-     alternative to Donkey Kong Jr. (World) (Rev 1) [9,11]
-   w65 w65 w65 x46 x44 w65 x43 w65 a63 .   a63 x46 x44 .   x43 a63 | Donkey Kong Jr. (Japan)
-     alternative to Donkey Kong Jr. (World) (Rev 1) [9,11,16]
+   w65 w65 w65 x46 x44 w65 x43 w65 a63 w63 a63 x46 x44 .   x43 a63 | Donkey Kong Jr. (Japan)
    w65 w65 w65 x46 w65 w65 x43 w65 a63 a63 a63 x46 a63 .   x43 a63 | Donkey Kong Jr. (USA) (Rev 1) (e-Reader Edition)
-     alternative to Donkey Kong Jr. (Japan) [10]
-     alternative to Donkey Kong Jr. (World) (Rev 1) [9,11,13,16]
-   w65 w65 w65 x46 w65 w65 x43 w65 .   a63 .   x46 .   .   x43 .   | Donkey Kong Jr. (World) (Rev 1)
-     alternative to Donkey Kong Jr. (Japan) [10]
+   w65 w65 w65 x46 w65 w65 x43 w65 w63 a63 w63 x46 w63 .   x43 w63 | Donkey Kong Jr. (World) (Rev 1)
    w65 w65 w65 x46 w65 w65 x43 w65 a49 a49 a49 x46 a49 .   x43 a49 | Donkey Kong Jr. (World) (Rev 1) (GameCube Edition)
-     alternative to Donkey Kong Jr. (Japan) [10]
-     alternative to Donkey Kong Jr. (World) (Rev 1) [9,11,13,16]
 == donkey kong jr. + jr. lesson
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Donkey Kong Jr. + Jr. Lesson (Japan)
@@ -3887,15 +3888,10 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == double strike - aerial attack force
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 w65 w65 x43 x38 a55 a55 a55 x46 a55 .   x43 x38 | Double Strike - Aerial Attack Force (USA) (MB-91) (Unl)
-     alternative to Double Strike - Aerial Attack Force (USA) (NINA-06) (Unl) [9,11,13]
-     alternative to Twin Eagle (Asia) (Ja) (PAL) (Unl) [10]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   a63 .   x46 .   .   x43 x38 | Double Strike - Aerial Attack Force (USA) (NINA-06) (Unl)
-     alternative to Twin Eagle (Asia) (Ja) (PAL) (Unl) [10]
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 a63 w10 x46 w10 .   x43 x38 | Double Strike - Aerial Attack Force (USA) (NINA-06) (Unl)
+   .   .   .   .   .   .   .   .   a3  .   a3  .   .   .   .   .   | Funblaster Pak (Australia) (Unl)
    .   .   .   .   .   .   .   .   a61 a61 a61 x46 x44 .   x43 x38 | Shuang Ying (Asia) (Ja) (Unl)
-     alternative to Double Strike - Aerial Attack Force (USA) (NINA-06) (Unl) [9,11]
-     alternative to Twin Eagle (Asia) (Ja) (PAL) (Unl) [10]
-   .   .   .   .   .   .   .   .   a63 .   a63 x46 x44 .   x43 x38 | Twin Eagle (Asia) (Ja) (PAL) (Unl)
-     alternative to Double Strike - Aerial Attack Force (USA) (NINA-06) (Unl) [9,11]
+   .   .   .   .   .   .   .   .   a63 w9  a63 x46 x44 .   x43 x38 | Twin Eagle (Asia) (Ja) (PAL) (Unl)
 == dough boy
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Dough Boy (Japan)
@@ -4118,12 +4114,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x38 a51 a51 a51 x46 a51 .   x43 x38 | Dream Dog Dilemma (World) (Ludum Dare 49) (Aftermarket) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x38 w51 w51 w51 x46 w51 .   x43 x38 | Dream Dog Dilemma (World) (v1.1) (Aftermarket) (Unl)
 == dream fighter
-   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a55 a55 a55 x46 x44 .   x43 x38 | Dream Fighter (Asia) (En) (Asder) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-     alternative to Dream Fighter (Asia) (En) (Caltron) (Unl) [10]
-   w65 w65 w65 x46 x44 w65 x43 x38 a14 .   a14 x46 x44 .   x43 x38 | Dream Fighter (Asia) (En) (Caltron) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 .   a55 .   x46 x44 .   x43 x38 | Dream Fighter (Asia) (En) (Asder) (Unl)
+   w65 w65 w65 x46 x44 w65 x43 x38 .   w7  .   x46 x44 .   x43 x38 | Dream Fighter (Asia) (En) (Caltron) (Unl)
 == dream master, the
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x37 .   .   .   .   .   .   .   .   | Dream Master, The (Asia) (En) (FK-8379) (Pirate)
@@ -4169,16 +4162,18 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   .   .   .   .   .   | Duck (Asia) (En) (Unl)
 == duck hunt
-   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   g   g   g   g   g   g   g   g   gd  gd  gd  g   g   .   g   gd  |
    w65 w65 w65 x46 x44 w65 x43 x37 a63 a63 a63 x46 x44 .   x43 x37 | Duck Hunt (Asia) (En) (LA07) (Pirate)
-     alternative to Duck Hunt (World) [9-11]
-   w65 w65 w65 x46 w65 w65 x43 w65 .   .   .   x46 .   .   x43 .   | Duck Hunt (World)
+   w65 w65 w65 x46 w65 w65 x43 w65 w3  w3  w3  x46 w60 .   x43 w3  | Duck Hunt (World)
+   .   .   .   .   .   .   .   .   a3  a11 a11 .   .   .   .   a3  | Super Mario Bros. + Duck Hunt (Europe, Asia) (En)
+   .   .   .   .   .   .   .   .   a11 a3  a3  .   a11 .   .   a11 | Super Mario Bros. + Duck Hunt (USA)
+   .   .   .   .   .   .   .   .   a11 a3  a3  .   a11 .   .   a11 | Super Mario Bros. + Duck Hunt + World Class Track Meet (USA)
+   .   .   .   .   .   .   .   .   a11 a3  a3  .   a11 .   .   a11 | Super Mario Bros. + Duck Hunt + World Class Track Meet (USA) (Rev 1)
 == duck maze
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   .   .   .   .   .   .   .   .   a56 .   a56 x46 x44 .   x43 x38 | Duck (Asia) (En) (Unl)
-     alternative to Duck Maze (Australia) (Unl) [9,11]
-   w65 w65 w65 x46 x44 w65 x43 x38 .   a56 .   x46 x44 .   x43 x38 | Duck Maze (Australia) (Unl)
-     alternative to Duck (Asia) (En) (Unl) [10]
+   .   .   .   .   .   .   .   .   a56 w56 a56 x46 x44 .   x43 x38 | Duck (Asia) (En) (Unl)
+   w65 w65 w65 x46 x44 w65 x43 x38 w56 a56 w56 x46 x44 .   x43 x38 | Duck Maze (Australia) (Unl)
+   .   .   .   .   .   .   .   .   a15 a3  a15 .   .   .   .   .   | Total Funpak (Australia) (Unl)
 == duck tails
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x21 w60 w60 w60 x46 w60 .   x43 x21 | Duck Tails (USA) (Aftermarket) (Unl)
@@ -4217,8 +4212,7 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == dudes with attitude
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 w65 w65 x43 x38 a55 a55 a55 x46 a55 .   x43 x38 | Dudes with Attitude (USA) (MB-91) (Unl)
-     alternative to Dudes with Attitude (USA) (NINA-06) (Unl) [9-11,13]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Dudes with Attitude (USA) (NINA-06) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 w9  w10 x46 w10 .   x43 x38 | Dudes with Attitude (USA) (NINA-06) (Unl)
 == dummy duck 7
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 w65 w65 x43 x32 w60 w60 w60 x46 w60 .   x43 x32 | Dummy Duck 7 (World) (v.01) (Proto) (Aftermarket) (Unl)
@@ -4485,19 +4479,11 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 w65 w60 w60 w60 x46 w60 .   x43 w60 | F-117A Stealth Fighter (USA)
 == f-15 city war
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a56 .   a56 x46 x44 .   x43 x38 | F-15 City War (Asia) (En) (Idea-Tek) (Unl)
-     alternative to F-15 City War (USA) (v1.1) (NINA-06) (Unl) [9,11]
+   w65 w65 w65 x46 x44 w65 x43 x38 a56 w9  a56 x46 x44 .   x43 x38 | F-15 City War (Asia) (En) (Idea-Tek) (Unl)
    w65 w65 w65 x46 x44 w65 x43 x38 a56 a56 a56 x46 x44 .   x43 x38 | F-15 City War (Spain) (En) (Idea-Tek) (Unl)
-     alternative to F-15 City War (Asia) (En) (Idea-Tek) (Unl) [10]
-     alternative to F-15 City War (USA) (v1.1) (NINA-06) (Unl) [9,11]
    w65 w65 w65 x46 w65 w65 x43 x38 a51 a51 a51 x46 a51 .   x43 x38 | F-15 City War (USA) (v1.0) (Unl)
-     alternative to F-15 City War (Asia) (En) (Idea-Tek) (Unl) [10]
-     alternative to F-15 City War (USA) (v1.1) (NINA-06) (Unl) [9,11,13]
    w65 w65 w65 x46 w65 w65 x43 x38 a55 a55 a55 x46 a55 .   x43 x38 | F-15 City War (USA) (v1.1) (MB-91) (Unl)
-     alternative to F-15 City War (Asia) (En) (Idea-Tek) (Unl) [10]
-     alternative to F-15 City War (USA) (v1.1) (NINA-06) (Unl) [9,11,13]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   a56 .   x46 .   .   x43 x38 | F-15 City War (USA) (v1.1) (NINA-06) (Unl)
-     alternative to F-15 City War (Asia) (En) (Idea-Tek) (Unl) [10]
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 a56 w10 x46 w10 .   x43 x38 | F-15 City War (USA) (v1.1) (NINA-06) (Unl)
 == f-15 strike eagle
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 a57 a57 a57 x46 x44 .   x43 a57 | F-15 Strike Eagle (Europe)
@@ -4903,33 +4889,16 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == final fantasy
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 a51 a51 a51 x46 x44 .   x43 a51 | Final Fantasy (Japan)
-     alternative to Final Fantasy (Japan) (Rev 1) [10]
-     alternative to Final Fantasy (USA) [9,11,16]
-   w65 w65 w65 x46 x44 w65 x43 w65 a63 .   a63 x46 x44 .   x43 a63 | Final Fantasy (Japan) (Rev 1)
-     alternative to Final Fantasy (USA) [9,11,16]
+   w65 w65 w65 x46 x44 w65 x43 w65 a63 w63 a63 x46 x44 .   x43 a63 | Final Fantasy (Japan) (Rev 1)
    w65 w65 w65 x46 x44 w65 x43 w65 a49 a49 a49 x46 x44 .   x43 a49 | Final Fantasy (Japan) (Rev 1) (3DS Virtual Console)
-     alternative to Final Fantasy (Japan) (Rev 1) [10]
-     alternative to Final Fantasy (USA) [9,11,16]
    w65 w65 w65 x46 x44 w65 x43 w65 a49 a49 a49 x46 x44 .   x43 a49 | Final Fantasy (Japan) (Rev 1) (Wii and Wii U Virtual Console)
-     alternative to Final Fantasy (Japan) (Rev 1) [10]
-     alternative to Final Fantasy (USA) [9,11,16]
-   w65 w65 w65 x46 w65 w65 x43 w65 .   a63 .   x46 w49 .   x43 .   | Final Fantasy (USA)
-     alternative to Final Fantasy (Japan) (Rev 1) [10]
+   w65 w65 w65 x46 w65 w65 x43 w65 w63 a63 w63 x46 w49 .   x43 w63 | Final Fantasy (USA)
    w65 w65 w65 x46 w65 w65 x43 x35 a48 a48 a48 x46 a48 .   x43 x35 | Final Fantasy (USA) (Beta)
-     alternative to Final Fantasy (Japan) (Rev 1) [10]
-     alternative to Final Fantasy (USA) [9,11]
    w65 w65 w65 x46 w65 w65 x43 w65 a49 a49 a49 x46 a49 .   x43 a49 | Final Fantasy (USA) (Virtual Console)
-     alternative to Final Fantasy (Japan) (Rev 1) [10]
-     alternative to Final Fantasy (USA) [9,11,16]
+   .   .   .   .   .   .   .   .   a2  a11 a2  .   .   .   .   a11 | Final Fantasy I, II (Japan)
    .   .   .   .   .   .   .   .   a63 a63 x45 x46 x44 .   x43 x37 | Jianxia Qingyuan (China) (Nantong) (Aftermarket) (Pirate)
-     alternative to Final Fantasy (Japan) (Rev 1) [10]
-     alternative to Final Fantasy (USA) [9]
    .   .   .   .   .   .   .   .   a47 a47 x45 x46 x44 .   x43 x37 | Long Hun (China) (Pirate)
-     alternative to Final Fantasy (Japan) (Rev 1) [10]
-     alternative to Final Fantasy (USA) [9]
    .   .   .   .   .   .   .   .   a47 a47 x45 x46 x44 .   x43 x37 | Yinhe Shidai (China) (Pirate)
-     alternative to Final Fantasy (Japan) (Rev 1) [10]
-     alternative to Final Fantasy (USA) [9]
 == final fantasy - taikong zhanshi v
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 x45 x46 x44 w65 x43 x37 a51 a51 x45 x46 x44 .   x43 x37 | Final Fantasy - Taikong Zhanshi V (China) (v1.0) (Pirate)
@@ -4943,20 +4912,13 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == final fantasy ii
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    .   .   .   .   .   .   .   .   a63 a63 x45 x46 x44 .   x43 x37 | Diguo Shidai (Age of Empires) (China) (0100725) (Pirate)
-     alternative to Final Fantasy II (Japan) [9-10]
    .   .   .   .   .   .   .   .   a47 a47 x45 x46 x44 .   x43 x37 | Diguo Shidai (Age of Empires) (China) (970493) (Pirate)
-     alternative to Final Fantasy II (Japan) [9-10]
-   w65 w65 w65 x46 x44 w65 x43 w65 .   .   .   x46 x44 .   x43 .   | Final Fantasy II (Japan)
+   w65 w65 w65 x46 x44 w65 x43 w65 w63 w63 w63 x46 x44 .   x43 w49 | Final Fantasy II (Japan)
    w65 w65 w65 x46 x44 w65 x43 w65 a49 a49 a49 x46 x44 .   x43 a49 | Final Fantasy II (Japan) (3DS Virtual Console)
-     alternative to Final Fantasy II (Japan) [9-11,16]
    w65 w65 w65 x46 x44 w65 x43 w65 a49 a49 a49 x46 x44 .   x43 a49 | Final Fantasy II (Japan) (Wii and Wii U Virtual Console)
-     alternative to Final Fantasy II (Japan) [9-11,16]
    w65 w65 w65 x46 w65 w65 x43 x35 a63 a63 a63 x46 w60 .   x43 x35 | Final Fantasy II (USA) (Proto)
-     alternative to Final Fantasy II (Japan) [9-11]
    .   .   .   .   .   .   .   .   a47 a47 x45 x46 x44 .   x43 x37 | Xianjian Shenqu (Space General) (China) (Pirate)
-     alternative to Final Fantasy II (Japan) [9-10]
    .   .   .   .   .   .   .   .   a47 a47 x45 x46 x44 .   x43 x37 | Yuzhou Zhan Jiang (Space General) (China) (Pirate)
-     alternative to Final Fantasy II (Japan) [9-10]
 == final fantasy iii
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w63 w63 w49 x46 x44 .   x43 w49 | Final Fantasy III (Japan)
@@ -5251,15 +5213,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == galactic crusader
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    .   .   .   .   .   .   .   .   a58 a58 a58 x46 x44 .   x43 x38 | Die Bian - Incantation (Asia) (En) (Unl)
-     alternative to Galactic Crusader (USA) (Unl) [9,11]
-     alternative to Papillon Gals (Japan) (Unl) [10]
    w65 w65 w65 x46 x44 w65 x43 x38 a56 a63 a56 x46 x44 .   x43 x38 | Galactic Crusader (Asia) (En) (Unl)
-     alternative to Galactic Crusader (USA) (Unl) [9,11]
-     alternative to Papillon Gals (Japan) (Unl) [10]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   a63 .   x46 .   .   x43 x38 | Galactic Crusader (USA) (Unl)
-     alternative to Papillon Gals (Japan) (Unl) [10]
-   .   .   .   .   .   .   .   .   a63 .   a63 x46 x44 .   x43 x38 | Papillon Gals (Japan) (Unl)
-     alternative to Galactic Crusader (USA) (Unl) [9,11]
+   w65 w65 w65 x46 w65 w65 x43 x38 w8  a63 w8  x46 w60 .   x43 x38 | Galactic Crusader (USA) (Unl)
+   .   .   .   .   .   .   .   .   a63 w63 a63 x46 x44 .   x43 x38 | Papillon Gals (Japan) (Unl)
 == galaga
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x37 .   .   .   .   .   .   .   .   | Galaga (Asia) (En) (LA25) (Pirate)
@@ -5573,12 +5529,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   .   .   .   .   .   | Gluk the Thunder Warrior (Spain) (En) (Micro Genius) (Unl)
 == go! benny!
-   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Corre Benny (Spain) (En) (NTDEC) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-     alternative to Go! Benny! (Asia) (En) (Mega Soft) (Unl) [10]
-   w65 w65 w65 x46 x44 w65 x43 x38 a14 .   a14 x46 x44 .   x43 x38 | Go! Benny! (Asia) (En) (Mega Soft) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   g   |
+   .   .   .   .   .   .   .   .   .   a56 .   x46 x44 .   x43 x38 | Corre Benny (Spain) (En) (NTDEC) (Unl)
+   w65 w65 w65 x46 x44 w65 x43 x38 .   w7  .   x46 x44 .   x43 x38 | Go! Benny! (Asia) (En) (Mega Soft) (Unl)
 == go! dizzy go!
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Go! Dizzy Go! (World) (Unl)
@@ -6047,10 +6000,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Happy Hour (World) (Aftermarket) (Unl)
 == happy pairs
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a47 .   a47 x46 x44 .   x43 x38 | Happy Pairs (Asia) (En) (60 pin cart) (Unl)
-     alternative to Happy Pairs (Asia) (En) (72 pin cart) (Unl) [9,11]
-   w65 w65 w65 x46 x44 w65 x43 x38 .   a47 .   x46 x44 .   x43 x38 | Happy Pairs (Asia) (En) (72 pin cart) (Unl)
-     alternative to Happy Pairs (Asia) (En) (60 pin cart) (Unl) [10]
+   w65 w65 w65 x46 x44 w65 x43 x38 a47 w47 a47 x46 x44 .   x43 x38 | Happy Pairs (Asia) (En) (60 pin cart) (Unl)
+   w65 w65 w65 x46 x44 w65 x43 x38 w47 a47 w47 x46 x44 .   x43 x38 | Happy Pairs (Asia) (En) (72 pin cart) (Unl)
+   .   .   .   .   .   .   .   .   a11 a11 a11 .   .   .   .   .   | Super Cartridge Ver 7 - 4 in 1 (Asia) (En) (Unl)
 == happy scrappy
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 w65 w65 x43 x25 w60 w60 w60 x46 w60 .   x43 x25 | Happy Scrappy (World) (Demo) (Byte-Off 2019) (Aftermarket) (Unl)
@@ -6265,8 +6217,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Hissatsu Shigoto Nin (Japan)
 == hit marmot
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   x46 x44 .   x43 x38 | Hit Marmot (Asia) (Ja) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 w6  w7  w4  x46 x44 .   x43 x38 | Hit Marmot (Asia) (Ja) (Unl)
 == hit the ice
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x35 a51 a51 a51 x46 a51 .   x43 x35 | Hit the Ice (USA) (Proto 1)
@@ -6744,9 +6696,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a63 a63 a63 x46 x44 .   x43 x37 | Super Bros. 10 - Kung Fu Mari (Asia) (En) (Pirate)
 == jackpot
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   x46 x44 .   x43 x38 | Jackpot (Australia) (Unl)
+   w65 w65 w65 x46 x44 w65 x43 x38 w8  w63 w8  x46 x44 .   x43 x38 | Jackpot (Australia) (Unl)
    .   .   .   .   .   .   .   .   a63 a63 x45 x46 x44 .   x43 x38 | Shui Guo Li (Asia) (Unl)
-     alternative to Jackpot (Australia) (Unl) [9-10]
 == jajamaru gekimaden - maboroshi no kinmajou
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 w65 .   .   .   .   .   .   .   .   | Jajamaru Gekimaden - Maboroshi no Kinmajou (Japan)
@@ -7249,8 +7200,7 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == king neptune's adventure
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x35 a48 a48 a48 x46 a48 .   x43 x35 | King Neptune's Adventure (USA) (Beta) (Unl)
-     alternative to King Neptune's Adventure (USA) (Unl) [9-11,13]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | King Neptune's Adventure (USA) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w48 w48 w48 x46 w48 .   x43 x38 | King Neptune's Adventure (USA) (Unl)
 == king of fighters 96, the
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 x37 w60 w60 w60 x46 x44 .   x43 x37 | King of Fighters 96, The (Asia) (En) (Pirate)
@@ -7499,8 +7449,7 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == krazy kreatures
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 w65 w65 x43 x38 a55 a55 a55 x46 a55 .   x43 x38 | Krazy Kreatures (USA) (NINA-03) (Unl)
-     alternative to Krazy Kreatures (USA) (NINA-06) (Unl) [9-11,13]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Krazy Kreatures (USA) (NINA-06) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 w9  w10 x46 w10 .   x43 x38 | Krazy Kreatures (USA) (NINA-06) (Unl)
 == krion conquest, the
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 w65 w63 a63 w63 x46 w60 .   x43 w63 | Krion Conquest, The (USA)
@@ -7877,10 +7826,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a63 a63 a63 x46 x44 .   x43 x37 | Super Mali - Hero Legends (Asia) (En) (Pirate)
 == little red hood
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 .   a63 .   x46 x44 .   x43 x38 | Little Red Hood (Australia) (Unl)
-     alternative to Little Red Hood - Xiao Hong Mao (Asia) (Ja) (Unl) [10]
-   .   .   .   .   .   .   .   .   a63 .   a63 x46 x44 .   x43 x38 | Little Red Hood - Xiao Hong Mao (Asia) (Ja) (Unl)
-     alternative to Little Red Hood (Australia) (Unl) [9,11]
+   .   .   .   .   .   .   .   .   .   a11 .   .   .   .   .   .   | Funblaster Pak (Australia) (Unl)
+   w65 w65 w65 x46 x44 w65 x43 x38 w63 a63 w63 x46 x44 .   x43 x38 | Little Red Hood (Australia) (Unl)
+   .   .   .   .   .   .   .   .   a63 w63 a63 x46 x44 .   x43 x38 | Little Red Hood - Xiao Hong Mao (Asia) (Ja) (Unl)
 == little red hood - xiao hong mao
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   .   .   .   .   .   | Little Red Hood - Xiao Hong Mao (Asia) (Ja) (Unl)
@@ -8112,8 +8060,7 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == magic block
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Bloque Magico, El (Spain) (En) (NTDEC) (Unl)
-     alternative to Magic Block (Asia) (En) (Mega Soft) (Unl) [9-11]
-   w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   x46 x44 .   x43 x38 | Magic Block (Asia) (En) (Mega Soft) (Unl)
+   w65 w65 w65 x46 x44 w65 x43 x38 w6  w7  w4  x46 x44 .   x43 x38 | Magic Block (Asia) (En) (Mega Soft) (Unl)
 == magic bubble
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   .   .   .   .   .   | Magic Bubble (Asia) (En) (Unl)
@@ -8122,10 +8069,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Magic Candle, The (Japan)
 == magic carpet 1001
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a56 .   .   x46 x44 .   x43 x38 | Magic Carpet 1001 (Europe, Asia) (En) (Unl)
-     alternative to Magic Carpet 1001 (USA) (Unl) [9]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   a56 a56 x46 .   .   x43 x38 | Magic Carpet 1001 (USA) (Unl)
-     alternative to Magic Carpet 1001 (Europe, Asia) (En) (Unl) [10-11]
+   w65 w65 w65 x46 x44 w65 x43 x38 a56 w7  w4  x46 x44 .   x43 x38 | Magic Carpet 1001 (Europe, Asia) (En) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w6  a56 a56 x46 w5  .   x43 x38 | Magic Carpet 1001 (USA) (Unl)
 == magic cube
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 x38 w60 w60 w60 x46 x44 .   x43 x38 | Magic Cube (Asia) (En) (72 pin cart) (Unl)
@@ -8169,12 +8114,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 x44 w65 x43 w65 .   .   .   .   .   .   .   .   | Magical Kid's Doropie (Japan)
    w65 w65 w65 x46 x44 w65 x43 x35 .   .   .   .   .   .   .   .   | Magical Kid's Doropie (Japan) (Beta)
 == magical mathematics
-   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a14 a50 a14 x46 x44 .   x43 x38 | Magical Mathematics (Asia) (En) (NTSC) (Unl)
-     alternative to Magical Mathematics (Asia) (Ja) (PAL) (Unl) [10]
-     alternative to Mindblower Pak (Australia) (Unl) [9,11]
-   w65 w65 w65 x46 x44 w65 x43 x38 a50 .   a50 x46 x44 .   x43 x38 | Magical Mathematics (Asia) (Ja) (PAL) (Unl)
-     alternative to Mindblower Pak (Australia) (Unl) [9,11]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 .   a50 .   x46 x44 .   x43 x38 | Magical Mathematics (Asia) (En) (NTSC) (Unl)
+   w65 w65 w65 x46 x44 w65 x43 x38 .   w50 .   x46 x44 .   x43 x38 | Magical Mathematics (Asia) (Ja) (PAL) (Unl)
 == magical taruruuto-kun - fantastic world!!
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 a51 a51 a51 x46 x44 .   x43 a51 | Magical Taruruuto-kun - Fantastic World!! (Japan)
@@ -8406,12 +8348,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == master chu and the drunkard hu
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    .   .   .   .   .   .   .   .   a50 a50 x45 x46 x44 .   x43 x38 | Dao Shuai (Asia) (Unl)
-     alternative to Master Chu and the Drunkard Hu (Asia) (En) (72 pin cart) (Unl) [10]
-     alternative to Master Chu and the Drunkard Hu (USA) (Unl) [9]
-   w65 w65 w65 x46 x44 w65 x43 x38 a56 .   a56 x46 x44 .   x43 x38 | Master Chu and the Drunkard Hu (Asia) (En) (72 pin cart) (Unl)
-     alternative to Master Chu and the Drunkard Hu (USA) (Unl) [9,11]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   a56 .   x46 .   .   x43 x38 | Master Chu and the Drunkard Hu (USA) (Unl)
-     alternative to Master Chu and the Drunkard Hu (Asia) (En) (72 pin cart) (Unl) [10]
+   w65 w65 w65 x46 x44 w65 x43 x38 a56 w56 a56 x46 x44 .   x43 x38 | Master Chu and the Drunkard Hu (Asia) (En) (72 pin cart) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w56 a56 w56 x46 w60 .   x43 x38 | Master Chu and the Drunkard Hu (USA) (Unl)
 == master fighter ii
    gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x37 .   .   .   .   .   .   .   .   | Master Fighter II (Asia) (En) (Pirate)
@@ -8423,9 +8361,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 x44 w65 x43 x37 a47 a47 a47 x46 x44 .   x43 x37 | Master Fighter VI' (Asia) (En) (EJ-4003) (Pirate)
    w65 w65 w65 x46 x44 w65 x43 x37 w47 w47 w47 x46 x44 .   x43 x37 | Master Fighter VI' (Asia) (En) (Pirate)
 == master shooter
-   g   g   g   g   g   g   g   g   g   .   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a1  .   a1  x46 x44 .   x43 x38 | Master Shooter (Asia) (Ja) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 .   w7  .   x46 x44 .   x43 x38 | Master Shooter (Asia) (Ja) (Unl)
 == masuzoe youichi - asa made famicom
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Masuzoe Youichi - Asa Made Famicom (Japan)
@@ -8453,8 +8390,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 w65 .   .   .   .   .   .   .   .   | Max Warrior - Wakusei Kaigenrei (Japan)
 == maxi 15
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Maxi 15 (USA) (Rev 1) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 w9  w10 x46 w10 .   x43 x38 | Maxi 15 (USA) (Rev 1) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Maxi 15 (USA) (Unl)
 == maxi-15 pack
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
@@ -8585,9 +8522,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Melo Jellos 2 (World) (Aftermarket) (Unl)
 == menace beach
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Menace Beach (USA) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 w9  w10 x46 w10 .   x43 x38 | Menace Beach (USA) (Unl)
    .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Nalara Superboy (Korea) (En) (Unl)
-     alternative to Menace Beach (USA) (Unl) [9-11]
 == mendel palace
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 w65 w63 a63 w63 x46 w49 .   x43 w63 | Mendel Palace (USA)
@@ -8641,15 +8577,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == metal fighter
    g   g   g   g   g   g   g   g   gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 x44 w65 x43 x38 a56 a63 a56 x46 x44 .   x43 x38 | Metal Fighter (Asia) (En) (Sachen) (72 pin cart) (Unl)
-     alternative to Metal Fighter (USA) (Unl) [9,11]
-     alternative to Metal Fighter Mu (Japan) (Unl) [10]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   a63 .   x46 w60 .   x43 x38 | Metal Fighter (USA) (Unl)
-     alternative to Metal Fighter Mu (Japan) (Unl) [10]
-   .   .   .   .   .   .   .   .   a63 .   a63 x46 x44 .   x43 x38 | Metal Fighter Mu (Japan) (Unl)
-     alternative to Metal Fighter (USA) (Unl) [9,11]
+   w65 w65 w65 x46 w65 w65 x43 x38 w56 a63 w56 x46 w60 .   x43 x38 | Metal Fighter (USA) (Unl)
+   .   .   .   .   .   .   .   .   a63 w63 a63 x46 x44 .   x43 x38 | Metal Fighter Mu (Japan) (Unl)
    .   .   .   .   .   .   .   .   a47 a47 a47 x46 x44 .   x43 x38 | Weilai Xiaozi - Joy Van Kid (Asia) (En) (Unl)
-     alternative to Metal Fighter (USA) (Unl) [9,11]
-     alternative to Metal Fighter Mu (Japan) (Unl) [10]
 == metal fighter mu
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   .   .   .   .   .   | Metal Fighter Mu (Japan) (Unl)
@@ -8862,8 +8792,10 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 w65 w63 a63 w63 x46 w49 .   x43 w63 | Milon's Secret Castle (USA)
    w65 w65 w65 x46 w65 w65 x43 w65 a49 a49 a49 x46 a49 .   x43 a49 | Milon's Secret Castle (USA) (Virtual Console)
 == mindblower pak
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   x46 x44 .   x43 x38 | Mindblower Pak (Australia) (Unl)
+   g   g   g   g   g   g   g   g   g   .   g   g   g   .   g   g   |
+   .   .   .   .   .   .   .   .   a14 .   a14 .   .   .   .   .   | Magical Mathematics (Asia) (En) (NTSC) (Unl)
+   .   .   .   .   .   .   .   .   a50 .   a50 .   .   .   .   .   | Magical Mathematics (Asia) (Ja) (PAL) (Unl)
+   w65 w65 w65 x46 x44 w65 x43 x38 w8  .   w8  x46 x44 .   x43 x38 | Mindblower Pak (Australia) (Unl)
 == mindkids 114-in-1
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 w65 w65 x43 x37 w60 w60 w60 x46 w60 .   x43 x37 | Mindkids 114-in-1 (World) (Aftermarket) (Pirate)
@@ -8937,13 +8869,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 w65 w56 w56 a56 x46 w60 .   x43 w56 | Mission - Impossible (USA)
 == mission cobra
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   a56 .   x46 w60 .   x43 x38 | Mission Cobra (USA) (Unl)
-     alternative to Sidewinder (Asia) (En) (72 pin cart) (Unl) [10]
-   .   .   .   .   .   .   .   .   a56 .   a56 x46 x44 .   x43 x38 | Sidewinder (Asia) (En) (72 pin cart) (Unl)
-     alternative to Mission Cobra (USA) (Unl) [9,11]
+   w65 w65 w65 x46 w65 w65 x43 x38 w56 a56 w56 x46 w60 .   x43 x38 | Mission Cobra (USA) (Unl)
+   .   .   .   .   .   .   .   .   a56 w3  a56 x46 x44 .   x43 x38 | Sidewinder (Asia) (En) (72 pin cart) (Unl)
    .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Sidewinder (Australia) (Unl)
-     alternative to Mission Cobra (USA) (Unl) [9,11]
-     alternative to Sidewinder (Asia) (En) (72 pin cart) (Unl) [10]
 == mississippi satsujin jiken
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 a51 a51 a51 x46 x44 .   x43 a51 | Mississippi Satsujin Jiken (Japan)
@@ -9118,8 +9046,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x38 a51 a51 a51 x46 a51 .   x43 x38 | Moon Harvest (World) (v1.0.2) (Aftermarket) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x38 w51 w51 w51 x46 w51 .   x43 x38 | Moon Harvest (World) (v1.1.0) (Aftermarket) (Unl)
 == moon ranger
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Moon Ranger (USA) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Moon Ranger (USA) (Unl)
 == moon8
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | MOON8 (World) (Aftermarket) (Unl)
@@ -9805,31 +9733,16 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x17 w60 w60 w60 x46 w60 .   x43 x17 | Nintendo World Class Service - Power Pad Test Cartridge (USA) (Test Program)
 == nintendo world cup
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   .   .   .   .   .   .   .   .   a63 .   a63 x46 x44 .   x43 a63 | Nekketsu Koukou Dodgeball-bu - Soccer Hen (Japan)
-     alternative to Nintendo World Cup (Europe) (Rev 2) [11]
-     alternative to Nintendo World Cup (USA) (Rev 1) [9,16]
+   .   .   .   .   .   .   .   .   a63 w63 a63 x46 x44 .   x43 a63 | Nekketsu Koukou Dodgeball-bu - Soccer Hen (Japan)
    .   .   .   .   .   .   .   .   a49 a49 a49 x46 x44 .   x43 a49 | Nekketsu Koukou Dodgeball-bu - Soccer Hen (Japan) (Virtual Console)
-     alternative to Nekketsu Koukou Dodgeball-bu - Soccer Hen (Japan) [10]
-     alternative to Nintendo World Cup (Europe) (Rev 2) [11]
-     alternative to Nintendo World Cup (USA) (Rev 1) [9,16]
    w65 w65 w65 x46 x44 w65 x43 w65 a51 a51 a51 x46 x44 .   x43 a51 | Nintendo World Cup (Europe)
-     alternative to Nekketsu Koukou Dodgeball-bu - Soccer Hen (Japan) [10]
-     alternative to Nintendo World Cup (Europe) (Rev 2) [11]
-     alternative to Nintendo World Cup (USA) (Rev 1) [9,16]
    w65 w65 w65 x46 x44 w65 x43 w65 a51 a51 a51 x46 x44 .   x43 a51 | Nintendo World Cup (Europe) (Rev 1)
-     alternative to Nekketsu Koukou Dodgeball-bu - Soccer Hen (Japan) [10]
-     alternative to Nintendo World Cup (Europe) (Rev 2) [11]
-     alternative to Nintendo World Cup (USA) (Rev 1) [9,16]
-   w65 w65 w65 x46 x44 w65 x43 w65 a56 a63 .   x46 x44 .   x43 a56 | Nintendo World Cup (Europe) (Rev 2)
-     alternative to Nekketsu Koukou Dodgeball-bu - Soccer Hen (Japan) [10]
-     alternative to Nintendo World Cup (USA) (Rev 1) [9,16]
+   w65 w65 w65 x46 x44 w65 x43 w65 a56 a63 w3  x46 x44 .   x43 a56 | Nintendo World Cup (Europe) (Rev 2)
    w65 w65 w65 x46 w65 w65 x43 w65 a51 a51 a51 x46 a51 .   x43 a51 | Nintendo World Cup (USA)
-     alternative to Nekketsu Koukou Dodgeball-bu - Soccer Hen (Japan) [10]
-     alternative to Nintendo World Cup (Europe) (Rev 2) [11]
-     alternative to Nintendo World Cup (USA) (Rev 1) [9,13,16]
-   w65 w65 w65 x46 w65 w65 x43 w65 .   a63 a56 x46 .   .   x43 .   | Nintendo World Cup (USA) (Rev 1)
-     alternative to Nekketsu Koukou Dodgeball-bu - Soccer Hen (Japan) [10]
-     alternative to Nintendo World Cup (Europe) (Rev 2) [11]
+   w65 w65 w65 x46 w65 w65 x43 w65 w3  a63 a56 x46 w51 .   x43 w3  | Nintendo World Cup (USA) (Rev 1)
+   .   .   .   .   .   .   .   .   a3  a3  a3  .   .   .   .   a3  | Super Mario Bros. + Tetris + Nintendo World Cup (Europe)
+   .   .   .   .   .   .   .   .   a3  a3  a3  .   .   .   .   a3  | Super Mario Bros. + Tetris + Nintendo World Cup (Europe) (Rev 1)
+   .   .   .   .   .   .   .   .   a11 a2  a3  .   a11 .   .   a11 | Super Spike V'Ball + Nintendo World Cup (USA)
 == nintendoage halloween 2009
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | NintendoAge Halloween 2009 (USA) (Aftermarket) (Unl)
@@ -10006,8 +9919,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Ooze Redux (World) (Aftermarket) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x31 w60 w60 w60 x46 w60 .   x43 x31 | Ooze Redux (World) (Demo) (Aftermarket) (Unl)
 == operation secret storm
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Operation Secret Storm (USA) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Operation Secret Storm (USA) (Unl)
 == operation wolf
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 a56 a63 w56 x46 x44 .   x43 a56 | Operation Wolf (Europe)
@@ -10054,18 +9967,10 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == othello
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 x38 a56 a63 a56 x46 x44 .   x43 x38 | Othello (Asia) (En) (Unl)
-     alternative to Othello (Japan) [10]
-     alternative to Othello (USA) [9,11]
    w65 w65 w65 x46 x44 w65 x43 x38 a56 a63 a56 x46 x44 .   x43 x38 | Othello (Australia) (HES) (Unl)
-     alternative to Othello (Japan) [10]
-     alternative to Othello (USA) [9,11]
-   w65 w65 w65 x46 x44 w65 x43 w65 a63 .   a63 x46 x44 .   x43 a63 | Othello (Japan)
-     alternative to Othello (USA) [9,11]
+   w65 w65 w65 x46 x44 w65 x43 w65 a63 w63 a63 x46 x44 .   x43 a63 | Othello (Japan)
    w65 w65 w65 x46 x44 w65 x43 x35 a48 a48 a48 x46 x44 .   x43 x35 | Othello (Japan) (Rev 1) (Possible Proto)
-     alternative to Othello (Japan) [10]
-     alternative to Othello (USA) [9,11]
-   w65 w65 w65 x46 w65 w65 x43 w65 .   a63 .   x46 w60 .   x43 w63 | Othello (USA)
-     alternative to Othello (Japan) [10]
+   w65 w65 w65 x46 w65 w65 x43 w65 w56 a63 w56 x46 w60 .   x43 w63 | Othello (USA)
 == oulu zhi zhan
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 x45 x46 x44 w65 x43 x37 .   .   .   .   .   .   .   .   | Oulu Zhi Zhan (China) (Pirate)
@@ -10091,8 +9996,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 w65 w60 w60 w60 x46 w60 .   x43 w60 | Overlord (USA)
 == p'radikus conflict
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | P'Radikus Conflict (USA) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | P'Radikus Conflict (USA) (Unl)
 == p.o.w. - prisoners of war
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    .   .   .   .   .   .   .   .   a63 a63 a63 x46 x44 .   x43 x37 | Datsugoku (Asia) (Ja) (Pirate)
@@ -10121,42 +10026,15 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == pac-man (namco)
    .   .   .   .   .   .   .   .   g   g   g   g   g   .   g   g   |
    .   .   .   .   .   .   .   .   a63 a63 a63 x46 x44 .   x43 x37 | Pac-Man (Asia) (En) (LA34) (Pirate)
-     alternative to Pac-Man (Europe) [11]
-     alternative to Pac-Man (Japan) (En) (Rev 2) [10]
-     alternative to Pac-Man (USA) (Namco) [9]
-   .   .   .   .   .   .   .   .   a56 a56 .   x46 x44 .   x43 a56 | Pac-Man (Europe)
-     alternative to Pac-Man (Japan) (En) (Rev 2) [10]
-     alternative to Pac-Man (USA) (Namco) [9]
+   .   .   .   .   .   .   .   .   a56 a56 w56 x46 x44 .   x43 a56 | Pac-Man (Europe)
    .   .   .   .   .   .   .   .   a51 a51 a51 x46 x44 .   x43 a51 | Pac-Man (Japan) (En)
-     alternative to Pac-Man (Europe) [11]
-     alternative to Pac-Man (Japan) (En) (Rev 2) [10]
-     alternative to Pac-Man (USA) (Namco) [9]
    .   .   .   .   .   .   .   .   a51 a51 a51 x46 x44 .   x43 a51 | Pac-Man (Japan) (En) (Rev 1)
-     alternative to Pac-Man (Europe) [11]
-     alternative to Pac-Man (Japan) (En) (Rev 2) [10]
-     alternative to Pac-Man (USA) (Namco) [9]
-   .   .   .   .   .   .   .   .   a56 .   a56 x46 x44 .   x43 a56 | Pac-Man (Japan) (En) (Rev 2)
-     alternative to Pac-Man (Europe) [11]
-     alternative to Pac-Man (USA) (Namco) [9]
-   .   .   .   .   .   .   .   .   .   a56 a56 x46 w63 .   x43 w56 | Pac-Man (USA) (Namco)
-     alternative to Pac-Man (Europe) [11]
-     alternative to Pac-Man (Japan) (En) (Rev 2) [10]
+   .   .   .   .   .   .   .   .   a56 w56 a56 x46 x44 .   x43 a56 | Pac-Man (Japan) (En) (Rev 2)
+   .   .   .   .   .   .   .   .   w56 a56 a56 x46 w63 .   x43 w56 | Pac-Man (USA) (Namco)
    .   .   .   .   .   .   .   .   a49 a49 a49 x46 a49 .   x43 a49 | Pac-Man (USA) (Namco) (Virtual Console)
-     alternative to Pac-Man (Europe) [11]
-     alternative to Pac-Man (Japan) (En) (Rev 2) [10]
-     alternative to Pac-Man (USA) (Namco) [9]
    .   .   .   .   .   .   .   .   a47 a47 a47 x46 a47 .   x43 a47 | Pac-Man (USA) (Tengen)
-     alternative to Pac-Man (Europe) [11]
-     alternative to Pac-Man (Japan) (En) (Rev 2) [10]
-     alternative to Pac-Man (USA) (Namco) [9]
    .   .   .   .   .   .   .   .   a47 a47 a47 x46 a47 .   x43 x38 | Pac-Man (USA, Brazil) (En) (Tengen) (Unl)
-     alternative to Pac-Man (Europe) [11]
-     alternative to Pac-Man (Japan) (En) (Rev 2) [10]
-     alternative to Pac-Man (USA) (Namco) [9]
    .   .   .   .   .   .   .   .   a63 a63 a63 x46 a63 .   x43 a63 | Pac-Man (World) (Rev A) (Namcot Collection, Namco Museum Archives Vol 1)
-     alternative to Pac-Man (Europe) [11]
-     alternative to Pac-Man (Japan) (En) (Rev 2) [10]
-     alternative to Pac-Man (USA) (Namco) [9]
 == pac-man - championship edition
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 a56 w56 a56 x46 x44 .   x43 a56 | Pac-Man - Championship Edition (Japan) (En) (Namcot Collection)
@@ -10333,8 +10211,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 x35 w60 w60 w60 x46 x44 .   x43 x35 | Pescatore (Japan) (Proto)
 == pesterminator - the western exterminator
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Pesterminator - The Western Exterminator (USA) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Pesterminator - The Western Exterminator (USA) (Unl)
 == phantom air mission
    gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 w65 .   .   .   .   .   .   .   .   | Phantom Air Mission (Spain) (En)
@@ -10397,8 +10275,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 x38 w60 w60 w60 x46 x44 .   x43 x38 | Pipeline Daisakusen (Japan) (Project EGG) (Unl)
 == pipemania
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   x46 x44 .   x43 x38 | Pipemania (Australia) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 w60 w60 w60 x46 x44 .   x43 x38 | Pipemania (Australia) (Unl)
 == pirates!
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 a56 a56 w56 x46 x44 .   x43 a56 | Pirates! (Europe)
@@ -10566,12 +10444,11 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Popeye no Eigo Asobi (Japan)
 == popo team
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   x46 x44 .   x43 x38 | Popo Team (Asia) (En) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 w60 w60 w60 x46 x44 .   x43 x38 | Popo Team (Asia) (En) (Unl)
 == porter
-   g   g   g   g   g   g   g   g   g   .   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a3  .   a3  x46 x44 .   x43 x38 | Porter (Asia) (En) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 .   w7  .   x46 x44 .   x43 x38 | Porter (Asia) (En) (Unl)
 == portopia renzoku satsujin jiken
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Portopia Renzoku Satsujin Jiken (Japan)
@@ -10808,16 +10685,10 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Puzslot (Japan)
 == puzzle
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a56 .   a56 x46 x44 .   x43 x38 | Puzzle (Asia) (En) (Idea-Tek) (Unl)
-     alternative to Puzzle (USA) (Idea-Tek) (Unl) [9,11]
+   w65 w65 w65 x46 x44 w65 x43 x38 a56 w9  a56 x46 x44 .   x43 x38 | Puzzle (Asia) (En) (Idea-Tek) (Unl)
    w65 w65 w65 x46 x44 w65 x43 x38 a56 a56 a56 x46 x44 .   x43 x38 | Puzzle (Spain) (En) (Idea-Tek) (Unl)
-     alternative to Puzzle (Asia) (En) (Idea-Tek) (Unl) [10]
-     alternative to Puzzle (USA) (Idea-Tek) (Unl) [9,11]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   a56 .   x46 .   .   x43 x38 | Puzzle (USA) (Idea-Tek) (Unl)
-     alternative to Puzzle (Asia) (En) (Idea-Tek) (Unl) [10]
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 a56 w10 x46 w10 .   x43 x38 | Puzzle (USA) (Idea-Tek) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x32 a48 a48 a48 x46 a48 .   x43 x32 | Puzzle (USA) (Proto) (Unl) [b]
-     alternative to Puzzle (Asia) (En) (Idea-Tek) (Unl) [10]
-     alternative to Puzzle (USA) (Idea-Tek) (Unl) [9,11,13]
 == puzznic
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 a56 a63 w56 x46 x44 .   x43 a56 | Puzznic (Europe)
@@ -10833,12 +10704,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == pyramid
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 w65 w65 x43 x38 a55 a55 a55 x46 a55 .   x43 x38 | Pyramid (USA) (NINA-03) (Unl)
-     alternative to Pyramid (USA) (NINA-06) (Unl) [9,11,13]
-     alternative to Pyramid - Cleopatra Kikiippatsu (Japan) (Unl) [10]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   a63 .   x46 .   .   x43 x38 | Pyramid (USA) (NINA-06) (Unl)
-     alternative to Pyramid - Cleopatra Kikiippatsu (Japan) (Unl) [10]
-   .   .   .   .   .   .   .   .   a63 .   a63 x46 x44 .   x43 x38 | Pyramid - Cleopatra Kikiippatsu (Japan) (Unl)
-     alternative to Pyramid (USA) (NINA-06) (Unl) [9,11]
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 a63 w10 x46 w10 .   x43 x38 | Pyramid (USA) (NINA-06) (Unl)
+   .   .   .   .   .   .   .   .   a63 w9  a63 x46 x44 .   x43 x38 | Pyramid - Cleopatra Kikiippatsu (Japan) (Unl)
 == pyramid - cleopatra kikiippatsu
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   .   .   .   .   .   | Pyramid - Cleopatra Kikiippatsu (Japan) (Unl)
@@ -11002,10 +10869,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 w65 w60 w60 w60 x46 w60 .   x43 w60 | Rad Racer II (USA)
 == rad racket - deluxe tennis ii
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a56 .   a56 x46 x44 .   x43 x38 | Rad Racket - Deluxe Tennis II (Asia) (En) (Unl)
-     alternative to Rad Racket - Deluxe Tennis II (USA) (Unl) [9,11]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   a56 .   x46 .   .   x43 x38 | Rad Racket - Deluxe Tennis II (USA) (Unl)
-     alternative to Rad Racket - Deluxe Tennis II (Asia) (En) (Unl) [10]
+   w65 w65 w65 x46 x44 w65 x43 x38 a56 w9  a56 x46 x44 .   x43 x38 | Rad Racket - Deluxe Tennis II (Asia) (En) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 a56 w10 x46 w10 .   x43 x38 | Rad Racket - Deluxe Tennis II (USA) (Unl)
 == radac tailor-made
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w48 w48 w48 x46 x44 .   x43 w60 | Radac Tailor-Made (Japan)
@@ -11022,8 +10887,7 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == raid 2020
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x35 a48 a48 a48 x46 a48 .   x43 x35 | Raid 2020 (USA) (Beta) (1989-12-xx) (Unl)
-     alternative to Raid 2020 (USA) (Unl) [9-11,13]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Raid 2020 (USA) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w48 w48 w48 x46 w48 .   x43 x38 | Raid 2020 (USA) (Unl)
 == raid on bungeling bay
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 a50 w63 a50 x46 x44 .   x43 a50 | Raid on Bungeling Bay (Japan)
@@ -11145,203 +11009,6 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == rescue time
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x33 w60 w60 w60 x46 w60 .   x43 x33 | Rescue Time (World) (Demo) (Aftermarket) (Unl)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   gd  gd  gd  .   g   .   .   gd  |
-   .   .   .   .   .   .   .   .   a3  .   a3  .   .   .   .   .   | Adam & Eve (Asia) (En) (Mega Soft) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-   .   .   .   .   .   .   .   .   a3  .   .   .   .   .   .   .   | Balloon Monster (Europe, Asia) (En) (Mega Soft) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9]
-   .   .   .   .   .   .   .   .   a3  .   a3  .   .   .   .   .   | Brush Roller (Asia) (En) (Hwang Shinwei) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-   .   .   .   .   .   .   .   .   a13 a15 a13 .   a13 .   .   .   | Caltron - 6 in 1 (USA) (Unl)
-     alternative to Adam & Eve (Asia) (En) (Mega Soft) (Unl) [10]
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11,13]
-   .   .   .   .   .   .   .   .   a3  .   .   .   .   .   .   .   | Cosmos Cop (Europe, Asia) (En) (Caltron) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9]
-   .   .   .   .   .   .   .   .   a11 a11 a11 .   .   .   .   .   | Cowlitz Gamers Adventure Trilogy (Europe) (Evercade) (Aftermarket) (Unl)
-     alternative to Cowlitz Gamers Adventure, The (World) (Aftermarket) (Unl) [9-11]
-   .   .   .   .   .   .   .   .   a11 a2  a11 .   a11 .   .   a11 | Donkey Kong Classics (USA, Europe)
-     alternative to Donkey Kong (Japan) [10]
-     alternative to Donkey Kong (World) (Rev 1) [9,11,13,16]
-   .   .   .   .   .   .   .   .   a14 .   a14 .   .   .   .   .   | Dream Fighter (Asia) (En) (Caltron) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-   .   .   .   .   .   .   .   .   a2  a11 a2  .   .   .   .   a11 | Final Fantasy I, II (Japan)
-     alternative to Final Fantasy (Japan) (Rev 1) [10]
-     alternative to Final Fantasy (USA) [9,11,16]
-   .   .   .   .   .   .   .   .   a3  a11 a3  .   .   .   .   .   | Funblaster Pak (Australia) (Unl)
-     alternative to Double Strike - Aerial Attack Force (USA) (NINA-06) (Unl) [9,11]
-     alternative to Little Red Hood - Xiao Hong Mao (Asia) (Ja) (Unl) [10]
-   .   .   .   .   .   .   .   .   a14 .   a14 .   .   .   .   .   | Go! Benny! (Asia) (En) (Mega Soft) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-   .   .   .   .   .   .   .   .   a3  a15 a3  .   .   .   .   .   | HES 6-Pak - Real Player's Pak (Australia) (Unl)
-     alternative to Adam & Eve (Asia) (En) (Mega Soft) (Unl) [10]
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-   .   .   .   .   .   .   .   .   a14 .   a14 .   .   .   .   .   | Magical Mathematics (Asia) (En) (NTSC) (Unl)
-     alternative to Mindblower Pak (Australia) (Unl) [9,11]
-   .   .   .   .   .   .   .   .   a1  .   a1  .   .   .   .   .   | Master Shooter (Asia) (Ja) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-   .   .   .   .   .   .   .   .   a6  a7  a4  .   a5  .   .   .   | Maxi 15 (USA) (Unl)
-     alternative to Chiller (USA) (Unl) [9-11,13]
-   .   .   .   .   .   .   .   .   a3  a3  a3  .   .   .   .   .   | Maxi-15 Pack (Australia) (Rev 1) (Unl)
-     alternative to Blackjack (USA) (Unl) [9-11]
-   .   .   .   .   .   .   .   .   a3  a3  a3  .   .   .   .   .   | Maxi-15 Pack (Australia) (Unl)
-     alternative to Blackjack (USA) (Unl) [9-11]
-   .   .   .   .   .   .   .   .   .   a11 .   .   .   .   .   .   | Mindblower Pak (Australia) (Unl)
-     alternative to Dong Dongnao 1 (Asia) (En) (Unl) [10]
-   .   .   .   .   .   .   .   .   a3  .   a3  .   .   .   .   .   | Porter (Asia) (En) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-   .   .   .   .   .   .   .   .   a12 a12 a12 .   a12 .   .   .   | Rumble Station - 15 in 1 (USA) (Unl)
-     alternative to Baby Boomer (USA) (Unl) [9-11,13]
-   .   .   .   .   .   .   .   .   a11 a11 a11 .   a11 .   .   a11 | Sesame Street - ABC & 123 (USA)
-     alternative to Sesame Street - 123 (USA) [9-11,13,16]
-   .   .   .   .   .   .   .   .   a14 .   .   .   .   .   .   .   | Skate Boy (Europe, Asia) (En) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9]
-   .   .   .   .   .   .   .   .   a11 a11 a11 .   .   .   .   .   | Super Cartridge Ver 7 - 4 in 1 (Asia) (En) (Unl)
-     alternative to Happy Pairs (Asia) (En) (60 pin cart) (Unl) [10]
-     alternative to Happy Pairs (Asia) (En) (72 pin cart) (Unl) [9,11]
-   .   .   .   .   .   .   .   .   a11 a11 a11 .   .   .   .   .   | Super Cartridge Ver 9 - 3 in 1 (Asia) (En) (Unl)
-     alternative to Challenge of the Dragon (Asia) (En) (Sachen) (Unl) [9-11]
-   .   .   .   .   .   .   .   .   a3  a11 a11 .   .   .   .   a3  | Super Mario Bros. + Duck Hunt (Europe, Asia) (En)
-     alternative to Duck Hunt (World) [9-11,16]
-   .   .   .   .   .   .   .   .   a11 a3  a3  .   a11 .   .   a11 | Super Mario Bros. + Duck Hunt (USA)
-     alternative to Duck Hunt (World) [9-11,13,16]
-   .   .   .   .   .   .   .   .   a11 a3  a3  .   a11 .   .   a11 | Super Mario Bros. + Duck Hunt + World Class Track Meet (USA)
-     alternative to Duck Hunt (World) [9-11,13,16]
-   .   .   .   .   .   .   .   .   a11 a3  a3  .   a11 .   .   a11 | Super Mario Bros. + Duck Hunt + World Class Track Meet (USA) (Rev 1)
-     alternative to Duck Hunt (World) [9-11,13,16]
-   .   .   .   .   .   .   .   .   a3  a3  a3  .   .   .   .   a3  | Super Mario Bros. + Tetris + Nintendo World Cup (Europe)
-     alternative to Nekketsu Koukou Dodgeball-bu - Soccer Hen (Japan) [10]
-     alternative to Nintendo World Cup (Europe) (Rev 2) [11]
-     alternative to Nintendo World Cup (USA) (Rev 1) [9,16]
-   .   .   .   .   .   .   .   .   a3  a3  a3  .   .   .   .   a3  | Super Mario Bros. + Tetris + Nintendo World Cup (Europe) (Rev 1)
-     alternative to Nekketsu Koukou Dodgeball-bu - Soccer Hen (Japan) [10]
-     alternative to Nintendo World Cup (Europe) (Rev 2) [11]
-     alternative to Nintendo World Cup (USA) (Rev 1) [9,16]
-   .   .   .   .   .   .   .   .   a11 a2  a3  .   a11 .   .   a11 | Super Spike V'Ball + Nintendo World Cup (USA)
-     alternative to Nekketsu Koukou Dodgeball-bu - Soccer Hen (Japan) [10]
-     alternative to Nintendo World Cup (Europe) (Rev 2) [11]
-     alternative to Nintendo World Cup (USA) (Rev 1) [9,13,16]
-   .   .   .   .   .   .   .   .   a14 .   a14 .   .   .   .   .   | Tank (Asia) (En) (Caltron) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-   .   .   .   .   .   .   .   .   a15 a3  a15 .   .   .   .   .   | Total Funpak (Australia) (Unl)
-     alternative to Duck (Asia) (En) (Unl) [10]
-     alternative to Duck Maze (Australia) (Unl) [9,11]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   gd  gd  gd  .   gd  .   .   g   |
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Adam & Eve (Asia) (En) (Mega Soft) (Unl)
-   .   .   .   .   .   .   .   .   w8  .   w8  .   .   .   .   .   | Arctic Adventure - Penguin & Seal (Australia) (Unl)
-   .   .   .   .   .   .   .   .   w6  w7  w4  .   w5  .   .   .   | Asder - 20 in 1 (USA) (Unl)
-   .   .   .   .   .   .   .   .   w56 w56 w56 .   w60 .   .   .   | Baby Boomer (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   w7  w4  .   .   .   .   .   | Balloon Monster (Europe, Asia) (En) (Mega Soft) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   .   .   .   .   | Blackjack (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Brush Roller (Asia) (En) (Hwang Shinwei) (Unl)
-   .   .   .   .   .   .   .   .   w6  w7  w4  .   w5  .   .   .   | Caltron - 9 in 1 (USA) (Proto) (Unl)
-   .   .   .   .   .   .   .   .   .   .   w56 .   .   .   .   .   | Captain Comic - The Adventure (Europe) (Unl)
-   .   .   .   .   .   .   .   .   w56 w56 .   .   w60 .   .   .   | Captain Comic - The Adventure (USA, Brazil) (En) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   .   .   .   .   | Challenge of the Dragon (Asia) (En) (Sachen) (Unl)
-   .   .   .   .   .   .   .   .   w63 w63 w60 .   w60 .   .   .   | Challenge of the Dragon (USA) (Color Dreams) (Unl)
-   .   .   .   .   .   .   .   .   w10 w9  w10 .   w10 .   .   .   | Chiller (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   w7  w4  .   .   .   .   .   | Cosmos Cop (Europe, Asia) (En) (Caltron) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   .   .   .   .   | Cowlitz Gamers Adventure, The (World) (Aftermarket) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   .   .   .   .   | Cowlitz Gamers' 2nd Adventure, The (World) (Aftermarket) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   .   .   .   .   | Cowlitz Gamers' Lost Adventure, The (World) (Aftermarket) (Unl)
-   .   .   .   .   .   .   .   .   w63 w63 w60 .   w60 .   .   .   | Crystal Mines (USA) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   .   .   .   .   | Death Race (USA) (Unl)
-   .   .   .   .   .   .   .   .   w10 w9  w10 .   w10 .   .   .   | Deathbots (USA) (Rev 1) (Unl)
-   .   .   .   .   .   .   .   .   w6  w7  w4  .   .   .   .   .   | Destroyer (Asia) (En) (Mega Soft) (Unl)
-   .   .   .   .   .   .   .   .   .   w56 .   .   .   .   .   .   | Dong Dongnao 1 (Asia) (En) (Unl)
-   .   .   .   .   .   .   .   .   .   w63 .   .   .   .   .   .   | Donkey Kong (Japan)
-   .   .   .   .   .   .   .   .   w63 w63 w63 .   w63 .   .   .   | Donkey Kong (World) (Demo) (Vertical Orientation) (Aftermarket) (Pirate)
-   .   .   .   .   .   .   .   .   w63 .   w63 .   w63 .   .   w63 | Donkey Kong (World) (Rev 1)
-   .   .   .   .   .   .   .   .   .   w63 .   .   .   .   .   .   | Donkey Kong Jr. (Japan)
-   .   .   .   .   .   .   .   .   w63 .   w63 .   w63 .   .   w63 | Donkey Kong Jr. (World) (Rev 1)
-   .   .   .   .   .   .   .   .   w10 .   w10 .   w10 .   .   .   | Double Strike - Aerial Attack Force (USA) (NINA-06) (Unl)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Dream Fighter (Asia) (En) (Caltron) (Unl)
-   .   .   .   .   .   .   .   .   .   w56 .   .   .   .   .   .   | Duck (Asia) (En) (Unl)
-   .   .   .   .   .   .   .   .   w3  w3  w3  .   w60 .   .   w3  | Duck Hunt (World)
-   .   .   .   .   .   .   .   .   w56 .   w56 .   .   .   .   .   | Duck Maze (Australia) (Unl)
-   .   .   .   .   .   .   .   .   w10 w9  w10 .   w10 .   .   .   | Dudes with Attitude (USA) (NINA-06) (Unl)
-   .   .   .   .   .   .   .   .   .   w9  .   .   .   .   .   .   | F-15 City War (Asia) (En) (Idea-Tek) (Unl)
-   .   .   .   .   .   .   .   .   w10 .   w10 .   w10 .   .   .   | F-15 City War (USA) (v1.1) (NINA-06) (Unl)
-   .   .   .   .   .   .   .   .   .   w63 .   .   .   .   .   .   | Family Trainer 2 - Running Stadium (Japan)
-   .   .   .   .   .   .   .   .   .   w63 .   .   .   .   .   .   | Final Fantasy (Japan) (Rev 1)
-   .   .   .   .   .   .   .   .   w63 .   w63 .   .   .   .   w63 | Final Fantasy (USA)
-   .   .   .   .   .   .   .   .   w63 w63 w63 .   .   .   .   w49 | Final Fantasy II (Japan)
-   .   .   .   .   .   .   .   .   w8  .   w8  .   w60 .   .   .   | Galactic Crusader (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Go! Benny! (Asia) (En) (Mega Soft) (Unl)
-   .   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   .   | Happy Pairs (Asia) (En) (60 pin cart) (Unl)
-   .   .   .   .   .   .   .   .   w47 .   w47 .   .   .   .   .   | Happy Pairs (Asia) (En) (72 pin cart) (Unl)
-   .   .   .   .   .   .   .   .   w6  w7  w4  .   .   .   .   .   | Hit Marmot (Asia) (Ja) (Unl)
-   .   .   .   .   .   .   .   .   .   w9  .   .   .   .   .   .   | Idol Shisen Mahjong (Japan) (Unl)
-   .   .   .   .   .   .   .   .   w8  w63 w8  .   .   .   .   .   | Jackpot (Australia) (Unl)
-   .   .   .   .   .   .   .   .   w48 w48 w48 .   w48 .   .   .   | King Neptune's Adventure (USA) (Unl)
-   .   .   .   .   .   .   .   .   w10 w9  w10 .   w10 .   .   .   | Krazy Kreatures (USA) (NINA-06) (Unl)
-   .   .   .   .   .   .   .   .   w63 .   w63 .   .   .   .   .   | Little Red Hood (Australia) (Unl)
-   .   .   .   .   .   .   .   .   .   w63 .   .   .   .   .   .   | Little Red Hood - Xiao Hong Mao (Asia) (Ja) (Unl)
-   .   .   .   .   .   .   .   .   w6  w7  w4  .   .   .   .   .   | Magic Block (Asia) (En) (Mega Soft) (Unl)
-   .   .   .   .   .   .   .   .   .   w7  w4  .   .   .   .   .   | Magic Carpet 1001 (Europe, Asia) (En) (Unl)
-   .   .   .   .   .   .   .   .   w6  .   .   .   w5  .   .   .   | Magic Carpet 1001 (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   w50 .   .   .   .   .   .   | Magical Mathematics (Asia) (Ja) (PAL) (Unl)
-   .   .   .   .   .   .   .   .   .   w56 .   .   .   .   .   .   | Master Chu and the Drunkard Hu (Asia) (En) (72 pin cart) (Unl)
-   .   .   .   .   .   .   .   .   w56 .   w56 .   w60 .   .   .   | Master Chu and the Drunkard Hu (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Master Shooter (Asia) (Ja) (Unl)
-   .   .   .   .   .   .   .   .   w10 w9  w10 .   w10 .   .   .   | Maxi 15 (USA) (Rev 1) (Unl)
-   .   .   .   .   .   .   .   .   w10 w9  w10 .   w10 .   .   .   | Menace Beach (USA) (Unl)
-   .   .   .   .   .   .   .   .   w56 .   w56 .   .   .   .   .   | Metal Fighter (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   w63 .   .   .   .   .   .   | Metal Fighter Mu (Japan) (Unl)
-   .   .   .   .   .   .   .   .   w8  .   w8  .   .   .   .   .   | Mindblower Pak (Australia) (Unl)
-   .   .   .   .   .   .   .   .   w56 .   w56 .   .   .   .   .   | Mission Cobra (USA) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   w60 .   .   .   | Moon Ranger (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   w63 .   .   .   .   .   .   | Nekketsu Koukou Dodgeball-bu - Soccer Hen (Japan)
-   .   .   .   .   .   .   .   .   .   .   w3  .   .   .   .   .   | Nintendo World Cup (Europe) (Rev 2)
-   .   .   .   .   .   .   .   .   w3  .   .   .   w51 .   .   w3  | Nintendo World Cup (USA) (Rev 1)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   w60 .   .   .   | Operation Secret Storm (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   w63 .   .   .   .   .   .   | Othello (Japan)
-   .   .   .   .   .   .   .   .   w56 .   w56 .   .   .   .   .   | Othello (USA)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   w60 .   .   .   | P'Radikus Conflict (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   .   w56 .   .   .   .   .   | Pac-Man (Europe)
-   .   .   .   .   .   .   .   .   .   w56 .   .   .   .   .   .   | Pac-Man (Japan) (En) (Rev 2)
-   .   .   .   .   .   .   .   .   w56 .   .   .   .   .   .   .   | Pac-Man (USA) (Namco)
-   .   .   .   .   .   .   .   .   .   w63 .   .   .   .   .   .   | Papillon Gals (Japan) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   w60 .   .   .   | Pesterminator - The Western Exterminator (USA) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   .   .   .   .   | Pipemania (Australia) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   .   .   .   .   | Popo Team (Asia) (En) (Unl)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Porter (Asia) (En) (Unl)
-   .   .   .   .   .   .   .   .   .   w9  .   .   .   .   .   .   | Puzzle (Asia) (En) (Idea-Tek) (Unl)
-   .   .   .   .   .   .   .   .   w10 .   w10 .   w10 .   .   .   | Puzzle (USA) (Idea-Tek) (Unl)
-   .   .   .   .   .   .   .   .   w10 .   w10 .   w10 .   .   .   | Pyramid (USA) (NINA-06) (Unl)
-   .   .   .   .   .   .   .   .   .   w9  .   .   .   .   .   .   | Pyramid - Cleopatra Kikiippatsu (Japan) (Unl)
-   .   .   .   .   .   .   .   .   .   w9  .   .   .   .   .   .   | Rad Racket - Deluxe Tennis II (Asia) (En) (Unl)
-   .   .   .   .   .   .   .   .   w10 .   w10 .   w10 .   .   .   | Rad Racket - Deluxe Tennis II (USA) (Unl)
-   .   .   .   .   .   .   .   .   w48 w48 w48 .   w48 .   .   .   | Raid 2020 (USA) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   w60 .   .   .   | Robodemons (USA) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   .   .   .   .   | Rockball (Asia) (En) (Unl)
-   .   .   .   .   .   .   .   .   w48 w48 w48 .   w48 .   .   .   | Secret Scout in the Temple of Demise (USA) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   w60 .   .   w60 | Sesame Street - 123 (USA)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   w60 .   .   w60 | Sesame Street - ABC (USA)
-   .   .   .   .   .   .   .   .   w10 w9  w10 .   w10 .   .   .   | Shockwave (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   w3  .   .   .   .   .   .   | Sidewinder (Asia) (En) (72 pin cart) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   .   .   .   .   | Silver Eagle (Asia) (En) (72 pin cart) (Unl)
-   .   .   .   .   .   .   .   .   .   w7  w4  .   .   .   .   .   | Skate Boy (Europe, Asia) (En) (Unl)
-   .   .   .   .   .   .   .   .   w10 w9  w10 .   w10 .   .   .   | Solitaire (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   .   w56 .   .   .   .   .   | Stadium Events (Europe)
-   .   .   .   .   .   .   .   .   w6  w7  w4  .   w5  .   .   .   | Super Gun (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   .   w3  .   .   .   .   .   | Super Mario Bros. (Europe)
-   .   .   .   .   .   .   .   .   w3  w3  .   .   w60 .   .   w3  | Super Mario Bros. (World)
-   .   .   .   .   .   .   .   .   .   .   w56 .   .   .   .   .   | Super Spike V'Ball (Europe)
-   .   .   .   .   .   .   .   .   w56 .   .   .   w60 .   .   w56 | Super Spike V'Ball (USA)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Tank (Asia) (En) (Caltron) (Unl)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   .   .   .   .   | Tasac (Asia) (En) (Unl)
-   .   .   .   .   .   .   .   .   w64 w56 w64 .   .   .   .   w56 | Tetris (Bulletproof) (Japan) (Rev 2)
-   .   .   .   .   .   .   .   .   .   .   w64 .   .   .   .   .   | Tetris (Europe)
-   .   .   .   .   .   .   .   .   w64 .   .   .   .   .   .   w56 | Tetris (USA)
-   .   .   .   .   .   .   .   .   .   w56 .   .   .   .   .   .   | Tetris (World) (Aftermarket) (Unl)
-   .   .   .   .   .   .   .   .   w10 .   w10 .   w10 .   .   .   | Tiles of Fate (USA) (Unl)
-   .   .   .   .   .   .   .   .   .   w9  .   .   .   .   .   .   | Twin Eagle (Asia) (Ja) (PAL) (Unl)
-   .   .   .   .   .   .   .   .   .   w63 .   .   .   .   .   .   | U.S. Championship V'Ball (Japan)
-   .   .   .   .   .   .   .   .   .   w9  .   .   .   .   .   .   | Venice Beach Volleyball (Asia) (En) (Super Mega) (Unl)
-   .   .   .   .   .   .   .   .   w10 .   w10 .   w10 .   .   .   | Venice Beach Volleyball (USA) (NINA-06) (Unl)
-   .   .   .   .   .   .   .   .   w56 .   .   .   w51 .   .   w56 | World Class Track Meet (USA) (Rev 1)
 == retro puzzle maker
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x17 w60 w60 w60 x46 w60 .   x43 x17 | Retro Puzzle Maker (World) (v1.1) (Program) (Aftermarket) (Unl)
@@ -11455,8 +11122,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x35 w60 w60 w60 x46 w60 .   x43 x35 | RoboCop versus The Terminator (USA) (Proto)
 == robodemons
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Robodemons (USA) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Robodemons (USA) (Unl)
 == robotfindskitten
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 w65 w65 x43 x38 w51 w51 w51 x46 w51 .   x43 x38 | robotfindskitten (World) (v0.10.122) (Damian Yerrick) (Aftermarket) (Unl)
@@ -11480,8 +11147,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x32 a48 a48 a48 x46 a48 .   x43 x32 | Rock Paper Scissors Lizard Sbock (World) (Beta) (Build 9b) (Aftermarket) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x38 w48 w48 w48 x46 w48 .   x43 x38 | Rock Paper Scissors Lizard Sbock (World) (NESDev 2016) (Aftermarket) (Unl)
 == rockball
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   x46 x44 .   x43 x38 | Rockball (Asia) (En) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 w60 w60 w60 x46 x44 .   x43 x38 | Rockball (Asia) (En) (Unl)
 == rocket ranger
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 w65 w60 w60 w60 x46 w60 .   x43 w60 | Rocket Ranger (USA)
@@ -11974,8 +11641,7 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == secret scout in the temple of demise
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x35 a48 a48 a48 x46 a48 .   x43 x35 | Secret Scout in the Temple of Demise (USA) (Beta) (Unl)
-     alternative to Secret Scout in the Temple of Demise (USA) (Unl) [9-11,13]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Secret Scout in the Temple of Demise (USA) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w48 w48 w48 x46 w48 .   x43 x38 | Secret Scout in the Temple of Demise (USA) (Unl)
 == secret ties
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x35 w60 w60 w60 x46 w60 .   x43 x35 | Secret Ties (USA) (Proto)
@@ -12021,11 +11687,12 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 w65 .   .   .   .   .   .   .   .   | Sensha Senryaku - Sabaku no Kitsune (Japan)
 == sesame street - 123
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w65 w65 w65 x46 w65 w65 x43 w65 .   .   .   x46 .   .   x43 .   | Sesame Street - 123 (USA)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 w65 w60 w60 w60 x46 w60 .   x43 w60 | Sesame Street - 123 (USA)
+   .   .   .   .   .   .   .   .   a11 a11 a11 .   a11 .   .   a11 | Sesame Street - ABC & 123 (USA)
 == sesame street - abc
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w65 w65 w65 x46 w65 w65 x43 w65 .   .   .   x46 .   .   x43 .   | Sesame Street - ABC (USA)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 w65 w60 w60 w60 x46 w60 .   x43 w60 | Sesame Street - ABC (USA)
 == sesame street - abc & 123
    g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
    w65 w65 w65 x46 w65 w65 x43 w65 .   .   .   x46 .   .   x43 .   | Sesame Street - ABC & 123 (USA)
@@ -12244,8 +11911,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | ShmupSpeed (World) (Aftermarket) (Unl)
 == shockwave
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Shockwave (USA) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 w9  w10 x46 w10 .   x43 x38 | Shockwave (USA) (Unl)
 == shogun
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Shogun (Japan)
@@ -12386,8 +12053,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 x44 w65 x43 w65 w63 w63 w60 x46 x44 .   x43 w60 | Silva Saga (Japan)
    .   .   .   .   .   .   .   .   a63 a63 x45 x46 x44 .   x43 x37 | Yin Baise Shajia (China) (Aftermarket) (Pirate)
 == silver eagle
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   x46 x44 .   x43 x38 | Silver Eagle (Asia) (En) (72 pin cart) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 w60 w60 w60 x46 x44 .   x43 x38 | Silver Eagle (Asia) (En) (72 pin cart) (Unl)
 == silver surfer
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 w65 w60 w60 w60 x46 w60 .   x43 w60 | Silver Surfer (USA)
@@ -12421,9 +12088,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a76 a76 a76 x46 a76 .   x43 x38 | Sir Ababol (World) (Aftermarket) (Unl)
    .   .   .   .   .   .   .   .   w76 w76 w76 x46 w76 .   x43 x38 | Sir Ababol (World) (Remastered) (Aftermarket) (Unl)
 == skate boy
-   g   g   g   g   g   g   g   g   g   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a14 .   .   x46 x44 .   x43 x38 | Skate Boy (Europe, Asia) (En) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9]
+   g   g   g   g   g   g   g   g   .   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 .   w7  w4  x46 x44 .   x43 x38 | Skate Boy (Europe, Asia) (En) (Unl)
 == skate or die
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 a56 a56 w56 x46 x44 .   x43 a56 | Skate or Die (Europe)
@@ -12627,8 +12293,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Solaris (USA) (Aftermarket) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Solaris (USA) (Atari Flashback) (Aftermarket) (Unl)
 == solitaire
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Solitaire (USA) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 w9  w10 x46 w10 .   x43 x38 | Solitaire (USA) (Unl)
 == solomon no kagi
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 w65 .   .   .   .   .   .   .   .   | Solomon no Kagi (Japan)
@@ -13712,8 +13378,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 w65 w60 w60 w60 x46 w60 .   x43 w60 | Super Glove Ball (USA)
 == super gun
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
-   w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   x46 .   .   x43 x38 | Super Gun (USA) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 w65 w65 x43 x38 w6  w7  w4  x46 w5  .   x43 x38 | Super Gun (USA) (Unl)
 == super gun game 12-in-1
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 x44 w65 x43 x37 w60 w60 w60 x46 x44 .   x43 x37 | Super Gun Game 12-in-1 (Asia) (En,Ja) (AA1201) (Aftermarket) (Pirate)
@@ -13785,23 +13451,12 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == super mario bros.
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    .   .   .   .   .   .   .   .   a63 a63 x45 x46 x44 .   x43 x37 | Super Mario (Korea) (Pirate)
-     alternative to Super Mario Bros. (World) [9-10]
    w65 w65 w65 x46 x44 w65 x43 x37 a63 a63 a63 x46 x44 .   x43 x37 | Super Mario Bros. (Asia) (En) (LB35) (Pirate)
-     alternative to Super Mario Bros. (Europe) [11]
-     alternative to Super Mario Bros. (World) [9-10]
-   w65 w65 w65 x46 x44 w65 x43 w65 a56 a56 .   x46 x44 .   x43 a56 | Super Mario Bros. (Europe)
-     alternative to Super Mario Bros. (World) [9-10,16]
-   w65 w65 w65 x46 w65 w65 x43 w65 .   .   a62 x46 .   .   x43 .   | Super Mario Bros. (World)
-     alternative to Super Mario Bros. (Europe) [11]
+   w65 w65 w65 x46 x44 w65 x43 w65 a56 a56 w3  x46 x44 .   x43 a56 | Super Mario Bros. (Europe)
+   w65 w65 w65 x46 w65 w65 x43 w65 w3  w3  a62 x46 w60 .   x43 w3  | Super Mario Bros. (World)
    .   .   .   .   .   .   .   .   a63 a63 a63 x46 x44 .   x43 a63 | Super Mario Bros. - 25th Anniversary (Australia) (Virtual Console)
-     alternative to Super Mario Bros. (Europe) [11]
-     alternative to Super Mario Bros. (World) [9-10,16]
    .   .   .   .   .   .   .   .   a63 a63 a63 x46 x44 .   x43 a63 | Super Mario Bros. - 25th Anniversary (Japan) (En) (Virtual Console)
-     alternative to Super Mario Bros. (Europe) [11]
-     alternative to Super Mario Bros. (World) [9-10,16]
    .   .   .   .   .   .   .   .   a47 a47 a47 x46 x44 .   x43 x37 | Super Mario Bros. 4 (Asia) (En) (Pirate)
-     alternative to Super Mario Bros. (Europe) [11]
-     alternative to Super Mario Bros. (World) [9-10]
 == super mario bros. + duck hunt
    gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  gd  .   gd  .   |
    w65 w65 w65 x46 x44 w65 x43 w65 .   .   .   x46 x44 .   x43 .   | Super Mario Bros. + Duck Hunt (Europe, Asia) (En)
@@ -13977,15 +13632,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 x44 w65 x43 x37 .   .   .   .   .   .   .   .   | Super Sonic 5 (Asia) (En) (Pirate)
 == super spike v'ball
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 w65 a56 a63 .   x46 x44 .   x43 a56 | Super Spike V'Ball (Europe)
-     alternative to Super Spike V'Ball (USA) [9,16]
-     alternative to U.S. Championship V'Ball (Japan) [10]
-   w65 w65 w65 x46 w65 w65 x43 w65 .   a63 a56 x46 .   .   x43 .   | Super Spike V'Ball (USA)
-     alternative to Super Spike V'Ball (Europe) [11]
-     alternative to U.S. Championship V'Ball (Japan) [10]
-   .   .   .   .   .   .   .   .   a63 .   a63 x46 x44 .   x43 a63 | U.S. Championship V'Ball (Japan)
-     alternative to Super Spike V'Ball (Europe) [11]
-     alternative to Super Spike V'Ball (USA) [9,16]
+   w65 w65 w65 x46 x44 w65 x43 w65 a56 a63 w56 x46 x44 .   x43 a56 | Super Spike V'Ball (Europe)
+   w65 w65 w65 x46 w65 w65 x43 w65 w56 a63 a56 x46 w60 .   x43 w56 | Super Spike V'Ball (USA)
+   .   .   .   .   .   .   .   .   a63 w63 a63 x46 x44 .   x43 a63 | U.S. Championship V'Ball (Japan)
 == super spike v'ball + nintendo world cup
    g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
    w65 w65 w65 x46 w65 w65 x43 w65 .   .   .   x46 .   .   x43 .   | Super Spike V'Ball + Nintendo World Cup (USA)
@@ -14245,15 +13894,10 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Tanigawa Kouji no Shougi Shinan III (Japan)
 == tank
-   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a55 a55 a55 x46 x44 .   x43 x38 | Tank (Asia) (En) (Asder) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-     alternative to Tank (Asia) (En) (Caltron) (Unl) [10]
-   w65 w65 w65 x46 x44 w65 x43 x38 a14 .   a14 x46 x44 .   x43 x38 | Tank (Asia) (En) (Caltron) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-   .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Tanque (Spain) (En) (NTDEC) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-     alternative to Tank (Asia) (En) (Caltron) (Unl) [10]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 .   a55 .   x46 x44 .   x43 x38 | Tank (Asia) (En) (Asder) (Unl)
+   w65 w65 w65 x46 x44 w65 x43 x38 .   w7  .   x46 x44 .   x43 x38 | Tank (Asia) (En) (Caltron) (Unl)
+   .   .   .   .   .   .   .   .   .   a56 .   x46 x44 .   x43 x38 | Tanque (Spain) (En) (NTDEC) (Unl)
 == tank 1990
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x37 .   .   .   .   .   .   .   .   | Tank 1990 (Asia) (En) (Pirate)
@@ -14297,8 +13941,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 w65 w65 x43 x35 .   .   .   .   .   .   .   .   | Taro's Quest (USA) (Proto)
 == tasac
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   x46 x44 .   x43 x38 | Tasac (Asia) (En) (Unl)
+   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 w60 w60 w60 x46 x44 .   x43 x38 | Tasac (Asia) (En) (Unl)
 == tashiro masashi no princess ga ippai
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Tashiro Masashi no Princess ga Ippai (Japan)
@@ -14535,15 +14179,15 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
      alternative to Tetris (Bulletproof) (Japan) (Rev 2) [9-11,16]
    w65 w65 w65 x46 x44 w65 x43 w65 a51 a51 a51 x46 x44 .   x43 a51 | Tetris (Bulletproof) (Japan) (Rev 1)
      alternative to Tetris (Bulletproof) (Japan) (Rev 2) [9-11,16]
-   w65 w65 w65 x46 x44 w65 x43 w65 .   .   .   x46 x44 .   x43 .   | Tetris (Bulletproof) (Japan) (Rev 2)
-   w65 w65 w65 x46 x44 w65 x43 w65 a56 a56 .   x46 x44 .   x43 a56 | Tetris (Europe)
+   w65 w65 w65 x46 x44 w65 x43 w65 w64 w56 w64 x46 x44 .   x43 w56 | Tetris (Bulletproof) (Japan) (Rev 2)
+   w65 w65 w65 x46 x44 w65 x43 w65 a56 a56 w64 x46 x44 .   x43 a56 | Tetris (Europe)
      alternative to Tetris (USA) [9,16]
      alternative to Tetris (World) (Aftermarket) (Unl) [10]
    w65 w65 w65 x46 x44 w65 x43 x37 a63 a63 a63 x46 x44 .   x43 x37 | Tetris (Russia) (En) (Pirate)
      alternative to Tetris (Europe) [11]
      alternative to Tetris (USA) [9]
      alternative to Tetris (World) (Aftermarket) (Unl) [10]
-   w65 w65 w65 x46 w65 w65 x43 w65 .   a56 a56 x46 w64 .   x43 .   | Tetris (USA)
+   w65 w65 w65 x46 w65 w65 x43 w65 w64 a56 a56 x46 w64 .   x43 w56 | Tetris (USA)
      alternative to Tetris (Europe) [11]
      alternative to Tetris (World) (Aftermarket) (Unl) [10]
    w65 w65 w65 x46 w65 w65 x43 x35 .   .   .   .   .   .   .   .   | Tetris (USA) (Beta 1) (Tengen) (Unl)
@@ -14551,7 +14195,7 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x35 .   .   .   .   .   .   .   .   | Tetris (USA) (Beta 3) (Tengen) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x35 .   .   .   .   .   .   .   .   | Tetris (USA) (Beta 4) (Tengen) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x38 .   .   .   .   .   .   .   .   | Tetris (USA) (Tengen) (Unl)
-   w65 w65 w65 x46 w65 w65 x43 x38 a64 .   a64 x46 a64 .   x43 x38 | Tetris (World) (Aftermarket) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 a64 w56 a64 x46 a64 .   x43 x38 | Tetris (World) (Aftermarket) (Unl)
      alternative to Tetris (Europe) [11]
      alternative to Tetris (USA) [9]
 == tetris - tengen
@@ -14681,16 +14325,10 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x35 a48 a48 a48 x46 a48 .   x43 x35 | Tiger-Heli (USA) (Rev 1) (Possible Proto)
 == tiles of fate
    g   g   g   g   g   g   g   g   gd  gd  gd  gd  gd  .   gd  gd  |
-   .   .   .   .   .   .   .   .   a63 .   a63 x46 x44 .   x43 x38 | Idol Shisen Mahjong (Japan) (Unl)
-     alternative to Tiles of Fate (USA) (Unl) [9,11]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   a63 .   x46 .   .   x43 x38 | Tiles of Fate (USA) (Unl)
-     alternative to Idol Shisen Mahjong (Japan) (Unl) [10]
+   .   .   .   .   .   .   .   .   a63 w9  a63 x46 x44 .   x43 x38 | Idol Shisen Mahjong (Japan) (Unl)
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 a63 w10 x46 w10 .   x43 x38 | Tiles of Fate (USA) (Unl)
    .   .   .   .   .   .   .   .   a63 a63 a63 w55 x44 .   x43 x38 | Zhanguo Sichuan Sheng (Asia) (C&E) (Unl)
-     alternative to Idol Shisen Mahjong (Japan) (Unl) [10]
-     alternative to Tiles of Fate (USA) (Unl) [9,11]
    .   .   .   .   .   .   .   .   a55 a55 a55 a55 x44 .   x43 x38 | Zhanguo Sichuan Sheng (Asia) (Idea-Tek) (Unl)
-     alternative to Idol Shisen Mahjong (Japan) (Unl) [10]
-     alternative to Tiles of Fate (USA) (Unl) [9,11]
 == time diver - avenger
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   .   .   .   .   .   | Time Diver - Avenger (Asia) (En) (T-A1) (Unl)
@@ -15354,22 +14992,12 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Veggie Invasion (World) (Aftermarket) (Unl)
 == venice beach volleyball
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
-   w65 w65 w65 x46 x44 w65 x43 x38 a56 .   a56 x46 x44 .   x43 x38 | Venice Beach Volleyball (Asia) (En) (Super Mega) (Unl)
-     alternative to Venice Beach Volleyball (USA) (NINA-06) (Unl) [9,11]
+   w65 w65 w65 x46 x44 w65 x43 x38 a56 w9  a56 x46 x44 .   x43 x38 | Venice Beach Volleyball (Asia) (En) (Super Mega) (Unl)
    w65 w65 w65 x46 x44 w65 x43 x38 a55 a55 a55 x46 x44 .   x43 x38 | Venice Beach Volleyball (Asia) (En) (TXC) (Unl)
-     alternative to Venice Beach Volleyball (Asia) (En) (Super Mega) (Unl) [10]
-     alternative to Venice Beach Volleyball (USA) (NINA-06) (Unl) [9,11]
    w65 w65 w65 x46 w65 w65 x43 x35 a48 a48 a48 x46 a48 .   x43 x35 | Venice Beach Volleyball (USA) (Beta) (Unl)
-     alternative to Venice Beach Volleyball (Asia) (En) (Super Mega) (Unl) [10]
-     alternative to Venice Beach Volleyball (USA) (NINA-06) (Unl) [9,11,13]
    w65 w65 w65 x46 w65 w65 x43 x38 a55 a55 a55 x46 a55 .   x43 x38 | Venice Beach Volleyball (USA) (MB-91) (Unl)
-     alternative to Venice Beach Volleyball (Asia) (En) (Super Mega) (Unl) [10]
-     alternative to Venice Beach Volleyball (USA) (NINA-06) (Unl) [9,11,13]
-   w65 w65 w65 x46 w65 w65 x43 x38 .   a56 .   x46 .   .   x43 x38 | Venice Beach Volleyball (USA) (NINA-06) (Unl)
-     alternative to Venice Beach Volleyball (Asia) (En) (Super Mega) (Unl) [10]
+   w65 w65 w65 x46 w65 w65 x43 x38 w10 a56 w10 x46 w10 .   x43 x38 | Venice Beach Volleyball (USA) (NINA-06) (Unl)
    .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Volley Ball (Spain) (En) (Idea-Tek) (Unl)
-     alternative to Venice Beach Volleyball (Asia) (En) (Super Mega) (Unl) [10]
-     alternative to Venice Beach Volleyball (USA) (NINA-06) (Unl) [9,11]
 == venus senki - back the city
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Venus Senki - Back the City (Japan)
@@ -15730,23 +15358,11 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 w65 w56 a63 a56 x46 w60 .   x43 w56 | World Champ (USA)
 == world class track meet
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   .   .   .   .   .   .   .   .   a63 .   a63 x46 x44 .   x43 a63 | Family Trainer 2 - Running Stadium (Japan)
-     alternative to Stadium Events (Europe) [11]
-     alternative to World Class Track Meet (USA) (Rev 1) [9,16]
-   .   .   .   .   .   .   .   .   a56 a63 .   x46 x44 .   x43 a56 | Stadium Events (Europe)
-     alternative to Family Trainer 2 - Running Stadium (Japan) [10]
-     alternative to World Class Track Meet (USA) (Rev 1) [9,16]
+   .   .   .   .   .   .   .   .   a63 w63 a63 x46 x44 .   x43 a63 | Family Trainer 2 - Running Stadium (Japan)
+   .   .   .   .   .   .   .   .   a56 a63 w56 x46 x44 .   x43 a56 | Stadium Events (Europe)
    .   .   .   .   .   .   .   .   a51 a51 a51 x46 a51 .   x43 a51 | Stadium Events (USA)
-     alternative to Family Trainer 2 - Running Stadium (Japan) [10]
-     alternative to Stadium Events (Europe) [11]
-     alternative to World Class Track Meet (USA) (Rev 1) [9,13,16]
    w65 w65 w65 x46 w65 w65 x43 w65 a51 a51 a51 x46 a51 .   x43 a51 | World Class Track Meet (USA)
-     alternative to Family Trainer 2 - Running Stadium (Japan) [10]
-     alternative to Stadium Events (Europe) [11]
-     alternative to World Class Track Meet (USA) (Rev 1) [9,13,16]
-   w65 w65 w65 x46 w65 w65 x43 w65 .   a63 a56 x46 .   .   x43 .   | World Class Track Meet (USA) (Rev 1)
-     alternative to Family Trainer 2 - Running Stadium (Japan) [10]
-     alternative to Stadium Events (Europe) [11]
+   w65 w65 w65 x46 w65 w65 x43 w65 w56 a63 a56 x46 w51 .   x43 w56 | World Class Track Meet (USA) (Rev 1)
 == world games
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 w65 w60 w60 w60 x46 w60 .   x43 w60 | World Games (USA)

@@ -4992,9 +4992,9 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
    gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
    w60 w60 x43 x44 x39 w60 x38 w60 .   .   .   .   .   .   .   .   | Dragon Ball Z Sparking! Neo (Korea)
 == dragon blaze
-   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
-   w60 w60 w60 x44 x39 w60 x38 w60 .   a7  .   x44 x39 .   x38 .   | Dragon Blaze (Europe)
-     alternative to Psikyo Shooting Collection Vol. 3 - Sol Divide & Dragon Blaze (Japan) [10]
+   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
+   w60 w60 w60 x44 x39 w60 x38 w60 w57 .   w57 x44 x39 w57 x38 w57 | Dragon Blaze (Europe)
+   .   .   .   .   .   .   .   .   a8  .   a6  .   .   a8  .   a8  | Psikyo Shooting Collection Vol. 3 - Sol Divide & Dragon Blaze (Japan)
 == dragon quest & final fantasy in itadaki street special
    w60 w60 w60 x44 x39 w60 x38 w60 w57 w57 w57 x44 x39 w57 x38 w57 | Dragon Quest & Final Fantasy in Itadaki Street Special (Japan)
 == dragon quest - shounen yangus to fushigi no dungeon
@@ -10636,28 +10636,23 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a54 w59 a54 w57 x39 a54 x38 a54 | NeoGeo Online Collection Vol. 10 - The King of Fighters '98 - Ultimate Match (Japan) (En,Ja,Es,Pt)
 == king of fighters 2000, the
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
-   w60 w60 w60 x44 x39 w60 x38 w60 a59 .   a59 x44 x39 a59 x38 a59 | King of Fighters 2000, The (Japan)
-     alternative to King of Fighters 2000, The (USA) [9,14,16]
-     alternative to King of Fighters 2000-2001, The (Europe) [11]
+   w60 w60 w60 x44 x39 w60 x38 w60 a59 w4  .   x44 x39 a59 x38 a59 | King of Fighters 2000, The (Japan)
    w60 w60 x43 x44 x39 w60 x38 w60 a59 a59 x43 x44 x39 a59 x38 a59 | King of Fighters 2000, The (Korea)
-     alternative to King of Fighters 2000, The (Japan) [10]
-     alternative to King of Fighters 2000, The (USA) [9,14,16]
-   w60 w60 w60 x44 w60 w60 x38 w60 .   a59 a14 x44 w57 .   x38 .   | King of Fighters 2000, The (USA)
-     alternative to King of Fighters 2000, The (Japan) [10]
-     alternative to King of Fighters 2000-2001, The (Europe) [11]
+   w60 w60 w60 x44 w60 w60 x38 w60 w59 a59 .   x44 w57 w59 x38 w59 | King of Fighters 2000, The (USA)
+   .   .   .   .   .   .   .   .   a15 a4  .   .   .   a15 .   a15 | King of Fighters 2000-2001, The (Europe)
+   .   .   .   .   .   .   .   .   a15 a11 .   .   .   a15 .   a15 | NeoGeo Online Collection Vol. 7 - The King of Fighters - Nests (Japan) (En,Ja,Es,Pt)
 == king of fighters 2000-2001, the
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   x44 x39 .   x38 .   | King of Fighters 2000-2001, The (Europe)
+   g   g   g   g   g   g   g   g   .   .   g   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   .   a59 .   .   .   .   .   | King of Fighters 2000, The (Japan)
+   .   .   .   .   .   .   .   .   .   .   a14 .   .   .   .   .   | King of Fighters 2000, The (USA)
+   w60 w60 w60 x44 x39 w60 x38 w60 .   .   w3  x44 x39 .   x38 .   | King of Fighters 2000-2001, The (Europe)
+   .   .   .   .   .   .   .   .   .   .   a59 .   .   .   .   .   | King of Fighters 2001, The (Japan)
+   .   .   .   .   .   .   .   .   .   .   a14 .   .   .   .   .   | King of Fighters 2001, The (USA)
+   .   .   .   .   .   .   .   .   .   .   a15 .   .   .   .   .   | NeoGeo Online Collection Vol. 7 - The King of Fighters - Nests (Japan) (En,Ja,Es,Pt)
 == king of fighters 2001, the
-   w60 w60 w60 x44 x39 w60 x38 w60 a59 .   a59 x44 x39 a59 x38 a59 | King of Fighters 2001, The (Japan)
-     alternative to King of Fighters 2000-2001, The (Europe) [11]
-     alternative to King of Fighters 2001, The (USA) [9,14,16]
+   w60 w60 w60 x44 x39 w60 x38 w60 a59 w4  .   x44 x39 a59 x38 a59 | King of Fighters 2001, The (Japan)
    w60 w60 x43 x44 x39 w60 x38 w60 a59 a59 x43 x44 x39 a59 x38 a59 | King of Fighters 2001, The (Korea)
-     alternative to King of Fighters 2001, The (Japan) [10]
-     alternative to King of Fighters 2001, The (USA) [9,14,16]
-   w60 w60 w60 x44 w60 w60 x38 w60 .   a59 a14 x44 w57 .   x38 .   | King of Fighters 2001, The (USA)
-     alternative to King of Fighters 2000-2001, The (Europe) [11]
-     alternative to King of Fighters 2001, The (Japan) [10]
+   w60 w60 w60 x44 w60 w60 x38 w60 w59 a59 .   x44 w57 w59 x38 w59 | King of Fighters 2001, The (USA)
 == king of fighters 2002, the
    gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   .   .   .   .   |
    w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   .   .   .   .   .   | King of Fighters 2002, The (Europe)
@@ -12472,47 +12467,37 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
 == metal slug
    w60 w60 w60 x44 x39 w60 x38 w60 w57 w57 w57 x44 x39 w57 x38 w57 | Metal Slug (Japan)
 == metal slug 3
-   w60 w60 w60 w60 x39 w60 x38 w60 a14 a59 .   w57 x39 a14 x38 a14 | Metal Slug 3 (Europe) (En,Fr,De,Es,It)
-     alternative to Metal Slug 3 (Japan) [10]
-     alternative to Metal Slug Anthology (USA) [9,14,16]
-   w60 w60 w60 x44 x39 w60 x38 w60 a59 .   a59 x44 x39 a59 x38 a59 | Metal Slug 3 (Japan)
-     alternative to Metal Slug 3 (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Metal Slug Anthology (USA) [9,14,16]
-   w60 w60 x43 x44 x39 w60 x38 w60 a59 a59 x43 x44 x39 a59 x38 a59 | Metal Slug 3 (Korea)
-     alternative to Metal Slug 3 (Japan) [10]
-     alternative to Metal Slug Anthology (USA) [9,14,16]
+   g   g   g   g   g   g   g   g   .   g   g   g   g   .   g   .   |
+   w60 w60 w60 w60 x39 w60 x38 w60 .   a59 w6  w57 x39 .   x38 .   | Metal Slug 3 (Europe) (En,Fr,De,Es,It)
+   w60 w60 w60 x44 x39 w60 x38 w60 .   w7  a59 x44 x39 .   x38 .   | Metal Slug 3 (Japan)
+   w60 w60 x43 x44 x39 w60 x38 w60 .   a59 x43 x44 x39 .   x38 .   | Metal Slug 3 (Korea)
+   .   .   .   .   .   .   .   .   .   a4  .   .   .   .   .   .   | Metal Slug Anthology (Europe)
+   .   .   .   .   .   .   .   .   .   a4  a5  .   .   .   .   .   | Metal Slug Anthology (USA)
+   .   .   .   .   .   .   .   .   .   .   a5  .   .   .   .   .   | Metal Slug Complete (Japan) (En,Ja)
 == metal slug 4
-   w60 w60 w60 x44 x39 w60 x38 w60 a54 a59 .   x44 x39 a54 x38 a54 | Metal Slug 4 (Europe, Australia)
-     alternative to Metal Slug 4 (Japan) [10]
-     alternative to Metal Slug 4 (USA) [9,14,16]
-   w60 w60 w60 x44 x39 w60 x38 w60 a59 .   a59 x44 x39 a59 x38 a59 | Metal Slug 4 (Japan)
-     alternative to Metal Slug 4 (Europe, Australia) [11]
-     alternative to Metal Slug 4 (USA) [9,14,16]
-   w60 w60 w60 x44 w60 w60 x38 w60 .   a59 a54 x44 .   .   x38 .   | Metal Slug 4 (USA)
-     alternative to Metal Slug 4 (Europe, Australia) [11]
-     alternative to Metal Slug 4 (Japan) [10]
+   w60 w60 w60 x44 x39 w60 x38 w60 a54 a59 w6  x44 x39 a54 x38 a54 | Metal Slug 4 (Europe, Australia)
+   w60 w60 w60 x44 x39 w60 x38 w60 a59 w7  a59 x44 x39 a59 x38 a59 | Metal Slug 4 (Japan)
+   w60 w60 w60 x44 w60 w60 x38 w60 w8  a59 a54 x44 w57 w8  x38 w8  | Metal Slug 4 (USA)
+   .   .   .   .   .   .   .   .   a5  .   .   .   .   a5  .   a5  | Metal Slug Anthology (Europe)
+   .   .   .   .   .   .   .   .   a5  .   .   .   .   a5  .   a5  | Metal Slug Complete (Japan) (En,Ja)
 == metal slug 5
-   w60 w60 w60 x44 x39 w60 x38 w60 a54 a59 .   x44 x39 a54 x38 a54 | Metal Slug 5 (Europe, Australia)
-     alternative to Metal Slug 5 (Japan) [10]
-     alternative to Metal Slug 5 (USA) [9,14,16]
-   w60 w60 w60 x44 x39 w60 x38 w60 a59 .   a59 x44 x39 a59 x38 a59 | Metal Slug 5 (Japan)
-     alternative to Metal Slug 5 (Europe, Australia) [11]
-     alternative to Metal Slug 5 (USA) [9,14,16]
-   w60 w60 w60 x44 w60 w60 x38 w60 .   a59 a54 x44 .   .   x38 .   | Metal Slug 5 (USA)
-     alternative to Metal Slug 5 (Europe, Australia) [11]
-     alternative to Metal Slug 5 (Japan) [10]
+   w60 w60 w60 x44 x39 w60 x38 w60 a54 a59 w6  x44 x39 a54 x38 a54 | Metal Slug 5 (Europe, Australia)
+   w60 w60 w60 x44 x39 w60 x38 w60 a59 w7  a59 x44 x39 a59 x38 a59 | Metal Slug 5 (Japan)
+   w60 w60 w60 x44 w60 w60 x38 w60 w8  a59 a54 x44 w57 w8  x38 w8  | Metal Slug 5 (USA)
 == metal slug 6
-   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
-   w60 w60 w60 x44 x39 w60 x38 w60 a4  .   a4  x44 x39 a4  x38 a4  | Metal Slug 6 (Japan)
-     alternative to Metal Slug Anthology (Europe) [11]
-     alternative to Metal Slug Anthology (USA) [9,14,16]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   w60 w60 w60 x44 x39 w60 x38 w60 .   w7  .   x44 x39 .   x38 .   | Metal Slug 6 (Japan)
 == metal slug anthology
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   x44 x39 .   x38 .   | Metal Slug Anthology (Europe)
-   w60 w60 w60 x44 w60 w60 x38 w60 .   .   .   x44 .   .   x38 .   | Metal Slug Anthology (USA)
+   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a14 .   .   .   .   a14 .   a14 | Metal Slug 3 (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a59 .   .   .   .   a59 .   a59 | Metal Slug 3 (Japan)
+   .   .   .   .   .   .   .   .   a59 .   .   .   .   a59 .   a59 | Metal Slug 3 (Korea)
+   .   .   .   .   .   .   .   .   a4  .   a4  .   .   a4  .   a4  | Metal Slug 6 (Japan)
+   w60 w60 w60 x44 x39 w60 x38 w60 .   .   w6  x44 x39 .   x38 .   | Metal Slug Anthology (Europe)
+   w60 w60 w60 x44 w60 w60 x38 w60 w8  .   .   x44 w3  w8  x38 w8  | Metal Slug Anthology (USA)
 == metal slug complete
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   x44 x39 .   x38 .   | Metal Slug Complete (Japan) (En,Ja)
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   w60 w60 w60 x44 x39 w60 x38 w60 .   w7  .   x44 x39 .   x38 .   | Metal Slug Complete (Japan) (En,Ja)
 == metal wolf rev
    w60 w60 w60 x44 x39 w60 x38 w60 w57 w57 w57 x44 x39 w57 x38 w57 | Metal Wolf REV (Japan) (Shokai Genteiban)
 == metropolismania
@@ -13844,8 +13829,10 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
 == neogeo online collection vol. 11 - sunsoft collection
    w60 w60 w60 x44 x39 w60 x38 w60 w57 w57 w57 x44 x39 w57 x38 w57 | NeoGeo Online Collection Vol. 11 - Sunsoft Collection (Japan)
 == neogeo online collection vol. 12 - samurai spirits - rokuban shoubu
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   x44 x39 .   x38 .   | NeoGeo Online Collection Vol. 12 - Samurai Spirits - Rokuban Shoubu (Japan)
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   w60 w60 w60 x44 x39 w60 x38 w60 .   w10 .   x44 x39 .   x38 .   | NeoGeo Online Collection Vol. 12 - Samurai Spirits - Rokuban Shoubu (Japan)
+   .   .   .   .   .   .   .   .   .   a4  .   .   .   .   .   .   | Samurai Shodown Anthology (Europe)
+   .   .   .   .   .   .   .   .   .   a4  .   .   .   .   .   .   | Samurai Shodown Anthology (USA)
 == neogeo online collection vol. 2 - bakumatsu roman - gekka no kenshi 1, 2
    w60 w60 w60 w60 x39 w60 x38 w60 w57 w57 w57 w57 x39 w57 x38 w57 | NeoGeo Online Collection Vol. 2 - Bakumatsu Roman - Gekka no Kenshi 1, 2 (Japan) (En,Ja,Es,Pt)
 == neogeo online collection vol. 3 - the king of fighters - orochi
@@ -13863,8 +13850,8 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   .   .   .   .   .   | NeoGeo Online Collection Vol. 6 - Garou Densetsu Battle Archives 2 (Japan)
 == neogeo online collection vol. 7 - the king of fighters - nests
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w60 w60 w60 w60 x39 w60 x38 w60 .   .   .   .   x39 .   x38 .   | NeoGeo Online Collection Vol. 7 - The King of Fighters - Nests (Japan) (En,Ja,Es,Pt)
+   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
+   w60 w60 w60 w60 x39 w60 x38 w60 .   .   .   w3  x39 .   x38 .   | NeoGeo Online Collection Vol. 7 - The King of Fighters - Nests (Japan) (En,Ja,Es,Pt)
 == neogeo online collection vol. 8 - fuuun super combo
    w60 w60 w60 w60 x39 w60 x38 w60 w57 w57 w57 w57 x39 w57 x38 w57 | NeoGeo Online Collection Vol. 8 - Fuuun Super Combo (Japan) (En,Ja,Es,Pt)
 == neogeo online collection vol. 9 - world heroes gorgeous
@@ -16470,21 +16457,25 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
 == psikyo shooting collection vol. 2 - sengoku ace & sengoku blade
    w60 w60 w60 x44 x39 w60 x38 w60 w57 w57 w57 x44 x39 w57 x38 w57 | Psikyo Shooting Collection Vol. 2 - Sengoku Ace & Sengoku Blade (Japan)
 == psikyo shooting collection vol. 3 - sol divide & dragon blaze
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   x44 x39 .   x38 .   | Psikyo Shooting Collection Vol. 3 - Sol Divide & Dragon Blaze (Japan)
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   a7  .   .   .   .   .   .   | Dragon Blaze (Europe)
+   w60 w60 w60 x44 x39 w60 x38 w60 .   w3  .   x44 x39 .   x38 .   | Psikyo Shooting Collection Vol. 3 - Sol Divide & Dragon Blaze (Japan)
+   .   .   .   .   .   .   .   .   .   a1  .   .   .   .   .   .   | Sol Divide (Europe)
 == psychic force complete
    w60 w60 w60 x44 x39 w60 x38 w60 w57 w57 w57 x44 x39 w57 x38 w57 | Psychic Force Complete (Japan)
 == psychonauts
    w60 w60 w60 w60 x39 w60 x38 w60 a54 a54 w54 w57 x39 a54 x38 a54 | Psychonauts (Europe) (En,Fr,De)
    w60 w60 w60 x44 w60 w60 x38 w60 w54 w54 a54 x44 w57 w54 x38 w54 | Psychonauts (USA)
 == psyvariar - complete edition
-   gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   g   gd  .   gd  gd  |
-   w60 w60 w60 w60 x39 w60 x38 w60 .   .   .   .   x39 .   x38 .   | Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De)
-   w60 w60 w60 w60 x39 w60 x38 x31 .   .   .   .   x39 .   x38 x31 | Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De) (Beta) (2003-04-15)
-   w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   x44 x39 .   x38 .   | Psyvariar - Complete Edition (Japan)
-   w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   x44 x39 .   x38 .   | Psyvariar - Complete Edition (Japan) (Special Capture Box)
-   w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   x44 x39 .   x38 .   | Psyvariar - Complete Edition (Japan) (Special Sound Box)
-   w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   x44 x39 .   x38 .   | Psyvariar - Complete Edition (Korea)
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
+   w60 w60 w60 w60 x39 w60 x38 w60 w12 w13 w12 w13 x39 w12 x38 w12 | Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De)
+   w60 w60 w60 w60 x39 w60 x38 x31 a13 a13 a13 a13 x39 a13 x38 x31 | Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De) (Beta) (2003-04-15)
+   w60 w60 w60 x44 x39 w60 x38 w60 a2  a1  a2  x44 x39 a2  x38 a2  | Psyvariar - Complete Edition (Japan)
+   w60 w60 w60 x44 x39 w60 x38 w60 a12 a1  a12 x44 x39 a12 x38 a12 | Psyvariar - Complete Edition (Japan) (Special Capture Box)
+   w60 w60 w60 x44 x39 w60 x38 w60 a12 a1  a12 x44 x39 a12 x38 a12 | Psyvariar - Complete Edition (Japan) (Special Sound Box)
+   w60 w60 w60 x44 x39 w60 x38 w60 a15 a1  a15 x44 x39 a15 x38 a15 | Psyvariar - Complete Edition (Korea)
+   .   .   .   .   .   .   .   .   a14 a1  a14 .   .   a14 .   a14 | SuperLite 2000 Vol. 10 - Psyvariar - Revision (Japan)
+   .   .   .   .   .   .   .   .   a14 a1  a14 .   .   a14 .   a14 | SuperLite 2000 Vol. 8 - Psyvariar - Medium Unit (Japan)
 == psyvariar 2 - ultimate final
    w60 w60 w60 x44 x39 w60 x38 w60 w57 w57 w57 x44 x39 w57 x38 w57 | Psyvariar 2 - Ultimate Final (Japan)
 == pucelle, la
@@ -17048,97 +17039,6 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
    w60 w60 w60 x44 w60 w60 x38 x23 w54 w59 w54 x44 w57 w54 x38 x23 | Resident Evil 4 (USA) (Demo)
 == retail demo 11
    w60 w60 w60 x44 x39 w60 x38 x23 w57 w57 w57 x44 x39 w57 x38 x23 | Retail Demo 11 (Europe)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   gd  gd  gd  gd  .   gd  .   g   |
-   .   .   .   .   .   .   .   .   .   a7  .   .   .   .   .   .   | Dragon Blaze (Europe)
-     alternative to Psikyo Shooting Collection Vol. 3 - Sol Divide & Dragon Blaze (Japan) [10]
-   .   .   .   .   .   .   .   .   .   .   a14 .   .   .   .   .   | King of Fighters 2000, The (USA)
-     alternative to King of Fighters 2000-2001, The (Europe) [11]
-   .   .   .   .   .   .   .   .   a15 a4  .   .   .   a15 .   a15 | King of Fighters 2000-2001, The (Europe)
-     alternative to King of Fighters 2000, The (Japan) [10]
-     alternative to King of Fighters 2000, The (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   .   .   a14 .   .   .   .   .   | King of Fighters 2001, The (USA)
-     alternative to King of Fighters 2000-2001, The (Europe) [11]
-   .   .   .   .   .   .   .   .   a14 .   .   .   .   a14 .   a14 | Metal Slug 3 (Europe) (En,Fr,De,Es,It)
-     alternative to Metal Slug Anthology (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a4  .   a4  .   .   a4  .   a4  | Metal Slug 6 (Japan)
-     alternative to Metal Slug Anthology (Europe) [11]
-     alternative to Metal Slug Anthology (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a5  a4  .   .   .   a5  .   a5  | Metal Slug Anthology (Europe)
-     alternative to Metal Slug 3 (Japan) [10]
-     alternative to Metal Slug 4 (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   .   a4  a5  .   .   .   .   .   | Metal Slug Anthology (USA)
-     alternative to Metal Slug 3 (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Metal Slug 3 (Japan) [10]
-   .   .   .   .   .   .   .   .   a5  .   a5  .   .   a5  .   a5  | Metal Slug Complete (Japan) (En,Ja)
-     alternative to Metal Slug 3 (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Metal Slug 4 (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a4  .   a4  .   .   a4  .   a4  | NeoGeo Online Collection Vol. 12 - Samurai Spirits - Rokuban Shoubu (Japan)
-     alternative to Samurai Shodown Anthology (Europe) [11]
-     alternative to Samurai Shodown Anthology (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a15 a11 a15 .   .   a15 .   a15 | NeoGeo Online Collection Vol. 7 - The King of Fighters - Nests (Japan) (En,Ja,Es,Pt)
-     alternative to King of Fighters 2000, The (Japan) [10]
-     alternative to King of Fighters 2000, The (USA) [9,14,16]
-     alternative to King of Fighters 2000-2001, The (Europe) [11]
-   .   .   .   .   .   .   .   .   a8  .   a6  .   .   a8  .   a8  | Psikyo Shooting Collection Vol. 3 - Sol Divide & Dragon Blaze (Japan)
-     alternative to Dragon Blaze (Europe) [9,11,14,16]
-   .   .   .   .   .   .   .   .   a13 a13 a13 a13 .   a13 .   .   | Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De) (Beta) (2003-04-15)
-     alternative to Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De) [9-12,14]
-   .   .   .   .   .   .   .   .   a2  a1  a2  .   .   a2  .   a2  | Psyvariar - Complete Edition (Japan)
-     alternative to Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a12 a1  a12 .   .   a12 .   a12 | Psyvariar - Complete Edition (Japan) (Special Capture Box)
-     alternative to Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a12 a1  a12 .   .   a12 .   a12 | Psyvariar - Complete Edition (Japan) (Special Sound Box)
-     alternative to Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a15 a1  a15 .   .   a15 .   a15 | Psyvariar - Complete Edition (Korea)
-     alternative to Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a5  a4  .   .   .   a5  .   a5  | Samurai Shodown Anthology (Europe)
-     alternative to NeoGeo Online Collection Vol. 12 - Samurai Spirits - Rokuban Shoubu (Japan) [10]
-     alternative to Samurai Shodown Anthology (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   .   a4  a5  .   .   .   .   .   | Samurai Shodown Anthology (USA)
-     alternative to NeoGeo Online Collection Vol. 12 - Samurai Spirits - Rokuban Shoubu (Japan) [10]
-     alternative to Samurai Shodown Anthology (Europe) [11]
-   .   .   .   .   .   .   .   .   a14 .   .   .   .   a14 .   a14 | Samurai Shodown V (Europe)
-     alternative to Samurai Shodown Anthology (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a1  .   a1  .   .   a1  .   a1  | Samurai Spirits - Tenka-ichi Kenkakuden (Japan)
-     alternative to Samurai Shodown Anthology (Europe) [11]
-     alternative to Samurai Shodown Anthology (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   .   a1  .   .   .   .   .   .   | Sol Divide (Europe)
-     alternative to Psikyo Shooting Collection Vol. 3 - Sol Divide & Dragon Blaze (Japan) [10]
-   .   .   .   .   .   .   .   .   a14 a1  a14 .   .   a14 .   a14 | SuperLite 2000 Vol. 10 - Psyvariar - Revision (Japan)
-     alternative to Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a14 a1  a14 .   .   a14 .   a14 | SuperLite 2000 Vol. 8 - Psyvariar - Medium Unit (Japan)
-     alternative to Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De) [9-11,14,16]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   g   g   g   g   g   g   .   g   |
-   .   .   .   .   .   .   .   .   w57 .   w57 .   .   w57 .   w57 | Dragon Blaze (Europe)
-   .   .   .   .   .   .   .   .   .   w4  .   .   .   .   .   .   | King of Fighters 2000, The (Japan)
-   .   .   .   .   .   .   .   .   w59 .   .   .   .   w59 .   w59 | King of Fighters 2000, The (USA)
-   .   .   .   .   .   .   .   .   .   .   w3  .   .   .   .   .   | King of Fighters 2000-2001, The (Europe)
-   .   .   .   .   .   .   .   .   .   w4  .   .   .   .   .   .   | King of Fighters 2001, The (Japan)
-   .   .   .   .   .   .   .   .   w59 .   .   .   .   w59 .   w59 | King of Fighters 2001, The (USA)
-   .   .   .   .   .   .   .   .   .   .   w6  .   .   .   .   .   | Metal Slug 3 (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Metal Slug 3 (Japan)
-   .   .   .   .   .   .   .   .   .   .   w6  .   .   .   .   .   | Metal Slug 4 (Europe, Australia)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Metal Slug 4 (Japan)
-   .   .   .   .   .   .   .   .   w8  .   .   .   w57 w8  .   w8  | Metal Slug 4 (USA)
-   .   .   .   .   .   .   .   .   .   .   w6  .   .   .   .   .   | Metal Slug 5 (Europe, Australia)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Metal Slug 5 (Japan)
-   .   .   .   .   .   .   .   .   w8  .   .   .   w57 w8  .   w8  | Metal Slug 5 (USA)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Metal Slug 6 (Japan)
-   .   .   .   .   .   .   .   .   .   .   w6  .   .   .   .   .   | Metal Slug Anthology (Europe)
-   .   .   .   .   .   .   .   .   w8  .   .   .   w3  w8  .   w8  | Metal Slug Anthology (USA)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Metal Slug Complete (Japan) (En,Ja)
-   .   .   .   .   .   .   .   .   .   w10 .   .   .   .   .   .   | NeoGeo Online Collection Vol. 12 - Samurai Spirits - Rokuban Shoubu (Japan)
-   .   .   .   .   .   .   .   .   .   .   .   w3  .   .   .   .   | NeoGeo Online Collection Vol. 7 - The King of Fighters - Nests (Japan) (En,Ja,Es,Pt)
-   .   .   .   .   .   .   .   .   .   w3  .   .   .   .   .   .   | Psikyo Shooting Collection Vol. 3 - Sol Divide & Dragon Blaze (Japan)
-   .   .   .   .   .   .   .   .   w12 w13 w12 w13 .   w12 .   w12 | Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De)
-   .   .   .   .   .   .   .   .   .   .   w9  .   .   .   .   .   | Samurai Shodown Anthology (Europe)
-   .   .   .   .   .   .   .   .   w5  .   .   .   w3  w5  .   w5  | Samurai Shodown Anthology (USA)
-   .   .   .   .   .   .   .   .   .   .   w9  .   .   .   .   .   | Samurai Shodown V (Europe)
-   .   .   .   .   .   .   .   .   .   w10 .   .   .   .   .   .   | Samurai Spirits - Tenka-ichi Kenkakuden (Japan)
-   .   .   .   .   .   .   .   .   .   w10 .   .   .   .   .   .   | Samurai Spirits Zero (Japan)
-   .   .   .   .   .   .   .   .   w57 .   w57 .   .   w57 .   w57 | Sol Divide (Europe)
 == retro classics - 8 arcade classics from yesteryears
    w60 w60 w60 x44 x39 w60 x38 w60 w57 w57 w57 x44 x39 w57 x38 w57 | Retro Classics - 8 Arcade Classics from Yesteryears (Europe)
 == return to castle wolfenstein - operation resurrection
@@ -17785,21 +17685,20 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   .   .   .   .   .   | Samurai Kanzenban (Japan)
 == samurai shodown anthology
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   x44 x39 .   x38 .   | Samurai Shodown Anthology (Europe)
-   w60 w60 w60 x44 w60 w60 x38 w60 .   .   .   x44 .   .   x38 .   | Samurai Shodown Anthology (USA)
+   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a4  .   a4  .   .   a4  .   a4  | NeoGeo Online Collection Vol. 12 - Samurai Spirits - Rokuban Shoubu (Japan)
+   w60 w60 w60 x44 x39 w60 x38 w60 a5  .   w9  x44 x39 a5  x38 a5  | Samurai Shodown Anthology (Europe)
+   w60 w60 w60 x44 w60 w60 x38 w60 w5  .   a5  x44 w3  w5  x38 w5  | Samurai Shodown Anthology (USA)
+   .   .   .   .   .   .   .   .   a14 .   .   .   .   a14 .   a14 | Samurai Shodown V (Europe)
+   .   .   .   .   .   .   .   .   a1  .   a1  .   .   a1  .   a1  | Samurai Spirits - Tenka-ichi Kenkakuden (Japan)
+   .   .   .   .   .   .   .   .   a59 .   .   .   .   a59 .   a59 | Samurai Spirits Zero (Japan)
 == samurai shodown v
-   w60 w60 w60 x44 x39 w60 x38 w60 a14 a59 .   x44 x39 a14 x38 a14 | Samurai Shodown V (Europe)
-     alternative to Samurai Shodown Anthology (USA) [9,14,16]
-     alternative to Samurai Spirits Zero (Japan) [10]
-   .   .   .   .   .   .   .   .   a59 .   a59 x44 x39 a59 x38 a59 | Samurai Spirits Zero (Japan)
-     alternative to Samurai Shodown Anthology (USA) [9,14,16]
-     alternative to Samurai Shodown V (Europe) [11]
+   g   g   g   g   g   g   g   g   .   g   g   g   g   .   g   .   |
+   w60 w60 w60 x44 x39 w60 x38 w60 .   a59 w9  x44 x39 .   x38 .   | Samurai Shodown V (Europe)
+   .   .   .   .   .   .   .   .   .   w10 a59 x44 x39 .   x38 .   | Samurai Spirits Zero (Japan)
 == samurai shodown vi
-   .   .   .   .   .   .   .   .   g   .   g   g   g   g   g   g   |
-   .   .   .   .   .   .   .   .   a1  .   a1  x44 x39 a1  x38 a1  | Samurai Spirits - Tenka-ichi Kenkakuden (Japan)
-     alternative to Samurai Shodown Anthology (Europe) [11]
-     alternative to Samurai Shodown Anthology (USA) [9,14,16]
+   .   .   .   .   .   .   .   .   .   g   .   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   w10 .   x44 x39 .   x38 .   | Samurai Spirits - Tenka-ichi Kenkakuden (Japan)
 == samurai spirits - tenka-ichi kenkakuden
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   .   .   .   .   .   | Samurai Spirits - Tenka-ichi Kenkakuden (Japan)
@@ -18941,34 +18840,34 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
 == silent hill 2
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w60 w60 w60 w60 x39 w60 x38 w60 a80 a82 a80 a80 x39 a80 x38 a80 | Silent Hill 2 (Europe) (En,Ja,Fr,De,Es,It)
-     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,14,16]
+     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,14]
      alternative to Silent Hill 2 - Director's Cut (Europe) (En,Fr,De,Es,It) [11]
      alternative to Silent Hill 2 - Saigo no Uta (Japan) (En,Ja) [10]
    w60 w60 w60 x44 x39 w60 x38 w60 a80 a80 a80 x44 x39 a80 x38 a80 | Silent Hill 2 (Japan) (En,Ja)
-     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,14,16]
+     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,14]
      alternative to Silent Hill 2 - Director's Cut (Europe) (En,Fr,De,Es,It) [11]
      alternative to Silent Hill 2 - Saigo no Uta (Japan) (En,Ja) [10]
    w60 w60 w60 x44 x39 w60 x38 x23 w81 w81 w81 x44 x39 w81 x38 x23 | Silent Hill 2 (Japan) (En,Ja) (Taikenban)
    w60 w60 w60 w60 x39 w60 x38 w60 a82 a84 a82 a82 x39 a82 x38 a82 | Silent Hill 2 (Korea) (En,Fr,De,Es,It)
-     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,14,16]
+     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,14]
      alternative to Silent Hill 2 - Director's Cut (Europe) (En,Fr,De,Es,It) [11]
      alternative to Silent Hill 2 - Saigo no Uta (Japan) (En,Ja) [10]
    w60 w60 w60 x44 w60 w60 x38 x31 a62 a62 a62 x44 a62 a62 x38 x31 | Silent Hill 2 (USA) (En,Ja) (Beta) (2001-07-13)
-     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,13-14]
+     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,14]
      alternative to Silent Hill 2 - Director's Cut (Europe) (En,Fr,De,Es,It) [11]
      alternative to Silent Hill 2 - Saigo no Uta (Japan) (En,Ja) [10]
    w60 w60 w60 x44 w60 w60 x38 w60 a80 a80 a80 x44 a80 a80 x38 a80 | Silent Hill 2 (USA) (En,Ja) (v1.20)
-     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,13-14,16]
+     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,14]
      alternative to Silent Hill 2 - Director's Cut (Europe) (En,Fr,De,Es,It) [11]
      alternative to Silent Hill 2 - Saigo no Uta (Japan) (En,Ja) [10]
    w60 w60 w60 w60 w60 w60 x38 w60 w75 a81 a81 a81 w80 w75 x38 w81 | Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01)
      alternative to Silent Hill 2 - Director's Cut (Europe) (En,Fr,De,Es,It) [11]
      alternative to Silent Hill 2 - Saigo no Uta (Japan) (En,Ja) [10]
    .   .   .   .   .   .   .   .   a81 a63 w75 w81 x39 a81 x38 a81 | Silent Hill 2 - Director's Cut (Europe) (En,Fr,De,Es,It)
-     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,14,16]
+     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,14]
      alternative to Silent Hill 2 - Saigo no Uta (Japan) (En,Ja) [10]
    .   .   .   .   .   .   .   .   a81 w75 a81 x44 x39 a81 x38 a81 | Silent Hill 2 - Saigo no Uta (Japan) (En,Ja)
-     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,14,16]
+     alternative to Silent Hill 2 (USA) (En,Ja,Fr,De,Es,It) (v2.01) [9,14]
      alternative to Silent Hill 2 - Director's Cut (Europe) (En,Fr,De,Es,It) [11]
 == silent hill 2 - director's cut
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
@@ -20255,9 +20154,8 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
 == sokudoku master
    w60 w60 w60 x44 x39 w60 x38 x26 w57 w57 w57 x44 x39 w57 x38 x26 | Sokudoku Master (Japan)
 == sol divide
-   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
-   w60 w60 w60 x44 x39 w60 x38 w60 .   a1  .   x44 x39 .   x38 .   | Sol Divide (Europe)
-     alternative to Psikyo Shooting Collection Vol. 3 - Sol Divide & Dragon Blaze (Japan) [10]
+   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
+   w60 w60 w60 x44 x39 w60 x38 w60 w57 .   w57 x44 x39 w57 x38 w57 | Sol Divide (Europe)
 == soldier of fortune - gold edition
    w60 w60 w60 w60 x39 w60 x38 w60 a49 a49 a49 a49 x39 a49 x38 a49 | Soldier of Fortune - Gold Edition (Europe) (En,Fr,De,Es,It) (v1.01)
    w60 w60 w60 w60 x39 w60 x38 w60 a54 a54 w54 w49 x39 a54 x38 a54 | Soldier of Fortune - Gold Edition (Europe) (En,Fr,De,Es,It) (v2.00)
@@ -21296,8 +21194,8 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
 == superlite 2000 vol. 1 - mahjong
    w60 w60 w60 x44 x39 w60 x38 w60 w57 w57 w57 x44 x39 w57 x38 w57 | SuperLite 2000 Vol. 1 - Mahjong (Japan)
 == superlite 2000 vol. 10 - psyvariar - revision
-   w60 w60 w60 x44 x39 w60 x38 w60 a14 a1  a14 x44 x39 a14 x38 a14 | SuperLite 2000 Vol. 10 - Psyvariar - Revision (Japan)
-     alternative to Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De) [9-11,14,16]
+   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
+   w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   x44 x39 .   x38 .   | SuperLite 2000 Vol. 10 - Psyvariar - Revision (Japan)
 == superlite 2000 vol. 11 - big bass - bass tsuri kanzen kouryaku
    w60 w60 w60 x44 x39 w60 x38 w60 w57 w57 w57 x44 x39 w57 x38 w57 | SuperLite 2000 Vol. 11 - Big Bass - Bass Tsuri Kanzen Kouryaku (Japan)
 == superlite 2000 vol. 12 - sudoku
@@ -21391,8 +21289,8 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
 == superlite 2000 vol. 7 - oekaki puzzle
    w60 w60 w60 x44 x39 w60 x38 w60 w57 w57 w57 x44 x39 w57 x38 w57 | SuperLite 2000 Vol. 7 - Oekaki Puzzle (Japan)
 == superlite 2000 vol. 8 - psyvariar - medium unit
-   w60 w60 w60 x44 x39 w60 x38 w60 a14 a1  a14 x44 x39 a14 x38 a14 | SuperLite 2000 Vol. 8 - Psyvariar - Medium Unit (Japan)
-     alternative to Psyvariar - Complete Edition (Europe) (En,Ja,Fr,De) [9-11,14,16]
+   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
+   w60 w60 w60 x44 x39 w60 x38 w60 .   .   .   x44 x39 .   x38 .   | SuperLite 2000 Vol. 8 - Psyvariar - Medium Unit (Japan)
 == superlite 2000 vol. 9 - numcro
    w60 w60 w60 x44 x39 w60 x38 w60 w57 w57 w57 x44 x39 w57 x38 w57 | SuperLite 2000 Vol. 9 - NumCro (Japan)
 == superman - shadow of apokolips

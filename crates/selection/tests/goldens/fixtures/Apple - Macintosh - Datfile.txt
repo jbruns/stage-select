@@ -61,15 +61,13 @@ rule r33: Superset parent selection REF0119: Group after good dump/production/re
    w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | 11th Hour, The (USA) (Disc 3)
    w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | 11th Hour, The (USA) (Disc 4)
 == 3-d ultra pinball
-   w29 w29 w29 x18 x15 w29 x14 w29 a2  a24 .   x18 x15 a2  x14 a2  | 3-D Ultra Pinball (Europe)
-     alternative to 3-D Ultra Pinball & Trophy Bass (USA) [9,14,16]
-     alternative to 3-D Ultra Pinball (Japan) [10]
-   w29 w29 w29 x18 x15 w29 x14 w29 a24 .   a24 x18 x15 a24 x14 a24 | 3-D Ultra Pinball (Japan)
-     alternative to 3-D Ultra Pinball & Trophy Bass (USA) [9,14,16]
-     alternative to 3-D Ultra Pinball (Europe) [11]
+   g   g   g   g   g   g   g   g   .   g   g   g   g   .   g   .   |
+   w29 w29 w29 x18 x15 w29 x14 w29 .   a24 w24 x18 x15 .   x14 .   | 3-D Ultra Pinball (Europe)
+   w29 w29 w29 x18 x15 w29 x14 w29 .   w24 a24 x18 x15 .   x14 .   | 3-D Ultra Pinball (Japan)
 == 3-d ultra pinball & trophy bass
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w29 w29 w29 x18 w29 w29 x14 w29 .   .   .   x18 .   .   x14 .   | 3-D Ultra Pinball & Trophy Bass (USA)
+   w29 w29 w29 x18 w29 w29 x14 w29 w1  w1  w1  x18 w1  w1  x14 w1  | 3-D Ultra Pinball & Trophy Bass (USA)
+   .   .   .   .   .   .   .   .   a2  .   .   .   .   a2  .   a2  | 3-D Ultra Pinball (Europe)
+   .   .   .   .   .   .   .   .   a24 .   .   .   .   a24 .   a24 | 3-D Ultra Pinball (Japan)
 == 3-d ultra pinball - creep night
    w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | 3-D Ultra Pinball - Creep Night (France)
 == 3do content library, the
@@ -1970,15 +1968,6 @@ rule r33: Superset parent selection REF0119: Group after good dump/production/re
 == residents, the - gingerbread man
    w29 w29 w29 x18 x15 w29 x14 x10 a24 a24 w24 x18 x15 a24 x14 x10 | Residents, The - Gingerbread Man (Europe) (Expanded Album)
    w29 w29 w29 x18 w29 w29 x14 x10 w24 w24 a24 x18 w26 w24 x14 x10 | Residents, The - Gingerbread Man (USA) (Expanded Album)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   g   .   .   .   .   g   .   g   |
-   .   .   .   .   .   .   .   .   a2  .   .   .   .   a2  .   a2  | 3-D Ultra Pinball (Europe)
-     alternative to 3-D Ultra Pinball & Trophy Bass (USA) [9,14,16]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   g   g   g   .   g   g   .   g   |
-   .   .   .   .   .   .   .   .   w1  w1  w1  .   w1  w1  .   w1  | 3-D Ultra Pinball & Trophy Bass (USA)
-   .   .   .   .   .   .   .   .   .   .   w24 .   .   .   .   .   | 3-D Ultra Pinball (Europe)
-   .   .   .   .   .   .   .   .   .   w24 .   .   .   .   .   .   | 3-D Ultra Pinball (Japan)
 == return to monkey island
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | Return to Monkey Island (USA) (Macintosh Game Disc)
