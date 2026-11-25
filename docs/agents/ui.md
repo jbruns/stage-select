@@ -245,9 +245,11 @@ Repair and build plans are made in the background: `parts::planning::MakingPlan:
 (`POST …/repair-plannings` or `…/plannings`), reads `GET /plannings/{id}` until it ends, and answers the plan's id.
 Pass `making.status(before)` as the status, which names the step under way ("Planning each game…") once the Service
 has said, and `making.percent()` as `Pending`'s or `PendingStatus`'s `percent`, which adds the `PercentMeter` and the
-percentage. Only the step is announced; the rising percentage is not. Only the latest plan started with a `MakingPlan`
-shows its progress, and one made under a page stops being read once the page is gone (the Service still makes it),
-so make it with the page for a page's plans and app-wide for the build `Planner`. A plan made bumps `api::writes()`.
+percentage. Only the step is announced; the rising percentage is not. Only the latest plan asked for with a
+`MakingPlan` shows its progress. A plan that waits on something first, as a build plan waits for its selection, takes
+its turn with `take_turn()` when it is asked for and passes it to `make_in`, so it never takes over from a later one. A
+plan made under a page stops being read once the page is gone (the Service still makes it), so make the `MakingPlan`
+with the page for a page's plans and app-wide for the build `Planner`. A plan made bumps `api::writes()`.
 
 ### Overlays
 

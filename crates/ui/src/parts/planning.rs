@@ -27,15 +27,17 @@ pub fn step_status(kind: PlanningKind, step: PlanStep) -> &'static str {
 /// What a plan stops being read with once the page that started it is gone. The Service goes on making it.
 const LEFT: &str = "You left the page that started this plan; it is still being made.";
 
-/// The plans started in turn, to tell the latest, whose progress shows, from those it superseded.
+/// The plans started in turn, to tell the latest, whose progress shows, from those it superseded. A plan takes its
+/// turn when you ask for it, not when the Service starts making it, so one that first waits for a selection never
+/// takes over from one asked for after it.
 #[derive(Debug, Default)]
 struct Turns {
     seq: u64,
 }
 
-/// One plan started, to check against the latest.
+/// One plan asked for, to check against the latest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Turn(u64);
+pub struct Turn(u64);
 
 impl Turns {
     /// Starts a turn, superseding every one before.
@@ -67,10 +69,25 @@ impl MakingPlan {
         }
     }
 
-    /// Forgets how far the last plan got, for one about to start: what a plan started before says no longer shows.
-    pub fn forget(self) {
-        self.turns.try_update_value(|t| t.take());
+    /// Takes the turn of a plan just asked for, and forgets how far the last one got: what a plan asked for before
+    /// says no longer shows. Once the owner is gone the turn is never the latest.
+    pub fn take_turn(self) -> Turn {
+        let turn = self.turns.try_update_value(Turns::take).unwrap_or(Turn(0));
         self.at.try_set(None);
+        turn
+    }
+
+    /// Whether `turn` is the latest plan asked for, whose progress shows; None once the owner is gone.
+    pub fn is_latest(self, turn: Turn) -> Option<bool> {
+        self.turns.try_with_value(|t| t.is_latest(turn))
+    }
+
+    /// Shows `progress` of the plan of `turn` if it is the latest; None once the owner is gone.
+    fn show(self, turn: Turn, progress: PlanProgress) -> Option<()> {
+        if self.is_latest(turn)? {
+            self.at.try_set(Some(progress));
+        }
+        Some(())
     }
 
     /// The step under way, or `before` until the Service has said.
@@ -90,17 +107,21 @@ impl MakingPlan {
     /// Starts making a plan at `start` from `body`, and reads how far it has got until it is made: its id, or why it
     /// wasn't. Its progress shows until another plan starts; reading stops once the owner is gone.
     pub async fn make<B: Serialize>(self, start: &str, body: &B) -> Result<i64, String> {
-        let turn = self.turns.try_update_value(Turns::take).ok_or(LEFT)?;
-        self.at.try_set(None);
+        let turn = self.take_turn();
+        self.make_in(turn, start, body).await
+    }
+
+    /// [`MakingPlan::make`] for the plan asked for in `turn`, taken when it was asked for.
+    pub async fn make_in<B: Serialize>(
+        self,
+        turn: Turn,
+        start: &str,
+        body: &B,
+    ) -> Result<i64, String> {
+        self.is_latest(turn).ok_or(LEFT)?;
         let mut planning: Planning = api::post(start, body).await?;
         loop {
-            match self.turns.try_with_value(|t| t.is_latest(turn)) {
-                None => return Err(LEFT.into()),
-                Some(true) => {
-                    self.at.try_set(Some(planning.progress));
-                }
-                Some(false) => {}
-            }
+            self.show(turn, planning.progress).ok_or(LEFT)?;
             if let Some(ended) = ended(&planning) {
                 if ended.is_ok() {
                     // The plan is recorded only now, not when it was started, so what counts statuses reads again.
@@ -159,13 +180,37 @@ mod tests {
     }
 
     #[test]
+    fn a_plan_asked_for_earlier_never_takes_over_once_it_starts_being_made() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let making = MakingPlan::new(PlanningKind::Build);
+            let at = |step| PlanProgress {
+                step,
+                done: 0,
+                total: 0,
+            };
+            // A waits for a selection while B, asked for after it, is made.
+            let a = making.take_turn();
+            let b = making.take_turn();
+            making.show(b, at(PlanStep::Walking)).unwrap();
+
+            // A's selection is ready and it starts being made: it keeps its turn and shows nothing.
+            making.show(a, at(PlanStep::Reading)).unwrap();
+            assert_eq!(making.at.get_untracked(), Some(at(PlanStep::Walking)));
+            assert_eq!(making.is_latest(a), Some(false));
+            making.show(b, at(PlanStep::Planning)).unwrap();
+            assert_eq!(making.at.get_untracked(), Some(at(PlanStep::Planning)));
+        });
+    }
+
+    #[test]
     fn a_plan_read_from_a_page_stops_being_read_once_the_page_is_gone() {
         let owner = Owner::new();
         let making = owner.with(|| MakingPlan::new(PlanningKind::Repair));
         assert!(making.turns.try_with_value(|_| ()).is_some());
         drop(owner);
-        assert!(making.turns.try_update_value(Turns::take).is_none());
-        making.forget();
+        let turn = making.take_turn();
+        assert_eq!(making.is_latest(turn), None);
     }
 
     #[test]

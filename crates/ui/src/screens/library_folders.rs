@@ -52,7 +52,7 @@ use crate::parts::overlay::Drawer;
 use crate::parts::pending::{ActionPending, Pending, action_problem};
 use crate::parts::plan::{KindCounts, use_status_filter};
 use crate::parts::plan_model::kind_counts;
-use crate::parts::planning::MakingPlan;
+use crate::parts::planning::{MakingPlan, Turn};
 use crate::parts::status::{
     BuildKind, CheckFlag, LibraryStatus, Placement, Status, StatusBadge, StatusCount, StatusIcon,
 };
@@ -170,9 +170,27 @@ fn reasons(folder: &LibraryFolder, full: bool) -> AnyView {
 struct MakePlan {
     /// Which request it is, to tell its answer from one a later request superseded.
     replan: Replan,
+    /// Its turn to show its status and progress, taken as it was asked for.
+    turn: Turn,
     folder: i64,
     selection: Option<i64>,
     choices: PlanChoices,
+}
+
+/// Says what a plan asked for is doing, while it is the latest asked for.
+#[derive(Clone, Copy)]
+struct Say {
+    status: RwSignal<String>,
+    making: MakingPlan,
+    turn: Turn,
+}
+
+impl Say {
+    fn set(self, text: String) {
+        if self.making.is_latest(self.turn) == Some(true) {
+            self.status.set(text);
+        }
+    }
 }
 
 /// Makes build plans for the Libraries pages, so that a plan started from the list or a new folder shows as under way
@@ -236,7 +254,12 @@ impl Planner {
             let request = request.clone();
             async move {
                 let replan = request.replan;
-                let made = make_plan(request, status, older, making).await;
+                let say = Say {
+                    status,
+                    making,
+                    turn: request.turn,
+                };
+                let made = make_plan(request, say, older, making).await;
                 if !replans.with_value(|r| r.is_latest(replan)) {
                     dropped.update(|n| *n += 1);
                 }
@@ -258,13 +281,14 @@ impl Planner {
         self.folder.set(Some(folder));
         self.older.set(None);
         self.status.set("Making plan…".into());
-        self.making.forget();
+        let turn = self.making.take_turn();
         let replan = self
             .replans
             .try_update_value(Replans::ask)
             .unwrap_or_default();
         self.action.dispatch(MakePlan {
             replan,
+            turn,
             folder,
             selection,
             choices,
@@ -318,7 +342,7 @@ pub fn use_planner() -> Planner {
 
 async fn make_plan(
     request: MakePlan,
-    status: RwSignal<String>,
+    status: Say,
     older: RwSignal<Option<OlderSelection>>,
     making: MakingPlan,
 ) -> Result<Plan, String> {
@@ -336,7 +360,11 @@ async fn make_plan(
         choices: request.choices,
     };
     let id = making
-        .make(&format!("/libraries/{}/plannings", request.folder), &body)
+        .make_in(
+            request.turn,
+            &format!("/libraries/{}/plannings", request.folder),
+            &body,
+        )
         .await?;
     api::get(&format!("/plans/{id}")).await
 }
@@ -345,7 +373,7 @@ async fn make_plan(
 /// fresh after all, the newest older one is offered in `older`, never taken silently.
 async fn fresh_selection(
     folder: &LibraryFolder,
-    status: RwSignal<String>,
+    status: Say,
     older: RwSignal<Option<OlderSelection>>,
 ) -> Result<i64, String> {
     let set = api::segment(&folder.source_set);
@@ -392,7 +420,7 @@ async fn fresh_selection(
 /// the job the Service names when it refuses a new one may run something older.
 async fn make_selection(
     folder: &LibraryFolder,
-    status: RwSignal<String>,
+    status: Say,
     newest: Option<u32>,
     verified: Option<&str>,
 ) -> Result<i64, String> {
