@@ -296,6 +296,14 @@ impl<'a> LayoutIndex<'a> {
             .collect()
     }
 
+    /// The one ROM the ROM `a`, by its Game and name, is: two ROMs are [`LayoutIndex::same`] exactly when this is.
+    fn one_rom<'k>(&self, a: (&'k str, &'k str)) -> OneRom<'k> {
+        match self.root(a.0, a.1).filter(|_| self.has_layout()) {
+            Some(r) => OneRom::Root(r),
+            None => OneRom::Named(a.0, a.1),
+        }
+    }
+
     /// The parent of the family Game `game` is repacked with, or itself for a parent ([`Dat::family_parent`]); none for
     /// a Game laid out apart ([`LayoutIndex::apart`]) or one the DAT doesn't list.
     fn family_of(&self, game: &str) -> Option<usize> {
@@ -327,6 +335,102 @@ impl<'a> LayoutIndex<'a> {
         let rom = &self.dat.roms[r];
         (self.dat.games[rom.game].as_str(), rom.name.as_str())
     }
+}
+
+/// A ROM as [`LayoutIndex::one_rom`] gives it: the ROM a Set Layout shares it as, or else its Game and name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum OneRom<'a> {
+    Root(usize),
+    Named(&'a str, &'a str),
+}
+
+/// The files the Audit read, by the Game an entry of each holds or is named for: every file a Game's ROMs may be
+/// in, so a search for a Game's files reads those and the unreadable ones, not every file the Audit read.
+struct GameFiles<'a> {
+    by_path: &'a BTreeMap<&'a str, Vec<&'a Entry>>,
+    /// Each file with a Matched or Misnamed entry holding a ROM of the Game, or a Mismatched one named for one.
+    of: HashMap<&'a str, BTreeSet<&'a str>>,
+    /// Each file with an Unreadable entry, which may be any Game's.
+    unreadable: BTreeSet<&'a str>,
+}
+
+impl<'a> GameFiles<'a> {
+    fn of(by_path: &'a BTreeMap<&'a str, Vec<&'a Entry>>) -> Self {
+        let mut of: HashMap<&str, BTreeSet<&str>> = HashMap::new();
+        let mut unreadable = BTreeSet::new();
+        for (path, entries) in by_path {
+            for e in entries {
+                match e.finding {
+                    Finding::Matched | Finding::Misnamed => {
+                        for r in &e.roms {
+                            of.entry(r.game.as_str()).or_default().insert(path);
+                        }
+                    }
+                    Finding::Mismatched => {
+                        if let Some(r) = &e.named_rom {
+                            of.entry(r.game.as_str()).or_default().insert(path);
+                        }
+                    }
+                    Finding::Unreadable => {
+                        unreadable.insert(*path);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        GameFiles {
+            by_path,
+            of,
+            unreadable,
+        }
+    }
+
+    /// The files the Audit read that may be game `game`'s, and those of `also` it read, in path order.
+    fn candidates<'b>(
+        &self,
+        game: &str,
+        also: impl IntoIterator<Item = &'b str>,
+    ) -> Vec<(&'a &'a str, &'a Vec<&'a Entry>)>
+    where
+        'a: 'b,
+    {
+        let mut paths: BTreeSet<&str> = self.unreadable.iter().copied().collect();
+        paths.extend(self.of.get(game).into_iter().flatten().copied());
+        paths.extend(also);
+        let by_path = self.by_path;
+        paths
+            .into_iter()
+            .filter_map(|path| by_path.get_key_value(path))
+            .collect()
+    }
+}
+
+/// Each Entry of the readable files of `usable` that `source` takes, by each ROM it holds as
+/// [`LayoutIndex::one_rom`] gives it, in the order of the files and their entries: a Game's item looks up each ROM's
+/// copies here, not reading every file for each Game.
+fn copies_by_rom<'a>(
+    usable: &BTreeMap<&'a str, Usable<'a>>,
+    layout_index: &LayoutIndex,
+    source: impl Fn(&'a str, &'a Entry) -> bool,
+) -> HashMap<OneRom<'a>, Vec<(&'a str, &'a Entry)>> {
+    let mut copies_of: HashMap<OneRom, Vec<(&str, &Entry)>> = HashMap::new();
+    for (path, file) in usable.iter().filter(|(_, file)| !file.unreadable) {
+        for &entry in file.entries.iter().filter(|e| source(path, e)) {
+            for rom in &entry.roms {
+                let copies = copies_of
+                    .entry(layout_index.one_rom((&rom.game, &rom.name)))
+                    .or_default();
+                // An Entry holding two ROMs that are one is a copy of it once.
+                if copies
+                    .last()
+                    .is_none_or(|(p, e)| p != path || !std::ptr::eq(*e, entry))
+                {
+                    copies.push((path, entry));
+                }
+            }
+        }
+    }
+    copies_of
 }
 
 /// A file the Audit read the payload of, unchanged since.
@@ -880,7 +984,7 @@ pub(crate) fn split_release(items: &[RepairItem]) -> Option<String> {
 /// be told, as an unreadable one where the Game's ZIP, loose folder (the folder itself, as an Audit reports an
 /// unreadable directory, or a file in it) or a ROM of it would be.
 fn stored_formats(
-    by_path: &BTreeMap<&str, Vec<&Entry>>,
+    game_files: &GameFiles,
     dat: &Dat,
     index: usize,
 ) -> HashSet<Option<StorageFormat>> {
@@ -888,8 +992,9 @@ fn stored_formats(
     let zip = format!("{game}.zip");
     let folder = format!("{game}/");
     let roms = roms_of(dat, index);
-    by_path
-        .iter()
+    game_files
+        .candidates(game, [])
+        .into_iter()
         .filter_map(|(path, entries)| {
             let holds = entries.iter().any(|e| match e.finding {
                 Finding::Matched | Finding::Misnamed => e.roms.iter().any(|r| r.game == game),
@@ -931,7 +1036,7 @@ fn release_split_by_unrepaired(
     i: &Inputs,
     layout_index: &LayoutIndex,
     wanted: &[Vec<ExpectedRom>],
-    by_path: &BTreeMap<&str, Vec<&Entry>>,
+    game_files: &GameFiles,
     good: &BTreeSet<String>,
     proposed: &[Proposed],
     released: &BTreeMap<String, Vec<(String, Released)>>,
@@ -956,7 +1061,7 @@ fn release_split_by_unrepaired(
             (None, Some((placed, _))) if good.contains(game) => {
                 HashSet::from([Some(placed.format())])
             }
-            _ => stored_formats(by_path, i.dat, index),
+            _ => stored_formats(game_files, i.dat, index),
         };
         if !formats.is_empty() {
             releases.entry(release_of(game)).or_default().push((
@@ -1843,6 +1948,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     // The placed releases released, for which nothing else is planned: a repair that releases one only sets its files
     // aside, and nothing is ever read from their CHDs or filled for any Game of one, which the next repair does.
     let released = releases(i, &by_path, &usable);
+    let game_files = GameFiles::of(&by_path);
     let released_paths: HashSet<&str> = released
         .values()
         .flatten()
@@ -1991,6 +2097,19 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .iter()
         .map(|g| (g.name.as_str(), g))
         .collect();
+    // Every Entry a Game's item may read a ROM from: Matched or Misnamed, or Conflicting where you chose to take it as
+    // the ROM it matches, in a file still as the Audit read it and holding no Conflicting Entry you left or set aside.
+    let copies_of = copies_by_rom(&usable, &layout_index, |path, entry| {
+        !kept_conflicts.contains(path)
+            && !left_conflicts.contains(path)
+            && match entry.finding {
+                Finding::Matched | Finding::Misnamed => true,
+                Finding::Conflicting => {
+                    applied_conflicts.contains(&(path, entry.member.as_deref()))
+                }
+                _ => false,
+            }
+    });
     for (index, game) in i.dat.games.iter().enumerate() {
         let roms = &wanted[index];
         // The Game and name of each of `roms`: one of another Game where the layout puts it here.
@@ -2091,33 +2210,23 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         // Each ROM's best copy: matched in the Game's own file first, then matched elsewhere, then misnamed, then a
         // conflicting entry you chose to take as the ROM it matches.
         let mut sources: Vec<Option<(u8, &str, &Entry)>> = vec![None; roms.len()];
-        for (path, file) in &usable {
-            if file.unreadable
-                || kept_conflicts.contains(path)
-                || left_conflicts.contains(path)
-                || scopes.file(path) != scope
-            {
+        for (n, rom) in roms.iter().enumerate() {
+            if withheld(&rom.name) {
                 continue;
             }
-            for entry in &file.entries {
+            let copies = copies_of.get(&layout_index.one_rom(keys[n]));
+            for &(path, entry) in copies.into_iter().flatten() {
+                if scopes.file(path) != scope {
+                    continue;
+                }
                 let rank = match entry.finding {
                     Finding::Matched if is_target(path) => 0,
                     Finding::Matched => 1,
                     Finding::Misnamed => 2,
-                    Finding::Conflicting
-                        if applied_conflicts.contains(&(*path, entry.member.as_deref())) =>
-                    {
-                        3
-                    }
-                    _ => continue,
+                    _ => 3,
                 };
-                for (n, rom) in roms.iter().enumerate() {
-                    if holds(entry, n)
-                        && !withheld(&rom.name)
-                        && sources[n].is_none_or(|(best, ..)| rank < best)
-                    {
-                        sources[n] = Some((rank, path, entry));
-                    }
+                if sources[n].is_none_or(|(best, ..)| rank < best) {
+                    sources[n] = Some((rank, path, entry));
                 }
             }
         }
@@ -2641,8 +2750,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
 
         // Some ROM is not in the Source Set: filled from an Ingest Folder, when an item holds the Game whole, in place of
         // the files of the Game's scope that hold a ROM of it.
-        let attributable: Vec<&str> = by_path
-            .iter()
+        let attributable: Vec<&str> = game_files
+            .candidates(game, targets.iter().map(String::as_str))
+            .into_iter()
             .filter(|(path, _)| scopes.file(path) == scope)
             .filter(|(path, entries)| {
                 is_target(path)
@@ -3103,7 +3213,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 i,
                 &layout_index,
                 &wanted,
-                &by_path,
+                &game_files,
                 &good,
                 &proposed,
                 &released,
@@ -4013,5 +4123,150 @@ fn folder_fill_of(
             loose: true,
             leave,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, HashMap};
+    use std::path::Path;
+
+    use stage_select_api::storage::Storage;
+    use stage_select_api::{Entry, Finding, RomRef};
+    use stage_select_engine::dat::{Dat, SetLayout};
+    use stage_select_test_fixtures::{listxml, mame_rom_xml};
+
+    use super::{GameFiles, LayoutIndex, Usable, copies_by_rom};
+
+    fn entry(path: &str, finding: Finding, game: &str, rom: &str) -> Entry {
+        let rom = RomRef {
+            game: game.into(),
+            name: rom.into(),
+        };
+        let (roms, named_rom) = match finding {
+            Finding::Matched | Finding::Misnamed => (vec![rom], None),
+            Finding::Mismatched => (Vec::new(), Some(rom)),
+            _ => (Vec::new(), None),
+        };
+        Entry {
+            path: path.into(),
+            member: path.ends_with(".zip").then(|| rom_name(path)),
+            finding,
+            roms,
+            named_rom,
+            evidence: None,
+            reason: None,
+            disks: Vec::new(),
+            parent_sha1: None,
+        }
+    }
+
+    fn rom_name(path: &str) -> String {
+        format!("{}.bin", path.trim_end_matches(".zip"))
+    }
+
+    /// A ListXML of `games` parents, each with a clone sharing its ROM.
+    fn families(games: usize) -> Dat {
+        let machines: Vec<(String, String, String)> = (0..games)
+            .flat_map(|g| {
+                let payload = [g as u8, (g >> 8) as u8];
+                [
+                    (
+                        format!("p{g}"),
+                        String::new(),
+                        mame_rom_xml("a.bin", None, &payload),
+                    ),
+                    (
+                        format!("c{g}"),
+                        format!(r#"cloneof="p{g}" romof="p{g}""#),
+                        mame_rom_xml("a.bin", Some("a.bin"), &payload),
+                    ),
+                ]
+            })
+            .collect();
+        let machines: Vec<(&str, &str, &str)> = machines
+            .iter()
+            .map(|(n, a, b)| (n.as_str(), a.as_str(), b.as_str()))
+            .collect();
+        Dat::parse(listxml(&machines).as_bytes(), Path::new("mame.xml")).unwrap()
+    }
+
+    #[test]
+    fn two_roms_are_one_rom_exactly_when_the_layout_makes_them_the_same() {
+        let dat = families(3);
+        for layout in [None, Some(SetLayout::NonMerged), Some(SetLayout::Merged)] {
+            let storage = Storage {
+                set_layout: layout,
+                ..Storage::default()
+            };
+            let index = LayoutIndex::of(&dat, storage, &HashMap::new());
+            let keys: Vec<(&str, &str)> = (0..dat.roms.len()).map(|r| index.key(r)).collect();
+            for &a in &keys {
+                for &b in &keys {
+                    assert_eq!(
+                        index.one_rom(a) == index.one_rom(b),
+                        index.same(a, b),
+                        "{a:?} and {b:?} under {layout:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_games_files_are_looked_up_not_searched_for_among_every_file() {
+        let games = 500;
+        let dat = families(games);
+        let mut entries: Vec<Entry> = (0..games)
+            .map(|g| {
+                entry(
+                    &format!("p{g}.zip"),
+                    Finding::Matched,
+                    &format!("p{g}"),
+                    "a.bin",
+                )
+            })
+            .collect();
+        entries.push(entry("stray.bin", Finding::Misnamed, "p7", "a.bin"));
+        entries.push(entry("p8.zip.bad", Finding::Mismatched, "p7", "a.bin"));
+        entries.push(entry("broken.zip", Finding::Unreadable, "", ""));
+        let mut by_path: BTreeMap<&str, Vec<&Entry>> = BTreeMap::new();
+        for e in &entries {
+            by_path.entry(&e.path).or_default().push(e);
+        }
+
+        let files = GameFiles::of(&by_path);
+        let found: Vec<&str> = files
+            .candidates("p7", ["c7.zip", "p9.zip"])
+            .into_iter()
+            .map(|(path, _)| *path)
+            .collect();
+        assert_eq!(
+            found,
+            ["broken.zip", "p7.zip", "p8.zip.bad", "p9.zip", "stray.bin"]
+        );
+
+        let usable: BTreeMap<&str, Usable> = by_path
+            .iter()
+            .map(|(path, entries)| {
+                let unreadable = entries.iter().any(|e| e.finding == Finding::Unreadable);
+                let entries = entries.clone();
+                (
+                    *path,
+                    Usable {
+                        entries,
+                        unreadable,
+                    },
+                )
+            })
+            .collect();
+        let index = LayoutIndex::of(&dat, Storage::default(), &HashMap::new());
+        let copies = copies_by_rom(&usable, &index, |_, _| true);
+        let of_p7: Vec<&str> = copies[&index.one_rom(("p7", "a.bin"))]
+            .iter()
+            .map(|(path, _)| *path)
+            .collect();
+        assert_eq!(of_p7, ["p7.zip", "stray.bin"]);
+        assert_eq!(copies.len(), games);
     }
 }

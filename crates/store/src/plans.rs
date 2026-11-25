@@ -476,6 +476,20 @@ struct Found {
 /// the folder, as `<folder>/<entry>`.
 type Files = HashMap<String, Found>;
 
+/// What the folder holds inside each of its folders, by the folder's [`name_key`], in the order of [`Files`]: what
+/// is in the way of a file going where one is, found without reading every file for each.
+type Within<'a> = HashMap<&'a str, Vec<&'a Found>>;
+
+fn within(files: Option<&Files>) -> Within<'_> {
+    let mut within: Within = HashMap::new();
+    for (name, found) in files.into_iter().flatten() {
+        if let Some((dir, _)) = name.split_once('/') {
+            within.entry(dir).or_default().push(found);
+        }
+    }
+    within
+}
+
 /// The folder as a plan found it.
 struct Folder {
     dir: FolderDir,
@@ -1464,6 +1478,7 @@ fn plan_items(
     nothing: &mut NothingToBuild,
 ) -> Vec<PlanItem> {
     let files = folder.map(|f| &f.files);
+    let within = within(files);
     let scan = folder.and_then(|f| f.scan.as_ref());
     let games: HashMap<&str, usize> = dat
         .games
@@ -1754,7 +1769,7 @@ fn plan_items(
             Some(reason)
         } else if let Some(reason) = invalid_path(&target, item.disk) {
             Some(reason)
-        } else if let Some(reason) = in_the_way(inputs, files, scan, &target, game) {
+        } else if let Some(reason) = in_the_way(inputs, files, &within, scan, &target, game) {
             Some(reason)
         } else if let Some(reason) = item
             .roms
@@ -2073,6 +2088,7 @@ fn plan_items(
                 &GeneratedAt {
                     inputs,
                     files,
+                    within: &within,
                     scan,
                     lowered: &lowered,
                     folders: &folders,
@@ -2094,6 +2110,7 @@ fn plan_items(
                 &GeneratedAt {
                     inputs,
                     files,
+                    within: &within,
                     scan,
                     lowered: &lowered,
                     folders: &folders,
@@ -2342,6 +2359,7 @@ fn clash(
 fn in_the_way(
     inputs: &Inputs,
     files: Option<&Files>,
+    within: &Within,
     scan: Option<&Scan>,
     target: &str,
     game: &str,
@@ -2378,15 +2396,7 @@ fn in_the_way(
             found.name
         ));
     }
-    let inside = format!("{}/", name_key(target));
-    let held: Vec<&Found> = files
-        .iter()
-        .filter(|(name, _)| name.starts_with(&inside))
-        .map(|(_, found)| found)
-        .collect();
-    if held.is_empty() {
-        return None;
-    }
+    let held = within.get(name_key(target).as_str())?;
     held.iter()
         .find(|found| !found.directory && !ours(found))
         .or_else(|| held.iter().find(|found| found.directory))
@@ -2413,6 +2423,7 @@ pub(crate) fn clears(removal: &str, target: &str) -> bool {
 struct GeneratedAt<'a> {
     inputs: &'a Inputs,
     files: Option<&'a Files>,
+    within: &'a Within<'a>,
     scan: Option<&'a Scan>,
     lowered: &'a HashMap<String, usize>,
     folders: &'a HashMap<String, String>,
@@ -2470,7 +2481,8 @@ fn generate(
         Some(reason)
     } else if let Some(reason) = invalid_path(&target, false) {
         Some(reason)
-    } else if let Some(reason) = in_the_way(at.inputs, at.files, at.scan, &target, game) {
+    } else if let Some(reason) = in_the_way(at.inputs, at.files, at.within, at.scan, &target, game)
+    {
         Some(reason)
     } else if let Some(reason) = clash(at.lowered, at.folders, &target) {
         Some(reason)
