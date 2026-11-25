@@ -398,7 +398,12 @@ struct DisposeIntents<'a> {
     published: Identity,
     /// Every other file of the release recorded placed.
     outputs: &'a [Output],
+    /// Each file of the release read back as recorded, by its item.
+    verified: &'a Verified,
 }
+
+/// The stat of each placed file, by its item, as held when it was last read back as the Build recorded it.
+type Verified = std::cell::RefCell<HashMap<i64, Stat>>;
 
 impl Intents for DisposeIntents<'_> {
     fn load(&self) -> Result<Intent> {
@@ -443,6 +448,10 @@ impl Intents for DisposeIntents<'_> {
         self.store.fault_point(Fault::PlaceChecking(self.seq));
     }
 
+    fn verified(&self, now: &Stat) {
+        self.verified.borrow_mut().insert(self.seq, *now);
+    }
+
     fn in_place(&self) -> Result<std::result::Result<(), String>> {
         if let Err(why) = in_place(self.p, self.chain, self.target) {
             return Ok(Err(why));
@@ -452,6 +461,9 @@ impl Intents for DisposeIntents<'_> {
         for output in self.outputs.iter().filter(|o| o.seq != self.seq) {
             if let Err(why) = output.holds(self.p)? {
                 return Ok(Err(why));
+            }
+            if let (Some(_), Ok((_, held))) = (&output.sha, &output.found) {
+                self.verified.borrow_mut().insert(output.seq, *held.stat());
             }
         }
         Ok(Ok(()))
@@ -1652,20 +1664,27 @@ impl Store {
         spots: &[Spot],
     ) -> Result<std::result::Result<(), String>> {
         let outputs = self.outputs(p, &unit[0].item.game)?;
+        let verified = Verified::default();
         for (w, s) in unit.iter().zip(spots) {
-            if let Err(why) = self.dispose_originals(p, set, w, s, &outputs)? {
+            if let Err(why) = self.dispose_originals(p, set, w, s, (&outputs, &verified))? {
                 return Ok(Err(why));
             }
         }
-        self.stamp_rewrites(p, unit, &outputs)?;
+        self.stamp_rewrites(p, unit, &verified.into_inner())?;
         Ok(Ok(()))
     }
 
     /// Carries the Audit's stamps of the Source Set files `unit`'s files were written from, waiting since they were
-    /// recorded placed ([`crate::placements::rewritten_entries`]), over to each of those files that still reads as the
-    /// Build recorded it, statted as held when it was read: one changed since it was written gets none, and looks
-    /// changed until it is audited again. Moved files carried theirs as they were recorded, and wait for nothing.
-    fn stamp_rewrites(&self, p: &Placing, unit: &[&Work], outputs: &[Output]) -> Result<()> {
+    /// recorded placed ([`crate::placements::rewritten_entries`]), over to each of those files disposing of them read
+    /// back as the Build recorded it, statted as held for that read (`verified`): one changed since it was written, or
+    /// not read back, gets none, and looks changed until it is audited again. Nothing is read again for a stamp. Moved
+    /// files carried theirs as they were recorded, and wait for nothing.
+    fn stamp_rewrites(
+        &self,
+        p: &Placing,
+        unit: &[&Work],
+        verified: &HashMap<i64, Stat>,
+    ) -> Result<()> {
         let paths: Vec<String> = unit
             .iter()
             .map(|w| placed_path(p.folder, &w.item.target))
@@ -1674,17 +1693,11 @@ impl Store {
         if !self.read(|c| crate::placements::rewrites_unchecked(c, p.audit, &from))? {
             return Ok(());
         }
-        let mut to = Vec::new();
-        for (w, path) in unit.iter().zip(&paths) {
-            let output = outputs.iter().find(|o| o.seq == w.seq);
-            let now = match output {
-                Some(o) if o.holds(p)?.is_ok() => {
-                    o.found.as_ref().ok().map(|(_, held)| held.stat())
-                }
-                _ => None,
-            };
-            to.push((path.as_str(), now));
-        }
+        let to: Vec<(&str, Option<&Stat>)> = unit
+            .iter()
+            .zip(&paths)
+            .map(|(w, path)| (path.as_str(), verified.get(&w.seq)))
+            .collect();
         self.write(|tx| crate::placements::checked_rewrites(tx, p.audit, &from, &to))
     }
 
@@ -1698,7 +1711,7 @@ impl Store {
         set: &SetDirs,
         w: &Work,
         s: &Spot,
-        outputs: &[Output],
+        (outputs, verified): (&[Output], &Verified),
     ) -> Result<std::result::Result<(), String>> {
         let (dev, ino, sha): (Option<i64>, Option<i64>, Option<String>) = self.read(|c| {
             Ok(c.query_row(
@@ -1772,6 +1785,7 @@ impl Store {
                 chain: &s.chain,
                 published,
                 outputs,
+                verified,
             };
             let outcome = carry::dispose_as(&original, &s.dest(p), &intents, Some(&sha))?;
             self.fault_point(Fault::PlaceDisposed(w.seq));
