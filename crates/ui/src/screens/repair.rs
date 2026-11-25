@@ -214,6 +214,11 @@ impl RepairDesk {
         Signal::derive(move || self.working.get() || self.proposal.pending().get())
     }
 
+    /// The follow-up audit of the plan shown, once its repair queued one.
+    pub fn audit_job(self) -> Signal<Option<i64>> {
+        Signal::derive(move || self.plan.with(|p| p.as_ref().and_then(|p| p.audit_job)))
+    }
+
     /// Whether a plan is being made.
     pub fn proposing(self) -> Signal<bool> {
         self.proposal.pending().into()

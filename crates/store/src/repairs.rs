@@ -1191,6 +1191,7 @@ impl Store {
                 game: None,
                 path: Some(path.clone()),
                 from: Vec::new(),
+                from_outside: Vec::new(),
                 member: None,
                 summary: summary.clone(),
                 choices: vec![RepairChoice::KeepAside],

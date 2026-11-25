@@ -91,11 +91,15 @@ pub struct RepairItem {
     /// The file the item is about, relative to the Source Set's folder. For a Game, the file it is written as.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
-    /// For a Game, what it is read from now: each file of the Source Set, relative to its folder, or `<folder>/` for
-    /// the files of one folder; an ingest item as `<name> in ingest folder <root>`; a cue pack as `cue pack <file>`.
-    /// Empty for anything else, and in a plan made before it was recorded.
+    /// For a Game, the files of the Source Set it is in now, which the repair reads, renames or sets aside: each
+    /// relative to its folder, or `<folder>/` for the files of one folder. Empty for anything else, for a Game with no
+    /// file in the Source Set, and in a plan made before it was recorded.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub from: Vec<String>,
+    /// For a Game, what it is read from outside the Source Set: an ingest item, as `<name> in ingest folder <root>`,
+    /// or a cue pack, as `cue pack <file>`. Empty for anything else, and in a plan made before it was recorded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub from_outside: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub member: Option<String>,
     pub summary: String,

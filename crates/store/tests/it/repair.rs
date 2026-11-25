@@ -4512,6 +4512,8 @@ fn a_missing_cue_sheet_is_filled_from_a_cue_pack() {
     let fill = item(&plan, "game:Quest (USA)");
     assert_eq!(fill.kind, RepairKind::Fill, "{fill:?}");
     assert!(fill.summary.contains("cue pack"), "{}", fill.summary);
+    assert_eq!(fill.from, ["Quest (USA)/"], "its tracks are there already");
+    assert_eq!(fill.from_outside, ["cue pack Test - System (cues).zip"]);
     let done = env.approve(&plan);
 
     assert_eq!(
@@ -4585,6 +4587,12 @@ fn a_mismatched_cue_sheet_is_replaced_from_a_cue_pack_and_kept() {
     let plan = env.plan();
     let replace = item(&plan, "game:Quest (USA)");
     assert_eq!(replace.kind, RepairKind::Replace, "{replace:?}");
+    assert_eq!(
+        replace.from,
+        ["Quest (USA)/"],
+        "the sheet it sets aside and its tracks"
+    );
+    assert_eq!(replace.from_outside, ["cue pack Test - System (cues).zip"]);
     let done = env.approve(&plan);
 
     assert_eq!(
@@ -4819,6 +4827,12 @@ fn tracks_arriving_one_by_one_are_moved_into_the_loose_folder_and_the_plan_says_
         fill.summary.contains(quest[3].name) && fill.summary.contains("still missing"),
         "{}",
         fill.summary
+    );
+    assert_eq!(fill.from, ["Quest (USA)/"], "the tracks it has already");
+    assert_eq!(fill.from_outside.len(), 1, "{fill:?}");
+    assert!(
+        fill.from_outside[0].starts_with("track 2.bin in ingest folder "),
+        "{fill:?}"
     );
     assert!(
         plan.content

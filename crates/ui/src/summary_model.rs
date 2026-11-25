@@ -128,6 +128,13 @@ pub fn audit_job<'a>(jobs: impl IntoIterator<Item = &'a Job>, name: &str) -> Opt
         .map(|j| j.id)
 }
 
+/// The audit job a source set's page shows the outcome of: the newer of the one `seen` queued or running there, kept
+/// once it ends, and the follow-up audit of the repair shown, `repair`, which shows even once it has ended, as after a
+/// reload.
+pub fn followed_audit(seen: Option<i64>, repair: Option<i64>) -> Option<i64> {
+    seen.max(repair)
+}
+
 /// The next step for the source set `summary`: its open repair to review; the audit job `auditing` to follow, while
 /// one is queued or running; an audit, when it has none or files changed since; a repair, when its latest audit
 /// found what a repair changes; otherwise an audit, with a repair second, since spare copies and the storage policy
@@ -380,6 +387,19 @@ mod tests {
             "workers": {"readers": 1, "hashers": 1}, "version": 1,
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn a_repairs_follow_up_audit_shows_after_a_reload_unless_a_newer_audit_was_seen() {
+        assert_eq!(followed_audit(None, None), None);
+        assert_eq!(
+            followed_audit(None, Some(7)),
+            Some(7),
+            "ended before the page opened"
+        );
+        assert_eq!(followed_audit(Some(9), Some(7)), Some(9), "a newer audit");
+        assert_eq!(followed_audit(Some(5), Some(7)), Some(7), "an older audit");
+        assert_eq!(followed_audit(Some(5), None), Some(5));
     }
 
     #[test]
