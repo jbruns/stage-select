@@ -491,9 +491,6 @@ impl Intents for DisposeIntents<'_> {
 enum Built {
     /// Put in place without a publish intent, by a rename or a copy: its stamp, as found, is its intent.
     Found,
-    /// As [`Built::Found`], found renamed into place by recovery after a stop: nothing shows it unchanged since, so it
-    /// carries no stamp of its Audit's.
-    Recovered,
     /// Published from the staging folder: recorded only while it is the file its publish intent names.
     Published,
     /// Recorded built already, by the Build or by its recovery.
@@ -503,11 +500,13 @@ enum Built {
 }
 
 /// A file of a release, in place: found at its target as `at`, statted through a descriptor as `now`, and read as
-/// `sha` if it was read.
+/// `sha` if it was read. A file moved into place is `still` while `now` is known to be the file as the plan found
+/// it: only then do its Audit's stamp and payload read follow it.
 struct Found {
     at: Stat,
     now: Stat,
     sha: Option<String>,
+    still: bool,
 }
 
 /// The file `rel` in `dir`, held open while it is the regular file `o`, as the plan found it: the same device and inode,
@@ -703,7 +702,8 @@ impl Store {
             Ok(())
         })?;
         let mut moved: Vec<(&Work, &Spot)> = Vec::new();
-        for (w, s) in unit.iter().zip(spots) {
+        let mut moved_ctimes = Vec::new();
+        for ((w, s), file) in unit.iter().zip(spots).zip(&held) {
             let o = one(w)?.expect("checked above");
             self.fault_point(Fault::PlaceRenaming(w.seq));
             let renamed = parent_of(&set.dir, &o.path).and_then(|(parent, name)| {
@@ -728,12 +728,14 @@ impl Store {
                 return self.unmove(p, set, unit, &moved, &why);
             }
             moved.push((w, s));
+            // Its change time, which the rename moved, read through the descriptor held across it.
+            moved_ctimes.push(ctime_ns(&rustix::fs::fstat(file).map_err(io_err)?));
             self.fault_point(Fault::PlaceMoved(w.seq));
         }
         // Every file moved: each checked, through the descriptor held across its rename, to be the file the plan
         // found, and to be in place, below the folders recorded; then all recorded placed together, or all put back.
         let mut found = Vec::new();
-        for ((w, s), file) in moved.iter().zip(&held) {
+        for (((w, s), file), moved_ctime) in moved.iter().zip(&held).zip(&moved_ctimes) {
             let o = one(w)?.expect("checked above");
             sync_home(set, o)?;
             s.dir.sync().map_err(io_err)?;
@@ -760,6 +762,7 @@ impl Store {
                 at: at.expect("checked above"),
                 now,
                 sha: None,
+                still: ctime_ns(&now) == *moved_ctime,
             });
         }
         self.record_unit(p, unit, &found, Built::Found, "done", None)
@@ -856,14 +859,16 @@ impl Store {
                     changed = Some(format!("{} changed as it was moved", o.path));
                     break;
                 }
+                // Nothing shows it unchanged while the service was stopped.
                 found.push(Found {
                     at: *st,
                     now,
                     sha: None,
+                    still: false,
                 });
             }
             if changed.is_none() {
-                self.record_unit(p, unit, &found, Built::Recovered, "done", None)?;
+                self.record_unit(p, unit, &found, Built::Found, "done", None)?;
                 return Ok(Ok(()));
             }
         }
@@ -998,6 +1003,7 @@ impl Store {
                 at: st,
                 now: st,
                 sha: intents.load()?.sha256,
+                still: true,
             });
         }
         self.write(|tx| {
@@ -1388,6 +1394,7 @@ impl Store {
                         at: st,
                         now: st,
                         sha: Some(sha),
+                        still: false,
                     });
                 }
                 _ => {
@@ -1506,6 +1513,7 @@ impl Store {
                 at: st,
                 now: st,
                 sha: Some(sha),
+                still: false,
             });
         }
         self.record_unit(p, unit, &found, Built::Earlier, "disposing", None)?;
@@ -1537,7 +1545,7 @@ impl Store {
                 let item = w.item;
                 let (dev, ino) = Identity::of(&f.at).to_sql();
                 let file = file_stat(&f.at);
-                if matches!(built, Built::Found | Built::Recovered | Built::Earlier) {
+                if matches!(built, Built::Found | Built::Earlier) {
                     tx.execute(
                         "UPDATE build_items SET sha256 = ?3, size = ?4, dev = ?5, ino = ?6, mtime_ns = ?7
                          WHERE build_id = ?1 AND seq = ?2",
@@ -1553,7 +1561,7 @@ impl Store {
                     )?;
                 }
                 match built {
-                    Built::Found | Built::Recovered | Built::Published => {
+                    Built::Found | Built::Published => {
                         if !record_applied(tx, p.build, p.folder, w.seq, item, &f.at, true)? {
                             return Err(Error::Io(format!(
                                 "{} is not the file the build put there",
@@ -1580,17 +1588,13 @@ impl Store {
                 if item.chd {
                     record_chd(self, tx, p, w)?;
                 }
-                let now = match built {
-                    Built::Found => Some(Some(&f.now)),
-                    Built::Recovered => Some(None),
-                    _ => None,
-                };
-                if let (Some(now), [was]) = (now, placement(w)?.originals.as_slice()) {
+                if let (Built::Found, [was]) = (built, placement(w)?.originals.as_slice()) {
+                    let now = f.still.then_some(&f.now);
                     crate::placements::moved_entries(tx, (p.set, p.audit), &was.path, path, was, now)?;
                 }
                 set_place_state(tx, p.build, w.seq, Some(next))?;
             }
-            if !matches!(built, Built::Found | Built::Recovered) {
+            if !matches!(built, Built::Found) {
                 let (from, to) = rewrites(unit, &paths)?;
                 crate::placements::rewritten_entries(tx, (p.set, p.audit), &from, &to)?;
             }

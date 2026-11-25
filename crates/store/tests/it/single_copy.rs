@@ -838,6 +838,34 @@ fn a_converted_file_edited_before_it_is_checked_is_found_changed() {
     assert!(changed >= 1, "{changed}");
 }
 
+/// A file edited in place as it is renamed into place, keeping its size and modification time, is found changed.
+#[test]
+fn a_file_edited_as_it_is_renamed_into_place_is_found_changed() {
+    let env = Env::new();
+    pong_zip(&env);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(
+        item(&plan, "Pong (USA)").place.as_ref().unwrap().how,
+        PlaceHow::Rename
+    );
+    let at = env.library().join("Pong (USA).zip");
+    let edited = at.clone();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if matches!(fault, Fault::PlaceMoved(_)) {
+                overwrite_keeping_stamp(&edited);
+            }
+        })));
+    let job = env.build(&plan);
+    env.store.hook_faults(None);
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    assert_eq!(env.files().1, ["Pong (USA).zip"]);
+    assert_eq!(env.walk(), Some((1, 0, 0)));
+}
+
 /// A file renamed into place, then edited while the service is stopped, is found changed once recovery records it.
 #[test]
 fn a_file_edited_after_its_rename_while_the_service_was_stopped_is_found_changed() {
