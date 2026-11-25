@@ -5815,3 +5815,34 @@ fn whether_stage_select_may_change_a_source_set_cant_change_while_its_repair_run
         "letting it change what it may already is nothing to do"
     );
 }
+
+#[test]
+fn a_repair_plan_counts_the_files_it_walks_then_each_game_it_plans() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.put("Combat (USA).a26", b"combat");
+    env.audit(AuditEvidence::Full);
+    let meter = stage_select_store::PlanMeter::default();
+
+    let metered = env
+        .store
+        .plan_repair_metered("Alpha", &PlanRepair::default(), &meter)
+        .unwrap();
+
+    use stage_select_api::planning::{PlanProgress, PlanStep};
+    let step = |step, done, total| PlanProgress { step, done, total };
+    assert_eq!(
+        meter.ended(),
+        [
+            step(PlanStep::Reading, 0, 0),
+            step(PlanStep::Walking, 2, 2),
+            step(PlanStep::Planning, 4, 4),
+        ]
+    );
+    assert_eq!(meter.progress(), step(PlanStep::Finishing, 0, 0));
+    assert_eq!(
+        metered.digest,
+        env.plan().digest,
+        "counting changes nothing planned"
+    );
+}

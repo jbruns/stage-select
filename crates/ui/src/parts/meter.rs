@@ -1,5 +1,5 @@
-//! The segmented meter: "how much of a whole" as a row of equal segments, for a Job's progress and a Source Set's
-//! Games by Game Status. It describes and never sets a goal: it sits beside the exact counts, and the whole row is
+//! The segmented meter: "how much of a whole" as a row of equal segments, for a Job's progress, a plan being made and
+//! a Source Set's Games by Game Status. It describes and never sets a goal: it sits beside the exact counts, and the whole row is
 //! one named image whose label carries them.
 
 use std::collections::BTreeMap;
@@ -111,6 +111,11 @@ pub fn progress_label(done: usize, total: usize, unit: &str) -> String {
     format!("{done} of {total} {unit} done")
 }
 
+/// A plan being made's meter's name: "42% done".
+pub fn percent_label(percent: u8) -> String {
+    format!("{percent}% done")
+}
+
 /// The Games the meter counts, in its order: complete filled, incomplete hatched, missing outlined. A Game with
 /// nothing to check is in none of them.
 const GAME_FILLS: [(GameStatus, Fill); 3] = [
@@ -175,6 +180,17 @@ fn Meter(segments: Vec<Segment>, label: String) -> impl IntoView {
 pub fn ProgressMeter(done: usize, total: usize, unit: &'static str) -> impl IntoView {
     let segments = segments(&progress_parts(done, total), PROGRESS_SEGMENTS);
     view! { <Meter segments label=progress_label(done, total, unit) /> }
+}
+
+/// How far a plan being made has got, in percent, beside the percentage.
+#[component]
+pub fn PercentMeter(percent: u8) -> impl IntoView {
+    let percent = percent.min(100);
+    let segments = segments(
+        &progress_parts(usize::from(percent), 100),
+        PROGRESS_SEGMENTS,
+    );
+    view! { <Meter segments label=percent_label(percent) /> }
 }
 
 /// A Source Set's Games by Game Status, for beside their exact counts.

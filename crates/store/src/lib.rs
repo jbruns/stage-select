@@ -28,6 +28,7 @@ mod made_folders;
 mod migrations;
 pub mod observe;
 mod placements;
+pub mod plan_meter;
 mod plans;
 mod profiles;
 mod removed;
@@ -57,6 +58,7 @@ pub use cue_packs::{CUE_PACK_LIMIT, CUE_PACKS};
 pub use exports::{Export, FixdatScope};
 pub use ingest::OwedAudits;
 pub use jobs::Interruption;
+pub use plan_meter::PlanMeter;
 pub use sbi_packs::SBI_PACKS;
 pub use selections::SelectionInput;
 pub use stage_select_api::{

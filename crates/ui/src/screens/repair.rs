@@ -13,6 +13,7 @@ use leptos_router::params::ParamsMap;
 use stage_select_api::SourceSetSummary;
 use stage_select_api::additions::NewAddition;
 use stage_select_api::build::ApprovePlan;
+use stage_select_api::planning::PlanningKind;
 use stage_select_api::repair::{PlanRepair, RepairChoice, RepairItem, RepairPlan, RepairStep};
 use stage_select_api::storage::{Storage, StorageFormat};
 
@@ -26,6 +27,7 @@ use crate::parts::outcome::JobOutcome;
 use crate::parts::pending::Pending;
 use crate::parts::plan::{self, ApproveBar, Change, PlanReview, PlanRow};
 use crate::parts::plan_model::{Approval, PlanBlocker};
+use crate::parts::planning::MakingPlan;
 use crate::parts::status::{FindingStatus, ItemOutcome, PlanKind, Status, StatusCount, StatusIcon};
 use crate::parts::url_state::use_query_edit;
 use crate::repair_model::{
@@ -123,16 +125,20 @@ pub struct RepairDesk {
     /// The route's parameters, whose `name` is the source set whose page is open.
     route: Memo<ParamsMap>,
     proposal: Action<PlanRepair, Result<Proposed, String>>,
+    /// How far the plan being proposed has got.
+    making: MakingPlan,
 }
 
 impl RepairDesk {
     /// The repair of the source set `name`, whose DAT is `system`.
     pub fn new(name: String, system: String) -> Self {
-        let path = format!("/source-sets/{}/repairs", api::segment(&name));
+        let path = format!("/source-sets/{}/repair-plannings", api::segment(&name));
+        let making = MakingPlan::new(PlanningKind::Repair);
         let proposal = Action::new_local(move |body: &PlanRepair| {
             let (path, body) = (path.clone(), body.clone());
             async move {
-                let planned = api::post::<_, RepairPlan>(&path, &body).await;
+                let id = making.make(&path, &body).await?;
+                let planned = api::get::<RepairPlan>(&format!("/repairs/{id}")).await;
                 planned.map(|p| (p, body.choices))
             }
         });
@@ -160,6 +166,7 @@ impl RepairDesk {
             query,
             route,
             proposal,
+            making,
         };
         Effect::new(move || {
             let Some(answer) = proposal.value().get() else {
@@ -727,7 +734,12 @@ pub fn RepairTab(
                     </div>
                 })
             }}
-            <Pending pending=proposal.pending() status=MAKING_PLAN problem>
+            <Pending
+                pending=proposal.pending()
+                status=desk.making.status(MAKING_PLAN)
+                percent=desk.making.percent()
+                problem
+            >
                 {move || {
                     let replaced = replaced.get();
                     desk.plan.get().map(|p| view! { <PlanShown desk plan=p replaced /> })

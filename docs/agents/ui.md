@@ -167,10 +167,12 @@ verified, `of(status, claimed)`), `ChoiceStatus`, `SelectionFlag` (a group's fla
 ### Segmented meter
 
 `parts::meter` draws "how much of a whole" as a row of equal segments (the style guide's "Segmented meter"), and
-only two things get one: a running job's progress (`ProgressMeter`, done filled in the active tone, the rest
-outlined) and a source set's games by game status (`GamesMeter`, complete filled in the good tone, incomplete
-hatched in the review tone, missing outlined; nothing to check isn't drawn). It always sits beside the exact counts,
-which stay as text, and is one `role="img"` whose label carries the numbers: no tab stop, no tooltip, no percentage.
+only three things get one: a running job's progress (`ProgressMeter`, done filled in the active tone, the rest
+outlined), a plan being made (`PercentMeter`, the same, of 100) and a source set's games by game status
+(`GamesMeter`, complete filled in the good tone, incomplete hatched in the review tone, missing outlined; nothing to
+check isn't drawn). It always sits beside the exact counts, which stay as text, and is one `role="img"` whose label
+carries the numbers: no tab stop, no tooltip. Only a plan being made shows a percentage, as its steps count
+different things.
 `segments` shares the segments in proportion and gives every count above zero at least one; keep that rule there,
 host-tested. Each segment takes its colour from its `Tone` class through `currentColor`, and nothing in it moves. The
 source sets list's games cell keeps its icons and counts without a meter.
@@ -238,6 +240,16 @@ reference: its action lives with the page, so the pending status outlives a chan
 
 `Pending` is the general form: give it any busy signal and optional problem. It also wraps its children in
 `Transition` (busy while a resource reloads) and `ErrorBoundary`.
+
+Repair and build plans are made in the background: `parts::planning::MakingPlan::make` starts one
+(`POST …/repair-plannings` or `…/plannings`), reads `GET /plannings/{id}` until it ends, and answers the plan's id.
+Pass `making.status(before)` as the status, which names the step under way ("Planning each game…") once the Service
+has said, and `making.percent()` as `Pending`'s or `PendingStatus`'s `percent`, which adds the `PercentMeter` and the
+percentage. Only the step is announced; the rising percentage is not. Only the latest plan asked for with a
+`MakingPlan` shows its progress. A plan that waits on something first, as a build plan waits for its selection, takes
+its turn with `take_turn()` when it is asked for and passes it to `make_in`, so it never takes over from a later one. A
+plan made under a page stops being read once the page is gone (the Service still makes it), so make the `MakingPlan`
+with the page for a page's plans and app-wide for the build `Planner`. A plan made bumps `api::writes()`.
 
 ### Overlays
 

@@ -335,7 +335,13 @@ impl Store {
                 )
             });
         let mut blockers = Vec::new();
-        let found = check_folder(roots, &inputs, dat.as_ref(), &mut blockers);
+        let found = check_folder(
+            roots,
+            &inputs,
+            dat.as_ref(),
+            &mut blockers,
+            &crate::plan_meter::PlanMeter::default(),
+        );
         // Acknowledging writes nothing to the folder, so it needs no writable root.
         if !changes {
             blockers.retain(|b| b.kind != BlockerKind::ReadOnlyRoot);

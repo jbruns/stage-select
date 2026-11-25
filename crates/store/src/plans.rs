@@ -13,6 +13,7 @@ use stage_select_api::build::{
     KeepReason, Plan, PlanAddition, PlanBuild, PlanChange, PlanChoices, PlanContent, PlanItem,
     PlanRemoval, PlanSource, RETENTION, RemovalKind, RemoveAction, STAGING, STATE, invalid_name,
 };
+use stage_select_api::planning::PlanStep;
 use stage_select_api::report::{Entry, EvidenceLevel, Finding};
 use stage_select_api::selection::{Outcome, ReleaseRow, Selection, SelectionProfile, diff_rows};
 use stage_select_api::storage::{
@@ -33,6 +34,7 @@ use super::folders::{
 };
 use super::jobs::{build_hold, job_by_id};
 use super::kept::{deletion_active, folder_dirs, is_dir_temp, name_key};
+use super::plan_meter::PlanMeter;
 use super::selections::{read_rows, read_selection, record_by_id};
 use super::sets::{resolve, set_by_id};
 use super::{Error, Result, Store, now};
@@ -507,6 +509,7 @@ fn check_folder(
     inputs: &Inputs,
     dat: Option<&Dat>,
     blockers: &mut Vec<Blocker>,
+    meter: &PlanMeter,
 ) -> Option<Folder> {
     let folder = &inputs.folder;
     if !roots.root(&folder.root).is_some_and(|r| r.writable) {
@@ -606,23 +609,29 @@ fn check_folder(
             blockers.push(blocker(BlockerKind::Marker, problem.clone()));
             None
         }
-        None => Some(scan(
-            &dir,
-            &entries,
-            &ScanInput {
-                built: &inputs.built,
-                selected: &inputs.selected,
-                dat,
-                storage: inputs.storage,
-                sbi: inputs.sbi.as_ref(),
-                cached: &inputs.cached,
-                acks: &inputs.acks,
-                // Counted when a Job plans, as a Build does again before it writes; not when you do.
-                tally: &stage_select_engine::meter::Tally::of_this_thread(Some(&folder.root)),
-                placed: &inputs.placed,
-            },
-            None,
-        )),
+        None => Some({
+            meter.start(
+                PlanStep::Walking,
+                (inputs.built.len() + inputs.placed.len() + entries.len()) as u64,
+            );
+            scan(
+                &dir,
+                &entries,
+                &ScanInput {
+                    built: &inputs.built,
+                    selected: &inputs.selected,
+                    dat,
+                    storage: inputs.storage,
+                    sbi: inputs.sbi.as_ref(),
+                    cached: &inputs.cached,
+                    acks: &inputs.acks,
+                    // Counted when a Job plans, as a Build does again before it writes; not when you do.
+                    tally: &stage_select_engine::meter::Tally::of_this_thread(Some(&folder.root)),
+                    placed: &inputs.placed,
+                },
+                Some(&|p: stage_select_engine::Progress| meter.count(p.files_done as u64)),
+            )
+        }),
     };
     Some(Folder {
         dir,
@@ -1255,7 +1264,12 @@ fn rank<'a>(c: &Candidate<'a>) -> (bool, bool, &'a str, Option<&'a str>) {
     )
 }
 
-fn compute(roots: &crate::roots::Roots, inputs: &Inputs, dat: Option<&Dat>) -> Planned {
+fn compute(
+    roots: &crate::roots::Roots,
+    inputs: &Inputs,
+    dat: Option<&Dat>,
+    meter: &PlanMeter,
+) -> Planned {
     let mut blockers = Vec::new();
     let usable_audit = match &inputs.audit {
         // A Selection of the DAT its Source Set was bound to before is built no more; removing every built file
@@ -1340,7 +1354,7 @@ fn compute(roots: &crate::roots::Roots, inputs: &Inputs, dat: Option<&Dat>) -> P
             });
         }
     }
-    let folder = check_folder(roots, inputs, dat, &mut blockers);
+    let folder = check_folder(roots, inputs, dat, &mut blockers, meter);
 
     let mut items = Vec::new();
     let mut placing = Vec::new();
@@ -1354,8 +1368,10 @@ fn compute(roots: &crate::roots::Roots, inputs: &Inputs, dat: Option<&Dat>) -> P
             &unresolved,
             &mut placing,
             &mut nothing,
+            meter,
         );
     }
+    meter.start(PlanStep::Finishing, 0);
     let returning = folder.is_some()
         && (inputs.choices.remove_all || (dat.is_some() && usable_audit.is_some()));
     let (returns, returned) = match returning {
@@ -1468,6 +1484,7 @@ fn short(sha256: &str) -> &str {
     &sha256[..sha256.len().min(12)]
 }
 
+#[allow(clippy::too_many_arguments)]
 fn plan_items(
     roots: &crate::roots::Roots,
     inputs: &Inputs,
@@ -1476,6 +1493,7 @@ fn plan_items(
     unresolved: &BTreeSet<&str>,
     notes: &mut Vec<String>,
     nothing: &mut NothingToBuild,
+    meter: &PlanMeter,
 ) -> Vec<PlanItem> {
     let files = folder.map(|f| &f.files);
     let within = within(files);
@@ -1630,7 +1648,9 @@ fn plan_items(
     // them, so that an addition only ever blocks itself.
     let officials = wanted.iter().filter(|w| w.2.is_none()).count();
     let wanted_len = wanted.len();
+    meter.start(PlanStep::Planning, wanted_len as u64);
     for (group, game, addition, file) in wanted {
+        meter.tick();
         let (target, loose, chd, part) = match (addition, file) {
             (Some(a), _) => {
                 let (target, loose) = crate::additions::built_target(inputs.storage, &a.addition);
@@ -2998,6 +3018,7 @@ impl Store {
         folder: i64,
         selection: i64,
         choices: &PlanChoices,
+        meter: &PlanMeter,
     ) -> Result<Planned> {
         let roots = &*self.roots();
         let mut inputs = self.read(|c| {
@@ -3044,7 +3065,7 @@ impl Store {
                 }
             }
         }
-        let mut planned = compute(roots, &inputs, dat.as_ref());
+        let mut planned = compute(roots, &inputs, dat.as_ref(), meter);
         for game in inputs.removed.keys() {
             if !choices.remove.iter().any(|r| r.game == *game) {
                 planned.content.notes.push(format!(
@@ -3136,7 +3157,12 @@ impl Store {
     pub(super) fn recompute(&self, content: &PlanContent) -> Result<Planned> {
         match &content.cleanup {
             Some(cleanup) => self.compute_cleanup(content.folder, &cleanup.choices),
-            None => self.compute_plan(content.folder, content.selection, &content.choices),
+            None => self.compute_plan(
+                content.folder,
+                content.selection,
+                &content.choices,
+                &PlanMeter::default(),
+            ),
         }
     }
 
@@ -3149,6 +3175,17 @@ impl Store {
     /// review with the check of the folder it was made with. While a Build or Check of the folder is queued or
     /// running, the check is not stored and nothing it found is recorded.
     pub fn plan_build_with(&self, folder: i64, request: &PlanBuild) -> Result<Plan> {
+        self.plan_build_metered(folder, request, &PlanMeter::default())
+    }
+
+    /// [`Store::plan_build_with`], counting in `meter` how far it has got: the files found in the folder, then the
+    /// selected Games' files planned.
+    pub fn plan_build_metered(
+        &self,
+        folder: i64,
+        request: &PlanBuild,
+        meter: &PlanMeter,
+    ) -> Result<Plan> {
         let mut choices = request.choices.clone();
         if choices.delete_folder && !choices.remove_all {
             return Err(Error::Refused(
@@ -3182,7 +3219,7 @@ impl Store {
                 "you chose both to adopt {both} and to set it aside; choose one"
             )));
         }
-        let planned = self.compute_plan(folder, request.selection, &choices)?;
+        let planned = self.compute_plan(folder, request.selection, &choices, meter)?;
         self.write(|tx| {
             let active = folder_by_id(tx, folder)?.active_job;
             let check = match (&planned.check, active) {

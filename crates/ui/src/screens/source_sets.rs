@@ -5,6 +5,7 @@ use std::sync::Arc;
 use leptos::prelude::*;
 use leptos::tachys::view::any_view::AnyView;
 use leptos_router::components::A;
+use stage_select_api::planning::PlanningKind;
 use stage_select_api::repair::{PlanRepair, RepairPlan};
 use stage_select_api::{
     AddSourceSet, AuditEvidence, Dat, GameStatus, Job, PathTemplateDefaults, Root, SourceSetRecord,
@@ -31,6 +32,7 @@ use crate::parts::overlay::Drawer;
 use crate::parts::pending::PendingStatus;
 use crate::parts::plan::{KindCounts, use_status_filter};
 use crate::parts::plan_model::kind_counts;
+use crate::parts::planning::MakingPlan;
 use crate::parts::status::{SourceSetStatus, Status, StatusIcon};
 use crate::parts::tabs::tab_link;
 use crate::parts::url_state::encode;
@@ -61,13 +63,15 @@ pub fn repair_plan_href(name: &str, id: i64) -> String {
 }
 
 /// Proposes a repair of `name` from its latest audit, with the default choices: the one way a page outside the
-/// source set's Repair tab proposes one, then opens it at [`repair_plan_href`].
-pub async fn propose_repair(name: &str) -> Result<RepairPlan, String> {
-    api::post(
-        &format!("{}/repairs", set_href(name)),
-        &PlanRepair::default(),
-    )
-    .await
+/// source set's Repair tab proposes one, then opens it at [`repair_plan_href`]. `making` shows how far it has got.
+pub async fn propose_repair(name: &str, making: MakingPlan) -> Result<RepairPlan, String> {
+    let id = making
+        .make(
+            &format!("{}/repair-plannings", set_href(name)),
+            &PlanRepair::default(),
+        )
+        .await?;
+    api::get(&format!("/repairs/{id}")).await
 }
 
 /// A repair being proposed from a page: whether one is on its way, and why the last was refused.
@@ -75,6 +79,7 @@ pub async fn propose_repair(name: &str) -> Result<RepairPlan, String> {
 pub struct Proposal {
     pending: RwSignal<bool>,
     problem: RwSignal<Option<String>>,
+    making: MakingPlan,
 }
 
 impl Proposal {
@@ -82,6 +87,7 @@ impl Proposal {
         Proposal {
             pending: RwSignal::new(false),
             problem: RwSignal::new(None),
+            making: MakingPlan::new(PlanningKind::Repair),
         }
     }
 
@@ -98,7 +104,7 @@ impl Proposal {
         self.pending.set(true);
         self.problem.set(None);
         leptos::task::spawn_local(async move {
-            match propose_repair(&name).await {
+            match propose_repair(&name, self.making).await {
                 Ok(plan) => navigate.run(repair_plan_href(&name, plan.id)),
                 Err(message) => self
                     .problem
@@ -144,7 +150,10 @@ pub fn RepairNow(
 pub fn ProposalStatus(proposal: Proposal) -> impl IntoView {
     view! {
         <Show when=move || proposal.pending.get()>
-            <PendingStatus status=MAKING_PLAN />
+            <PendingStatus
+                status=proposal.making.status(MAKING_PLAN)
+                percent=proposal.making.percent()
+            />
         </Show>
         {move || proposal.problem.get().map(|message| view! { <Problem message /> })}
     }
@@ -411,6 +420,8 @@ impl ListRow for SetRow {
 struct Ctx {
     said: Reports,
     proposing: RwSignal<Vec<String>>,
+    /// How far the repair being proposed has got; the list shows only which are being proposed.
+    making: MakingPlan,
     refresh: RwSignal<u64>,
 }
 
@@ -428,22 +439,23 @@ impl Ctx {
         self.said.clear();
         leptos::task::spawn_local(async move {
             for name in names {
-                self.said.add(match propose_repair(&name).await {
-                    Ok(plan) => Report::Made {
-                        text: format!(
-                            "Proposed repair #{} of {name}: {} items to review.",
-                            plan.id,
-                            plan.content.items.len()
-                        ),
-                        link: Some(Link::new(
-                            repair_plan_href(&name, plan.id),
-                            "Open the repair",
+                self.said
+                    .add(match propose_repair(&name, self.making).await {
+                        Ok(plan) => Report::Made {
+                            text: format!(
+                                "Proposed repair #{} of {name}: {} items to review.",
+                                plan.id,
+                                plan.content.items.len()
+                            ),
+                            link: Some(Link::new(
+                                repair_plan_href(&name, plan.id),
+                                "Open the repair",
+                            )),
+                        },
+                        Err(problem) => Report::Refused(format!(
+                            "Couldn't propose a repair of {name}: {problem}"
                         )),
-                    },
-                    Err(problem) => {
-                        Report::Refused(format!("Couldn't propose a repair of {name}: {problem}"))
-                    }
-                });
+                    });
                 self.proposing.update(|p| p.retain(|n| *n != name));
             }
             self.refresh.update(|n| *n += 1);
@@ -627,6 +639,7 @@ pub fn SourceSets() -> impl IntoView {
     let ctx = Ctx {
         said: Reports::new(),
         proposing: RwSignal::new(Vec::new()),
+        making: MakingPlan::new(PlanningKind::Repair),
         refresh,
     };
     let registering = RwSignal::new(false);

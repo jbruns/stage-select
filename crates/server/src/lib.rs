@@ -259,6 +259,7 @@ fn prepare(settings: Settings) -> Result<Prepared, StartError> {
             fetch_endpoints.unwrap_or_else(Endpoints::official),
         )),
         coverage: Arc::default(),
+        plannings: Arc::default(),
         mount_points: mount_points
             .unwrap_or_else(|| {
                 stage_select_store::roots::MOUNT_POINTS

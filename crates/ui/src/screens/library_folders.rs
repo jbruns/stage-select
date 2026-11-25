@@ -15,6 +15,7 @@ use stage_select_api::build::{
     LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, RemoveAction, RemoveGames,
     RemovedGame, RestoreGames, UnfinishedBuild,
 };
+use stage_select_api::planning::PlanningKind;
 use stage_select_api::{
     Dat, ErrorBody, Job, JobKind, JobState, PathTemplateDefaults, ProfileRecord, Root,
     SelectionRecord, SourceSetRecord, SourceSetSystem, StartSelection,
@@ -51,6 +52,7 @@ use crate::parts::overlay::Drawer;
 use crate::parts::pending::{ActionPending, Pending, action_problem};
 use crate::parts::plan::{KindCounts, use_status_filter};
 use crate::parts::plan_model::kind_counts;
+use crate::parts::planning::{MakingPlan, Turn};
 use crate::parts::status::{
     BuildKind, CheckFlag, LibraryStatus, Placement, Status, StatusBadge, StatusCount, StatusIcon,
 };
@@ -168,9 +170,27 @@ fn reasons(folder: &LibraryFolder, full: bool) -> AnyView {
 struct MakePlan {
     /// Which request it is, to tell its answer from one a later request superseded.
     replan: Replan,
+    /// Its turn to show its status and progress, taken as it was asked for.
+    turn: Turn,
     folder: i64,
     selection: Option<i64>,
     choices: PlanChoices,
+}
+
+/// Says what a plan asked for is doing, while it is the latest asked for.
+#[derive(Clone, Copy)]
+struct Say {
+    status: RwSignal<String>,
+    making: MakingPlan,
+    turn: Turn,
+}
+
+impl Say {
+    fn set(self, text: String) {
+        if self.making.is_latest(self.turn) == Some(true) {
+            self.status.set(text);
+        }
+    }
 }
 
 /// Makes build plans for the Libraries pages, so that a plan started from the list or a new folder shows as under way
@@ -179,6 +199,8 @@ struct MakePlan {
 pub struct Planner {
     action: Action<MakePlan, Result<Plan, String>>,
     status: RwSignal<String>,
+    /// How far the plan being made has got, once the Service is making it.
+    making: MakingPlan,
     folder: RwSignal<Option<i64>>,
     /// An older selection the last plan could build instead, offered once making a fresh one failed.
     older: RwSignal<Option<OlderSelection>>,
@@ -226,12 +248,18 @@ impl Planner {
         let older = RwSignal::new(None);
         let replans = StoredValue::new(Replans::default());
         let dropped = RwSignal::new(0);
+        let making = MakingPlan::new(PlanningKind::Build);
         // The action keeps only the answer to the latest request; the pages reload when it drops one.
         let action = Action::new_local(move |request: &MakePlan| {
             let request = request.clone();
             async move {
                 let replan = request.replan;
-                let made = make_plan(request, status, older).await;
+                let say = Say {
+                    status,
+                    making,
+                    turn: request.turn,
+                };
+                let made = make_plan(request, say, older, making).await;
                 if !replans.with_value(|r| r.is_latest(replan)) {
                     dropped.update(|n| *n += 1);
                 }
@@ -241,6 +269,7 @@ impl Planner {
         Planner {
             action,
             status,
+            making,
             folder: RwSignal::new(None),
             older,
             replans,
@@ -252,12 +281,14 @@ impl Planner {
         self.folder.set(Some(folder));
         self.older.set(None);
         self.status.set("Making plan…".into());
+        let turn = self.making.take_turn();
         let replan = self
             .replans
             .try_update_value(Replans::ask)
             .unwrap_or_default();
         self.action.dispatch(MakePlan {
             replan,
+            turn,
             folder,
             selection,
             choices,
@@ -268,6 +299,11 @@ impl Planner {
     pub fn track(self) {
         self.action.version().track();
         self.dropped.track();
+    }
+
+    /// What the plan under way is doing now.
+    fn status(self) -> Signal<String> {
+        self.making.status(self.status)
     }
 
     pub(crate) fn pending(self, folder: i64) -> Signal<bool> {
@@ -306,8 +342,9 @@ pub fn use_planner() -> Planner {
 
 async fn make_plan(
     request: MakePlan,
-    status: RwSignal<String>,
+    status: Say,
     older: RwSignal<Option<OlderSelection>>,
+    making: MakingPlan,
 ) -> Result<Plan, String> {
     let selection = match request.selection {
         Some(selection) => selection,
@@ -322,14 +359,21 @@ async fn make_plan(
         selection,
         choices: request.choices,
     };
-    api::post(&format!("/libraries/{}/plans", request.folder), &body).await
+    let id = making
+        .make_in(
+            request.turn,
+            &format!("/libraries/{}/plannings", request.folder),
+            &body,
+        )
+        .await?;
+    api::get(&format!("/plans/{id}")).await
 }
 
 /// The folder's newest fresh selection, made now when there is none. When making one fails, or makes one that isn't
 /// fresh after all, the newest older one is offered in `older`, never taken silently.
 async fn fresh_selection(
     folder: &LibraryFolder,
-    status: RwSignal<String>,
+    status: Say,
     older: RwSignal<Option<OlderSelection>>,
 ) -> Result<i64, String> {
     let set = api::segment(&folder.source_set);
@@ -376,7 +420,7 @@ async fn fresh_selection(
 /// the job the Service names when it refuses a new one may run something older.
 async fn make_selection(
     folder: &LibraryFolder,
-    status: RwSignal<String>,
+    status: Say,
     newest: Option<u32>,
     verified: Option<&str>,
 ) -> Result<i64, String> {
@@ -414,7 +458,7 @@ async fn make_selection(
 /// The selection a selection job made, once it ends.
 async fn follow(job: i64) -> Result<i64, String> {
     loop {
-        sleep(1000).await;
+        api::sleep(1000).await;
         let j: Job = api::get(&format!("/jobs/{job}")).await?;
         if j.state.is_final() {
             return match (j.state, j.selection) {
@@ -425,15 +469,6 @@ async fn follow(job: i64) -> Result<i64, String> {
             };
         }
     }
-}
-
-async fn sleep(ms: i32) {
-    let promise = js_sys::Promise::new(&mut |resolve, _| {
-        if let Some(window) = web_sys::window() {
-            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms);
-        }
-    });
-    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
 }
 
 /// Starts a check of the folder, and reports the job or its refusal.
@@ -1427,7 +1462,12 @@ fn SelectionTab(folder: LibraryFolder, refresh: RwSignal<u64>) -> impl IntoView 
 fn PlanTab(folder: i64, latest: Option<i64>, refresh: RwSignal<u64>) -> impl IntoView {
     let planner = use_planner();
     view! {
-        <Pending pending=planner.pending(folder) status=planner.status problem=planner.problem(folder)>
+        <Pending
+            pending=planner.pending(folder)
+            status=planner.status()
+            percent=planner.making.percent()
+            problem=planner.problem(folder)
+        >
             {move || {
                 planner
                     .older(folder)

@@ -121,6 +121,33 @@ impl Client {
         }
     }
 
+    /// Starts making a plan in the background at `path` from `body`, and reads how far it has got until it ends.
+    fn planned(&self, path: &str, body: serde_json::Value) -> stage_select_api::planning::Planning {
+        use stage_select_api::planning::Planning;
+        let mut started = self.post(path).send_json(body).unwrap();
+        assert_eq!(started.status(), 202);
+        let mut planning: Planning = started.body_mut().read_json().unwrap();
+        let mut seen = vec![planning.progress.percent()];
+        while !planning.ended() {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            planning = self
+                .get(&format!("/plannings/{}", planning.id))
+                .call()
+                .unwrap()
+                .body_mut()
+                .read_json()
+                .unwrap();
+            seen.push(planning.progress.percent());
+        }
+        assert!(seen.is_sorted(), "the percentage never goes back: {seen:?}");
+        assert_eq!(
+            *seen.last().unwrap(),
+            95,
+            "a plan ends as it is being finished"
+        );
+        planning
+    }
+
     fn post(&self, path: &str) -> ureq::RequestBuilder<ureq::typestate::WithBody> {
         let request = agent().post(format!("{}{path}", self.base));
         match &self.auth {
@@ -2555,6 +2582,26 @@ fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says
         .unwrap();
     assert_eq!(response.status(), 201);
     let plan: RepairPlan = response.body_mut().read_json().unwrap();
+    let planning = client.planned(
+        "/source-sets/Test%20-%20System/repair-plannings",
+        serde_json::json!({}),
+    );
+    assert_eq!(planning.source_set.as_deref(), Some(SET));
+    let made: RepairPlan = client
+        .get(&format!("/repairs/{}", planning.plan.unwrap()))
+        .call()
+        .unwrap()
+        .body_mut()
+        .read_json()
+        .unwrap();
+    assert_eq!(
+        made.digest, plan.digest,
+        "made in the background as it would be at once"
+    );
+    let unknown = client
+        .get(&format!("/plannings/{}", planning.id + 1))
+        .call();
+    assert_eq!(status_of(unknown), 404);
     let combat = plan
         .content
         .items
@@ -3723,6 +3770,16 @@ mod selections {
         assert_eq!(status, 201, "{plan}");
         let plan: Plan = serde_json::from_value(plan).unwrap();
         assert!(plan.approvable(), "{:?}", plan.content.blockers);
+        let planning = client.planned(
+            &format!("/libraries/{}/plannings", folder.id),
+            json!({"selection": selection.id}),
+        );
+        assert_eq!(planning.library_folder, Some(folder.id));
+        let made: Plan = client.json(&format!("/plans/{}", planning.plan.unwrap()));
+        assert_eq!(
+            made.digest, plan.digest,
+            "made in the background as it would be at once"
+        );
         let read = |id: i64| client.json::<Value>(&format!("/libraries/{id}"));
         assert_eq!(read(folder.id)["plan_open"], true, "the plan waits on you");
         let kind = |game: &str| {

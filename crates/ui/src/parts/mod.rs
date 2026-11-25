@@ -10,7 +10,7 @@
 //! - `pending`: `ActionPending` and `Pending` for slow requests and their problems.
 //! - `outcome`: `JobOutcome`, a job's outcome wherever you start one, linking onward once it ends, and `Reports`
 //!   with `ShowReports` for what a screen's actions said.
-//! - `meter`: `ProgressMeter` and `GamesMeter`, the segmented meter for "how much of a whole".
+//! - `meter`: `ProgressMeter`, `PercentMeter` and `GamesMeter`, the segmented meter for "how much of a whole".
 //! - `choice`: `Choice`, a radio button or checkbox with its name and the note under it.
 //! - `help`: `Help`, a one-line summary with longer help folded beneath it.
 //! - `overlay`: `Tooltip`, `Menu` and `Drawer`, hosted in a `<Portal>`, stacked by `layers`.
@@ -37,6 +37,7 @@ pub mod overlay;
 pub mod pending;
 pub mod plan;
 pub mod plan_model;
+pub mod planning;
 pub mod status;
 pub mod tabs;
 pub mod theme;
