@@ -415,81 +415,81 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
         })
     })?;
     out.items = rows.collect::<Result<_, _>>()?;
-    // A game with no source names the clone its plan found available; the plan keeps it, so the record needn't.
-    if out
-        .items
-        .iter()
-        .any(|i| i.reason == IncompleteReason::NoSource)
-    {
-        let content = build_plan(c, build)?;
-        for item in out
-            .items
-            .iter_mut()
-            .filter(|i| i.reason == IncompleteReason::NoSource)
-        {
-            item.available = content
-                .items
-                .iter()
-                .find(|p| p.target == item.target)
-                .and_then(|p| p.available.clone());
-        }
-    }
     let selection: i64 = c.query_row(
         "SELECT selection_id FROM builds WHERE id = ?1",
         [build],
         |r| r.get(0),
     )?;
-    if let Some(check) = latest_check(c, row.id)?
-        .filter(|check| check.generation == row.generation && check.summary.marker.is_none())
-    {
+    let check = latest_check(c, row.id)?
+        .filter(|check| check.generation == row.generation && check.summary.marker.is_none());
+    let no_source = |i: &IncompleteItem| i.reason == IncompleteReason::NoSource;
+    if check.is_some() || out.items.iter().any(no_source) {
         let content = build_plan(c, build)?;
-        let group_of = |target: &str| {
+        let planned: std::collections::HashMap<String, &stage_select_api::build::PlanItem> =
             content
                 .items
                 .iter()
-                .find(|i| i.target.eq_ignore_ascii_case(target))
-                .map(|i| (i.group.clone(), i.game.clone()))
-        };
-        let selected = selected_targets(c, selection)?;
-        let is_selected = |target: &str| selected.contains_key(&target.to_lowercase());
-        let mut found = Vec::new();
-        for f in check.files.iter().filter(|f| is_selected(&f.target)) {
-            let reason = match f.outcome {
-                FileOutcome::Conflict | FileOutcome::Unreadable => IncompleteReason::Conflict,
-                FileOutcome::Missing => IncompleteReason::Missing,
-                _ => continue,
-            };
-            found.push((reason, f.target.clone(), f.detail.clone()));
+                .map(|i| (i.target.to_ascii_lowercase(), i))
+                .collect();
+        // A game with no source names the clone its plan found available; the plan keeps it, so the record needn't.
+        for item in out.items.iter_mut().filter(|i| no_source(i)) {
+            item.available = planned
+                .get(&item.target.to_ascii_lowercase())
+                .and_then(|p| p.available.clone());
         }
-        for d in check.drift.iter().filter(|d| is_selected(&d.name)) {
-            found.push((
-                IncompleteReason::Conflict,
-                d.name.clone(),
-                Some(format!(
-                    "{} is in the folder and was not built by Stage Select",
-                    d.name
-                )),
-            ));
-        }
-        for (reason, target, detail) in found {
-            if out
+        if let Some(check) = check {
+            let selected = selected_targets(c, selection)?;
+            let is_selected = |target: &str| selected.contains_key(&target.to_lowercase());
+            let mut found = Vec::new();
+            for f in check.files.iter().filter(|f| is_selected(&f.target)) {
+                let reason = match f.outcome {
+                    FileOutcome::Conflict | FileOutcome::Unreadable => IncompleteReason::Conflict,
+                    FileOutcome::Missing => IncompleteReason::Missing,
+                    _ => continue,
+                };
+                found.push((reason, f.target.clone(), f.detail.clone()));
+            }
+            for d in check.drift.iter().filter(|d| is_selected(&d.name)) {
+                found.push((
+                    IncompleteReason::Conflict,
+                    d.name.clone(),
+                    Some(format!(
+                        "{} is in the folder and was not built by Stage Select",
+                        d.name
+                    )),
+                ));
+            }
+            let mut recorded: std::collections::HashMap<String, usize> = out
                 .items
                 .iter()
-                .any(|i| i.target.eq_ignore_ascii_case(&target))
-            {
-                continue;
+                .enumerate()
+                .map(|(n, i)| (i.target.to_ascii_lowercase(), n))
+                .collect();
+            for (reason, target, detail) in found {
+                let key = target.to_ascii_lowercase();
+                if let Some(&n) = recorded.get(&key) {
+                    // What the check found in the folder outranks the Source Set lacking the game: it is the folder's.
+                    let item = &mut out.items[n];
+                    if item.reason == IncompleteReason::NoSource {
+                        item.reason = reason;
+                        item.detail = detail;
+                        item.available = None;
+                    }
+                    continue;
+                }
+                let Some(planned) = planned.get(&key) else {
+                    continue;
+                };
+                recorded.insert(key, out.items.len());
+                out.items.push(IncompleteItem {
+                    reason,
+                    group: planned.group.clone(),
+                    game: planned.game.clone(),
+                    target,
+                    detail,
+                    available: None,
+                });
             }
-            let Some((group, game)) = group_of(&target) else {
-                continue;
-            };
-            out.items.push(IncompleteItem {
-                reason,
-                group,
-                game,
-                target,
-                detail,
-                available: None,
-            });
         }
     }
     if !record_by_id(c, selection)?.pruned {

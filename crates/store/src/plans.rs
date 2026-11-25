@@ -1255,7 +1255,8 @@ impl<'a> Sources<'a> {
 }
 
 /// Whether the latest Audit read, with its payload, a source for every ROM Game `title` needs, as a plan would build
-/// it: for an Arcade DAT, self-contained, with its Disks.
+/// it: for an Arcade DAT, self-contained, with its Disks. It trusts the Audit: naming a Game that isn't built opens,
+/// stats and ranks no file.
 fn sourced_whole(
     sources: &mut Sources,
     dat: &Dat,
@@ -1295,7 +1296,10 @@ fn sourced_whole(
         .filter(|&r| dat.roms[r].needed())
         .map(|r| dat.expected(&dat.roms[r]))
         .collect();
-    !needed.is_empty() && sources.choose(title, &needed).is_ok()
+    !needed.is_empty()
+        && needed
+            .iter()
+            .all(|rom| !sources.entries_of(title, &rom.name).is_empty())
 }
 
 /// Matched over Misnamed or Conflicting; a source that can be copied as it is; then path order.

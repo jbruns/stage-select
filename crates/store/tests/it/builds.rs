@@ -2745,6 +2745,65 @@ fn a_kept_game_with_no_source_names_a_clone_of_its_group_the_audit_read_a_source
 }
 
 #[test]
+fn naming_a_clone_the_source_set_has_trusts_the_audit_and_reads_no_file() {
+    let env = Env::new();
+    env.store
+        .audit_source_set(SET, None, stage_select_engine::AuditEvidence::Quick)
+        .unwrap();
+    // Only the audit says Pong's loose file is there: a plan names a clone it won't build without opening its file.
+    std::fs::remove_file(env.set_dir().join("Pong (USA).a26")).unwrap();
+    let mut missing = group("Missing (USA)");
+    missing.clones = vec![CloneGame {
+        title: "Pong (USA)".into(),
+        clone_of: "Missing (USA)".into(),
+        rule: rule("Clone"),
+    }];
+    let id = env.record(&selection(&env.sha256, vec![missing]));
+    let folder = env.folder("atari2600");
+
+    let plan = env.plan(&folder, id);
+
+    let item = plan
+        .content
+        .items
+        .iter()
+        .find(|i| i.game == "Missing (USA)")
+        .unwrap();
+    assert_eq!(item.available.as_deref(), Some("Pong (USA)"));
+}
+
+#[test]
+fn a_file_a_check_finds_at_a_game_with_no_source_still_makes_the_folder_incomplete() {
+    let env = Env::new();
+    env.audit();
+    let id = env.record(&selection(
+        &env.sha256,
+        vec![group("Missing (USA)"), group("Yars (USA)")],
+    ));
+    let folder = env.folder("atari2600");
+    env.build(&env.plan(&folder, id));
+    let dir = env.play().join("atari2600");
+    write_file(&dir.join("Missing (USA).zip"), b"theirs");
+
+    check(&env, &folder);
+
+    let incomplete = env.store.incomplete(folder.id).unwrap();
+    let found: Vec<_> = incomplete
+        .items
+        .iter()
+        .map(|i| (i.reason, i.target.as_str()))
+        .collect();
+    assert_eq!(found, [(IncompleteReason::Conflict, "Missing (USA).zip")]);
+    let counts = env
+        .store
+        .library_folder(folder.id)
+        .unwrap()
+        .incomplete
+        .unwrap();
+    assert!(counts.makes_incomplete(), "{counts:?}");
+}
+
+#[test]
 fn a_quick_inventorys_claims_are_never_build_sources() {
     let env = Env::new();
     // Ōkami's ZIP: its directory claims the right CRC32, but its payload is corrupt.
@@ -3803,12 +3862,13 @@ fn a_check_reads_only_changed_files_reports_drift_and_never_writes_to_the_folder
         again.files
     );
 
-    // Drift is a warning: only the conflicts at selected games' files make the folder incomplete.
+    // Drift is a warning: only the conflicts at selected games' files make the folder incomplete. A file the check
+    // found where a game with no source would go is a conflict, never hidden as only a game the source set lacks.
     let folder = env.store.library_folder(folder.id).unwrap();
     let counts = folder.incomplete.clone().unwrap();
     assert_eq!(
         (counts.conflict, counts.no_source, counts.total()),
-        (1, 1, 2)
+        (2, 0, 2)
     );
     let incomplete = env.store.incomplete(folder.id).unwrap();
     let reasons: BTreeMap<&str, IncompleteReason> = incomplete
@@ -3819,7 +3879,7 @@ fn a_check_reads_only_changed_files_reports_drift_and_never_writes_to_the_folder
     assert_eq!(
         reasons,
         BTreeMap::from([
-            ("Missing (USA).zip", IncompleteReason::NoSource),
+            ("Missing (USA).zip", IncompleteReason::Conflict),
             ("Yars (USA).zip", IncompleteReason::Conflict),
         ])
     );
