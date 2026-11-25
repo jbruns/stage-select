@@ -459,8 +459,31 @@ pub fn item_outcome(plan: &RepairPlan, item: &RepairItem) -> Option<ItemOutcome>
     }
 }
 
-/// Where `item` is now: its file, and the member in it; or, for a game it lacks, the game.
+/// What `plan`'s finished repair says of the incremental audit it queued. The audit's own outcome shows once, where
+/// the source set's audits show, so this only says it is queued.
+pub fn follow_up_audit(plan: &RepairPlan) -> Option<String> {
+    match (plan.audit_job, plan.audit_owed) {
+        (Some(job), _) => Some(format!(
+            "The repair queued an incremental audit, job #{job}."
+        )),
+        (None, true) => Some(
+            "An incremental audit is queued once the job running for the source set ends."
+                .to_string(),
+        ),
+        (None, false) => None,
+    }
+}
+
+/// Where `item` is now: for a game, the files of the source set it is in (the first, and how many more), or the game,
+/// missing, when it is read only from outside the source set; otherwise its file, and the member in it; or, for a game
+/// it lacks, the game. A plan recorded before games named where they are shows a game's file.
 pub fn place(item: &RepairItem) -> String {
+    match (item.from.as_slice(), &item.game) {
+        ([first], _) => return first.clone(),
+        ([first, more @ ..], _) => return format!("{first} +{} more", more.len()),
+        ([], Some(game)) if !item.from_outside.is_empty() => return format!("{game} (missing)"),
+        _ => {}
+    }
     match (&item.path, &item.member, &item.game) {
         (Some(path), Some(member), _) => format!("{path} ({member})"),
         (Some(path), None, _) => path.clone(),
@@ -1063,6 +1086,80 @@ mod tests {
                 ("d.zip".into(), "left as it is".into()),
                 ("Echo (missing)".into(), "left as it is".into()),
             ]
+        );
+    }
+
+    fn game(
+        kind: &str,
+        path: &str,
+        from: &[&str],
+        outside: &[&str],
+    ) -> stage_select_api::repair::RepairItem {
+        serde_json::from_value(serde_json::json!({
+            "key": "game:Yars (USA)", "kind": kind, "game": "Yars (USA)", "path": path, "from": from,
+            "from_outside": outside, "summary": "s", "choices": ["apply", "leave"], "default": "apply",
+            "chosen": "apply",
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_game_is_now_where_the_plan_reads_it_from() {
+        let converted = game("convert", "Yars (USA).zip", &["Yars (USA).bin"], &[]);
+        assert_eq!(place(&converted), "Yars (USA).bin");
+        let renamed = game("rename", "Yars (USA).zip", &["yars.zip"], &[]);
+        assert_eq!(place(&renamed), "yars.zip");
+        let repacked = game(
+            "repack",
+            "Yars (USA).zip",
+            &["a.zip", "b.zip", "c.zip"],
+            &[],
+        );
+        assert_eq!(place(&repacked), "a.zip +2 more");
+        let incoming = ["yars.7z in ingest folder Incoming"];
+        let filled = game("fill", "Yars (USA).zip", &[], &incoming);
+        assert_eq!(place(&filled), "Yars (USA) (missing)");
+        let replaced = game("replace", "Yars (USA).zip", &["Yars (USA).zip"], &incoming);
+        assert_eq!(place(&replaced), "Yars (USA).zip");
+        let cued = game(
+            "fill",
+            "Yars (USA)",
+            &["Yars (USA)/"],
+            &["cue pack Cues.zip"],
+        );
+        assert_eq!(place(&cued), "Yars (USA)/");
+        let named_like_an_ingest_item = game(
+            "rename",
+            "Yars (USA).a26",
+            &["Yars in ingest folder Incoming.a26"],
+            &[],
+        );
+        assert_eq!(
+            place(&named_like_an_ingest_item),
+            "Yars in ingest folder Incoming.a26"
+        );
+    }
+
+    #[test]
+    fn a_plan_recorded_without_where_a_game_is_read_from_reads_as_before() {
+        let old = game("convert", "Yars (USA).zip", &[], &[]);
+        assert_eq!(place(&old), "Yars (USA).zip");
+    }
+
+    #[test]
+    fn a_finished_repair_says_it_queued_an_audit_and_leaves_its_outcome_to_the_audit() {
+        let mut p = plan(1, true, true, None);
+        assert_eq!(follow_up_audit(&p), None);
+        p.audit_job = Some(9);
+        assert_eq!(
+            follow_up_audit(&p).as_deref(),
+            Some("The repair queued an incremental audit, job #9.")
+        );
+        p.audit_job = None;
+        p.audit_owed = true;
+        assert_eq!(
+            follow_up_audit(&p).as_deref(),
+            Some("An incremental audit is queued once the job running for the source set ends.")
         );
     }
 

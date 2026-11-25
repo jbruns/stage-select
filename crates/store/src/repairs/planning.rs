@@ -1591,6 +1591,8 @@ fn mismatched_aside(
             addition: None,
             addition_rom: None,
             addition_target: None,
+            from: Vec::new(),
+            from_outside: Vec::new(),
         },
         proposal: None,
         displaces: vec![(path.to_owned(), summary)],
@@ -1643,6 +1645,8 @@ fn game_item(game: &str, target: &str, kind: RepairKind, summary: String) -> Rep
         kind,
         game: Some(game.to_owned()),
         path: Some(target.to_owned()),
+        from: Vec::new(),
+        from_outside: Vec::new(),
         member: None,
         summary,
         choices: vec![RepairChoice::Apply, RepairChoice::Leave],
@@ -1653,6 +1657,78 @@ fn game_item(game: &str, target: &str, kind: RepairKind, summary: String) -> Rep
         addition_rom: None,
         addition_target: None,
     }
+}
+
+/// What the Game `p` repairs is read from now: the Source Set's files ([`RepairItem::from`]), as `<folder>/` when there
+/// are several and all are in one folder, and each ingest item or cue pack ([`RepairItem::from_outside`]). A loose
+/// folder's files are every file in it now, those it leaves as they are too; a fill's are those of the Game's own it
+/// sets aside. Both are empty for an item that repairs no Game.
+fn read_from(i: &Inputs, p: &Proposed) -> (Vec<String>, Vec<String>) {
+    let ingest = |candidate: usize| {
+        let c = &i.candidates[candidate];
+        format!("{} in ingest folder {}", c.item.name, c.root)
+    };
+    let mut files: Vec<String> = Vec::new();
+    let mut outside: Vec<String> = Vec::new();
+    let read = |rom: &RepairRom| (rom.from.clone(), rom.cue_pack.is_none());
+    let sources: Vec<(String, bool)> = match &p.proposal {
+        None => return (Vec::new(), Vec::new()),
+        Some(Proposal::Build { roms }) => roms.iter().map(read).collect(),
+        Some(Proposal::Rename { from, .. }) => vec![(from.clone(), true)],
+        Some(Proposal::Fill { candidate }) => vec![(ingest(*candidate), false)],
+        Some(Proposal::Folder { parts }) => parts
+            .iter()
+            .map(|part| match part {
+                Part::Build { rom, .. } => read(rom),
+                Part::Rename { from, .. } => (from.clone(), true),
+                Part::Fill { candidate, .. } => (ingest(*candidate), false),
+            })
+            .collect(),
+    };
+    for (source, in_set) in sources {
+        match in_set {
+            true => files.push(source),
+            false => outside.push(source),
+        }
+    }
+    // A Build displaces its sources, and maybe another's file in its way; a fill or a loose folder its own files.
+    if matches!(
+        p.proposal,
+        Some(Proposal::Fill { .. } | Proposal::Folder { .. })
+    ) {
+        files.extend(p.displaces.iter().map(|(path, _)| path.clone()));
+    }
+    // A Game's loose folder is its path; a disc's fill names its one file, under a `disk:` key.
+    if matches!(p.proposal, Some(Proposal::Folder { .. }))
+        && p.item.key.starts_with("game:")
+        && let Some(path) = &p.item.path
+    {
+        let folder = format!("{}/", path.trim_end_matches('/'));
+        files.extend(
+            (i.files.range(folder.clone()..))
+                .take_while(|(path, _)| path.starts_with(&folder))
+                .map(|(path, _)| path.clone()),
+        );
+    }
+    let unique = |list: Vec<String>| {
+        let mut out: Vec<String> = Vec::new();
+        for f in list {
+            if !out.contains(&f) {
+                out.push(f);
+            }
+        }
+        out
+    };
+    let files = unique(files);
+    let folders: BTreeSet<Option<&str>> = files
+        .iter()
+        .map(|f| f.rsplit_once('/').map(|(d, _)| d))
+        .collect();
+    let files = match folders.into_iter().collect::<Vec<_>>().as_slice() {
+        [Some(folder)] if files.len() > 1 => vec![format!("{folder}/")],
+        _ => files,
+    };
+    (files, unique(outside))
 }
 
 pub(super) fn plan(i: &Inputs) -> Result<Planned> {
@@ -1827,6 +1903,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     kind: RepairKind::Conflict,
                     game: entry.roms.first().map(|r| r.game.clone()),
                     path: Some(path.to_string()),
+                    from: Vec::new(),
+                    from_outside: Vec::new(),
                     member: entry.member.clone(),
                     summary: format!(
                         "{} holds {} while its name gives {named}",
@@ -3165,6 +3243,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 kind: RepairKind::KeepAside,
                 game: None,
                 path: Some(path.to_string()),
+                from: Vec::new(),
+                from_outside: Vec::new(),
                 member: None,
                 summary: summary.clone(),
                 choices,
@@ -3257,7 +3337,16 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .map(|p| p.item.key.clone())
         .collect();
     Ok(Planned {
-        items: proposed.into_iter().map(|p| p.item).collect(),
+        items: (proposed.iter())
+            .map(|p| {
+                let (from, from_outside) = read_from(i, p);
+                RepairItem {
+                    from,
+                    from_outside,
+                    ..p.item.clone()
+                }
+            })
+            .collect(),
         steps,
         notes,
         released: releasing,

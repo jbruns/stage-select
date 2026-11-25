@@ -344,18 +344,24 @@ fn NextFromAudit(audit: i64, source_set: String, proposal: Proposal) -> impl Int
     }
 }
 
-/// The audit of `source_set` queued or running, as its job's progress, kept once it ends so you see how it went. None
-/// while `shown` names that job: the screen shows it already.
+/// The audit of `source_set` queued or running, as its job's progress, kept once it ends so you see how it went; or
+/// `repair`, the follow-up audit of the repair shown, when it is newer, ended or not. None while `shown` names that
+/// job: the screen shows it already.
 #[component]
-pub fn FollowAudit(source_set: String, #[prop(into)] shown: Signal<Vec<i64>>) -> impl IntoView {
+pub fn FollowAudit(
+    source_set: String,
+    #[prop(into)] shown: Signal<Vec<i64>>,
+    #[prop(optional, into)] repair: Signal<Option<i64>>,
+) -> impl IntoView {
     let live = use_live();
-    let followed = Memo::new(move |prev: Option<&Option<i64>>| {
+    let seen = Memo::new(move |prev: Option<&Option<i64>>| {
         live.book
             .with(|b| {
                 summary_model::audit_job(b.newest_first().iter().map(|l| &l.job), &source_set)
             })
             .or(prev.copied().flatten())
     });
+    let followed = Memo::new(move |_| summary_model::followed_audit(seen.get(), repair.get()));
     move || {
         followed
             .get()

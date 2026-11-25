@@ -322,7 +322,7 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
         <Said said />
         <ProposalStatus proposal />
         <ShowReports reports />
-        <FollowAudit source_set=set.name.clone() shown=started />
+        <FollowAudit source_set=set.name.clone() shown=started repair=desk.audit_job() />
         <Tabs label="Source set" tabs=page_tabs />
         {move || match summary.get() {
             Some(Err(message)) if good.with(Option::is_none) => {

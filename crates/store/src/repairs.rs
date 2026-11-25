@@ -1190,6 +1190,8 @@ impl Store {
                 kind: stage_select_api::repair::RepairKind::KeepAside,
                 game: None,
                 path: Some(path.clone()),
+                from: Vec::new(),
+                from_outside: Vec::new(),
                 member: None,
                 summary: summary.clone(),
                 choices: vec![RepairChoice::KeepAside],
