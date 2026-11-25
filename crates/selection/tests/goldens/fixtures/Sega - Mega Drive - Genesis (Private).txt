@@ -99,10 +99,9 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 x27 w51 x26 x23 w46 w46 w46 x31 x27 w46 x26 x23 | 16Bit Rhythm Land (Japan) (En) (Aftermarket) (Unl)
 == 16t
    w51 w51 w51 x31 x27 w51 x26 w51 a35 a35 a35 x31 x27 a35 x26 a35 | 16t (Japan) (Game no Kanzume Otokuyou)
-     alternative to 16t (Japan) (SegaNet) [9-11,14,16]
    w51 w51 w51 x31 x27 w51 x26 w51 a35 a35 a35 x31 x27 a35 x26 a35 | 16t (Japan) (Game no Kanzume Vol. 2)
-     alternative to 16t (Japan) (SegaNet) [9-11,14,16]
-   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | 16t (Japan) (SegaNet)
+   w51 w51 w51 x31 x27 w51 x26 w51 w35 w7  w35 x31 x27 w35 x26 w35 | 16t (Japan) (SegaNet)
+   .   .   .   .   .   .   .   .   a5  .   a5  .   .   .   .   a5  | Game no Kanzume Otokuyou (Japan) (Sega Channel)
 == 2020 nen super baseball
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   .   .   .   .   .   | 2020 Nen Super Baseball (Japan)
@@ -290,24 +289,13 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w51 w51 w51 x31 x27 x25 x26 w51 .   .   .   .   .   .   .   .   | Alex Kidd - Tenkuu Majou (Japan)
 == alex kidd in the enchanted castle
-   g   g   g   g   g   g   g   g   gd  gd  gd  gd  gd  gd  gd  gd  |
+   g   g   g   g   g   g   g   g   gd  gd  gd  gd  gd  g   gd  gd  |
    .   .   .   .   .   .   .   .   a48 a48 x30 x31 x27 x25 x26 a48 | Alex Kidd - Cheongong Maseong (Korea)
-     alternative to Alex Kidd - Tenkuu Majou (Japan) [10]
-     alternative to Alex Kidd in the Enchanted Castle (USA) [9,16]
-   .   .   .   .   .   .   .   .   a48 .   a48 x31 x27 x25 x26 a48 | Alex Kidd - Tenkuu Majou (Japan)
-     alternative to Alex Kidd in the Enchanted Castle (Europe) [11]
-     alternative to Alex Kidd in the Enchanted Castle (USA) [9,16]
-   w51 w51 w51 x31 x27 x25 x26 w51 a42 a48 .   x31 x27 x25 x26 a42 | Alex Kidd in the Enchanted Castle (Europe)
-     alternative to Alex Kidd - Tenkuu Majou (Japan) [10]
-     alternative to Alex Kidd in the Enchanted Castle (USA) [9,16]
-   w51 w51 w51 x31 w51 x25 x26 w51 .   a48 a42 x31 w46 x25 x26 .   | Alex Kidd in the Enchanted Castle (USA)
-     alternative to Alex Kidd - Tenkuu Majou (Japan) [10]
-     alternative to Alex Kidd in the Enchanted Castle (Europe) [11]
-   .   .   .   .   .   .   .   .   a48 a48 a48 x31 x27 a50 x26 x22 | Rockheaven (Asia) (Ja) (Pirate)
-     alternative to Alex Kidd - Tenkuu Majou (Japan) [10]
-     alternative to Alex Kidd in the Enchanted Castle (Europe) [11]
-     alternative to Alex Kidd in the Enchanted Castle (USA) [9]
-     alternative to Classic Collection (Europe) [14]
+   .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 x25 x26 a48 | Alex Kidd - Tenkuu Majou (Japan)
+   w51 w51 w51 x31 x27 x25 x26 w51 a42 a48 w42 x31 x27 x25 x26 a42 | Alex Kidd in the Enchanted Castle (Europe)
+   w51 w51 w51 x31 w51 x25 x26 w51 w42 a48 a42 x31 w46 x25 x26 w42 | Alex Kidd in the Enchanted Castle (USA)
+   .   .   .   .   .   .   .   .   a6  a7  a9  .   .   .   .   a6  | Classic Collection (Europe)
+   .   .   .   .   .   .   .   .   a48 a48 a48 x31 x27 .   x26 x22 | Rockheaven (Asia) (Ja) (Pirate)
 == alice sisters
    w51 w51 w51 x31 w51 x25 x26 x23 w46 w46 w46 x31 w46 x25 x26 x23 | Alice Sisters (World) (En,Ja) (Aftermarket) (Unl)
 == alien 3
@@ -324,9 +312,9 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 x25 x26 w51 a48 a48 a48 x31 w35 x25 x26 a48 | Alien Soldier (USA) (Virtual Console)
    w51 w51 w51 x31 w51 x25 x26 w51 a35 a35 a35 x31 a35 x25 x26 a35 | Alien Soldier (USA, Europe) (Switch Online)
 == alien storm
-   w51 w51 w51 x31 w51 x25 x26 w51 .   .   .   x31 w35 x25 x26 .   | Alien Storm (World)
+   w51 w51 w51 x31 w51 x25 x26 w51 w35 w35 w35 x31 w35 x25 x26 w35 | Alien Storm (World)
    w51 w51 w51 x31 w51 x25 x26 w51 a35 a35 a35 x31 a35 x25 x26 a35 | Alien Storm (World) (SEGA Classic Collection)
-     alternative to Alien Storm (World) [9-11,16]
+   .   .   .   .   .   .   .   .   a9  a3  a9  .   .   .   .   a9  | Mega Games 3 (Europe, Asia) (En)
 == alisia dragoon
    w51 w51 w51 x31 x27 x25 x26 w51 a42 a48 w42 x31 x27 x25 x26 a42 | Alisia Dragoon (Europe)
    w51 w51 w51 x31 x27 x25 x26 w51 a48 w48 a48 x31 x27 x25 x26 a48 | Alisia Dragoon (Japan)
@@ -335,24 +323,12 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 x25 x26 w51 a35 a35 a35 x31 a35 x25 x26 a35 | Alisia Dragoon (USA) (Genesis Mini)
 == altered beast
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
-   w51 w51 w51 x31 w51 x25 x26 w51 .   a36 a42 x31 .   x25 x26 .   | Altered Beast (Japan, USA) (En) (Rev A)
-     alternative to Altered Beast (USA, Europe) [11]
-     alternative to Juuouki (Japan) [10]
+   w51 w51 w51 x31 w51 x25 x26 w51 w6  a36 a42 x31 w37 x25 x26 w6  | Altered Beast (Japan, USA) (En) (Rev A)
    w51 w51 w51 x31 w51 x25 x26 w51 a35 a36 a35 x31 a35 x25 x26 a35 | Altered Beast (Japan, USA) (En) (Sega 3D Classics Collection)
-     alternative to Altered Beast (Japan, USA) (En) (Rev A) [9,13,16]
-     alternative to Altered Beast (USA, Europe) [11]
-     alternative to Juuouki (Japan) [10]
-   w51 w51 w51 x31 w51 x25 x26 w51 a37 a48 .   x31 a37 x25 x26 a37 | Altered Beast (USA, Europe)
-     alternative to Altered Beast (Japan, USA) (En) (Rev A) [9,13,16]
-     alternative to Juuouki (Japan) [10]
+   w51 w51 w51 x31 w51 x25 x26 w51 a37 a48 w42 x31 a37 x25 x26 a37 | Altered Beast (USA, Europe)
    w51 w51 w51 x31 w51 x25 x26 w51 a35 a35 a35 x31 a35 x25 x26 a35 | Altered Beast (USA, Europe) (Sega 3D Classics Collection)
-     alternative to Altered Beast (Japan, USA) (En) (Rev A) [9,13,16]
-     alternative to Altered Beast (USA, Europe) [11]
-     alternative to Juuouki (Japan) [10]
-   .   .   .   .   .   .   .   .   a48 .   a48 x31 x27 a2  x26 a48 | Juuouki (Japan)
-     alternative to Altered Beast (Japan, USA) (En) (Rev A) [9,16]
-     alternative to Altered Beast (USA, Europe) [11]
-     alternative to Classic Collection (Europe) [14]
+   .   .   .   .   .   .   .   .   a9  .   a9  .   a9  .   .   a9  | Arcade Legends Sega Mega Drive (World)
+   .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 .   x26 a48 | Juuouki (Japan)
 == alterego
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w51 w51 w51 x31 w51 x25 x26 x23 a56 a56 a56 x31 a56 x25 x26 x23 | AlterEgo (World) (Aftermarket) (Unl)
@@ -516,8 +492,7 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a34 a34 a34 x31 a34 x25 x26 x21 | Awesome Possum Kicks Dr Machino's Butt! (USA) (Beta 3)
    w51 w51 w51 x31 w51 x25 x26 w51 w42 a42 w42 x31 w34 x25 x26 w42 | Awesome Possum... ...Kicks Dr. Machino's Butt (USA)
 == aworg
-   g   g   g   g   g   g   g   g   .   .   .   g   g   g   g   .   |
-   w51 w51 w51 x31 x27 x25 x26 w51 .   .   .   x31 x27 x25 x26 .   | Aworg (Japan) (SegaNet)
+   w51 w51 w51 x31 x27 x25 x26 w51 w46 w7  w46 x31 x27 x25 x26 w46 | Aworg (Japan) (SegaNet)
 == ayrton senna's super monaco gp ii
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w51 w51 w51 x31 x27 x25 x26 w51 a42 w42 w42 x31 x27 x25 x26 a42 | Ayrton Senna's Super Monaco GP II (Japan, Europe) (En,Ja)
@@ -859,8 +834,8 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
 == caliber.50
    w51 w51 w51 x31 w51 w51 x26 w51 w46 w46 w46 x31 w46 w46 x26 w46 | Caliber.50 (USA)
 == california games
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w51 w51 w51 x31 w51 w51 x26 w51 .   .   .   x31 w46 .   x26 .   | California Games (USA, Europe)
+   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | 10 Super Jogos (Brazil) (En)
+   w51 w51 w51 x31 w51 w51 x26 w51 w46 w46 w46 x31 w46 w46 x26 w46 | California Games (USA, Europe)
 == call of duty - ghosts
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w51 w51 x30 x31 x27 w51 x26 x23 w46 w46 x30 x31 x27 w46 x26 x23 | Call of Duty - Ghosts (Russia) (Aftermarket) (Unl)
@@ -884,10 +859,9 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
 == cascade
    w51 w51 w51 x31 w51 w51 x26 x23 w46 w46 w46 x31 w46 w46 x26 x23 | Cascade (World) (Aftermarket) (Unl)
 == castle of illusion starring mickey mouse
-   w51 w51 w51 x31 w51 w51 x26 w51 .   a48 .   x31 w46 .   x26 .   | Castle of Illusion Starring Mickey Mouse (USA, Europe)
-     alternative to I Love Mickey Mouse - Fushigi no Oshiro Daibouken (Japan) [10]
-   .   .   .   .   .   .   .   .   a48 .   a48 x31 x27 a48 x26 a48 | I Love Mickey Mouse - Fushigi no Oshiro Daibouken (Japan)
-     alternative to Castle of Illusion Starring Mickey Mouse (USA, Europe) [9,11,14,16]
+   w51 w51 w51 x31 w51 w51 x26 w51 w48 a48 w48 x31 w46 w48 x26 w48 | Castle of Illusion Starring Mickey Mouse (USA, Europe)
+   .   .   .   .   .   .   .   .   a9  a9  a9  .   .   a9  .   a9  | Disney Collection, The - QuackShot Starring Donald Duck + Castle of Illusion Starring Mickey Mouse (Europe)
+   .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 a48 x26 a48 | I Love Mickey Mouse - Fushigi no Oshiro Daibouken (Japan)
 == castlevania - bloodlines
    w51 w51 w51 x31 w51 w51 x26 w51 w42 a48 a42 x31 w35 w42 x26 w42 | Castlevania - Bloodlines (USA)
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Castlevania - Bloodlines (USA) (Beta) (1993-08-04)
@@ -1056,8 +1030,11 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w51 w51 w51 x31 x27 w51 x26 x23 w46 w46 w46 x31 x27 w46 x26 x23 | City Connection (Japan) (En) (Aftermarket) (Unl)
 == classic collection
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Classic Collection (Europe)
+   g   g   g   g   g   g   g   g   .   .   .   g   g   gd  g   .   |
+   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 w5  x26 .   | Classic Collection (Europe)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a2  .   .   | Juuouki (Japan)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a50 .   .   | Rockheaven (Asia) (Ja) (Pirate)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   | Sega Top Five (Brazil) (En)
 == clayfighter
    w51 w51 w51 x31 x27 w51 x26 w51 a42 a42 w42 x31 x27 a42 x26 a42 | ClayFighter (Europe)
    w51 w51 w51 x31 w51 w51 x26 w51 w42 w42 a42 x31 w46 w42 x26 w42 | ClayFighter (USA)
@@ -1104,16 +1081,15 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
 == college slam
    w51 w51 w51 x31 w51 w51 x26 w51 w46 w46 w46 x31 w46 w46 x26 w46 | College Slam (USA)
 == columns
-   w51 w51 w51 x31 x27 w51 x26 w51 a42 .   a42 x31 x27 a42 x26 a42 | Columns (Japan) (En)
-     alternative to Columns (USA, Europe) [9,11,14,16]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   a42 .   x31 .   .   x26 .   | Columns (USA, Europe)
-     alternative to Columns (Japan) (En) [10]
+   .   .   .   .   .   .   .   .   a9  a9  a6  .   a9  a9  .   a9  | 6-Pak (USA)
+   w51 w51 w51 x31 x27 w51 x26 w51 a42 w42 a42 x31 x27 a42 x26 a42 | Columns (Japan) (En)
+   w51 w51 w51 x31 w51 w51 x26 w51 w6  a42 w6  x31 w48 w6  x26 w6  | Columns (USA, Europe)
    w51 w51 w51 x31 w51 w51 x26 w51 a41 a41 a41 x31 a41 a41 x26 a41 | Columns (USA, Europe) (1990-06-21) (Sega Channel)
-     alternative to Columns (Japan) (En) [10]
-     alternative to Columns (USA, Europe) [9,11,13-14,16]
    w51 w51 w51 x31 w51 w51 x26 w51 a48 a48 a48 x31 a48 a48 x26 a48 | Columns (World) (Sega Ages)
-     alternative to Columns (Japan) (En) [10]
-     alternative to Columns (USA, Europe) [9,11,13-14,16]
+   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | Mega 6 Vol. 3 (Europe)
+   .   .   .   .   .   .   .   .   a6  a11 a9  .   .   a6  .   a6  | Mega Games 6 (Europe)
+   .   .   .   .   .   .   .   .   a6  a11 a9  .   .   a6  .   a6  | Mega Games 6 Vol. 2 (Europe)
+   .   .   .   .   .   .   .   .   a6  a11 a9  .   .   a6  .   a6  | Mega Games I (Europe)
 == columns iii
    w51 w51 w51 x31 w51 w51 x26 w51 w48 a48 w48 x31 w46 w48 x26 w48 | Columns III (USA)
    .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 a48 x26 a48 | Columns III - Taiketsu! Columns World (Japan, Korea) (Ja)
@@ -1605,18 +1581,15 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 x23 a37 a37 a37 x31 a37 a37 x26 x23 | Doukutsu Monogatari (World) (Ja) (v0.7.0) (Aftermarket) (Unl)
    w51 w51 w51 x31 w51 w51 x26 x23 w37 w37 w37 x31 w37 w37 x26 x23 | Doukutsu Monogatari (World) (Ja) (v0.8.0) (Aftermarket) (Unl)
 == dr. robotnik's mean bean machine
+   g   g   g   g   g   g   g   g   gd  gd  gd  g   gd  gd  g   gd  |
+   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   .   | Arcade Legends Sega Mega Drive (World)
    .   .   .   .   .   .   .   .   a48 a48 x30 x31 x27 a48 x26 a48 | Dong Gu Ri Te Chi Jak Jeon (Korea)
-     alternative to Dr. Robotnik's Mean Bean Machine (USA) [9-10,14,16]
-   w51 w51 w51 x31 x27 w51 x26 w51 a42 a42 .   x31 x27 a42 x26 a42 | Dr. Robotnik's Mean Bean Machine (Europe)
-     alternative to Dr. Robotnik's Mean Bean Machine (USA) [9-10,14,16]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   .   a42 x31 .   .   x26 .   | Dr. Robotnik's Mean Bean Machine (USA)
-     alternative to Dr. Robotnik's Mean Bean Machine (Europe) [11]
+   w51 w51 w51 x31 x27 w51 x26 w51 a42 a42 w10 x31 x27 a42 x26 a42 | Dr. Robotnik's Mean Bean Machine (Europe)
+   w51 w51 w51 x31 w51 w51 x26 w51 w10 w10 a42 x31 w10 w42 x26 w10 | Dr. Robotnik's Mean Bean Machine (USA)
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Dr. Robotnik's Mean Bean Machine (USA) (Beta 1)
-     alternative to Dr. Robotnik's Mean Bean Machine (Europe) [11]
-     alternative to Dr. Robotnik's Mean Bean Machine (USA) [9-10,13-14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Dr. Robotnik's Mean Bean Machine (USA) (Beta 2)
-     alternative to Dr. Robotnik's Mean Bean Machine (Europe) [11]
-     alternative to Dr. Robotnik's Mean Bean Machine (USA) [9-10,13-14]
+   .   .   .   .   .   .   .   .   a10 a10 a10 .   .   a1  .   a10 | Sonic Compilation (Europe)
+   .   .   .   .   .   .   .   .   a10 a10 a10 .   a10 a1  .   a10 | Sonic Compilation (USA, Europe, Korea) (En) (Rev A)
 == dragon - the bruce lee story
    w51 w51 w51 x31 x27 w51 x26 w51 a42 a42 w42 x31 x27 a42 x26 a42 | Dragon - The Bruce Lee Story (Europe)
    w51 w51 w51 x31 w51 w51 x26 w51 w42 w42 a42 x31 w46 w42 x26 w42 | Dragon - The Bruce Lee Story (USA)
@@ -1905,13 +1878,9 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 w51 w48 a48 w48 x31 w46 w48 x26 w48 | Fatal Fury 2 (USA, Korea) (En)
    .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 a48 x26 a48 | Garou Densetsu 2 - Aratanaru Tatakai (Japan)
 == fatal labyrinth
-   w51 w51 w51 x31 w51 w51 x26 w51 .   a48 .   x31 w46 .   x26 .   | Fatal Labyrinth (USA, Europe)
-     alternative to Shi no Meikyuu - Labyrinth of Death (Japan) (SegaNet) [10]
+   w51 w51 w51 x31 w51 w51 x26 w51 w48 a48 w48 x31 w46 w48 x26 w48 | Fatal Labyrinth (USA, Europe)
    .   .   .   .   .   .   .   .   a35 a35 a35 x31 x27 a35 x26 a35 | Shi no Meikyuu - Labyrinth of Death (Japan) (Game no Kanzume Otokuyou)
-     alternative to Fatal Labyrinth (USA, Europe) [9,11,14,16]
-     alternative to Shi no Meikyuu - Labyrinth of Death (Japan) (SegaNet) [10]
-   .   .   .   .   .   .   .   .   a48 .   a48 x31 x27 a48 x26 a48 | Shi no Meikyuu - Labyrinth of Death (Japan) (SegaNet)
-     alternative to Fatal Labyrinth (USA, Europe) [9,11,14,16]
+   .   .   .   .   .   .   .   .   a48 w7  a48 x31 x27 a48 x26 a48 | Shi no Meikyuu - Labyrinth of Death (Japan) (SegaNet)
 == fatal rewind
    w51 w51 w51 x31 w51 w51 x26 w51 a37 a37 a37 x31 a37 a37 x26 a37 | Fatal Rewind (USA, Europe)
    w51 w51 w51 x31 w51 w51 x26 w51 w48 a48 w48 x31 w37 w48 x26 w48 | Fatal Rewind (USA, Europe) (Rev 1)
@@ -2005,9 +1974,9 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 a48 x26 a48 | Flashback (Japan)
    w51 w51 w51 x31 w51 w51 x26 w51 w42 a48 a42 x31 w46 w42 x26 w42 | Flashback - The Quest for Identity (USA) (En,Fr)
 == flicky
-   g   g   g   g   g   g   g   g   .   g   .   g   .   .   g   .   |
-   w51 w51 w51 x31 w51 w51 x26 w51 .   a2  .   x31 .   .   x26 .   | Flicky (USA, Europe)
-     alternative to Game no Kanzume Otokuyou (Japan) (Sega Channel) [10]
+   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
+   w51 w51 w51 x31 w51 w51 x26 w51 w6  .   w6  x31 w46 w5  x26 w6  | Flicky (USA, Europe)
+   .   .   .   .   .   .   .   .   a6  .   a6  .   .   .   .   a6  | Sega Top Five (Brazil) (En)
 == flink
    w51 w51 w51 w51 x27 w51 x26 w51 w34 w34 w34 w34 x27 w34 x26 w46 | Flink (Europe) (En,Fr,De)
    w51 w51 w51 w51 x27 w51 x26 x21 a34 a34 a34 a34 x27 a34 x26 x21 | Flink (Europe) (En,Fr,De) (Beta)
@@ -2103,8 +2072,10 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 x12 a37 a37 a37 x31 a37 a37 x26 x12 | Game Genie (USA, Europe) (Program)
    w51 w51 w51 x31 w51 w51 x26 x12 w37 w37 w37 x31 w37 w37 x26 x12 | Game Genie (USA, Europe) (Rev A) (Program)
 == game no kanzume otokuyou
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Game no Kanzume Otokuyou (Japan) (Sega Channel)
+   g   g   g   g   g   g   g   g   .   g   .   g   g   g   g   .   |
+   .   .   .   .   .   .   .   .   .   a2  .   .   .   .   .   .   | Flicky (USA, Europe)
+   w51 w51 w51 x31 x27 w51 x26 w51 .   w7  .   x31 x27 w4  x26 .   | Game no Kanzume Otokuyou (Japan) (Sega Channel)
+   .   .   .   .   .   .   .   .   .   a11 .   .   .   .   .   .   | Sega Top Five (Brazil) (En)
 == game toshokan
    w51 w51 w51 x31 x27 w51 x26 x12 w46 w46 w46 x31 x27 w46 x26 x12 | Game Toshokan (Japan) (Rev A) (Program)
 == gang du shaonian
@@ -2189,14 +2160,11 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 x23 w46 w46 w46 x31 w46 w46 x26 x23 | Gold Rush (World) (Aftermarket) (Unl)
 == golden axe
    w51 w51 w51 x31 w51 w51 x26 w51 a37 a37 a37 x31 a37 a37 x26 a37 | Golden Axe (World)
-     alternative to Golden Axe (World) (Rev A) [9-11,13-14,16]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Golden Axe (World) (Beta) (1989-10-14)
-     alternative to Golden Axe (World) (Rev A) [9-11,13-14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Golden Axe (World) (Beta) (1989-11-22)
-     alternative to Golden Axe (World) (Rev A) [9-11,13-14]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   .   .   x31 .   .   x26 .   | Golden Axe (World) (Rev A)
+   w51 w51 w51 x31 w51 w51 x26 w51 w6  w6  w6  x31 w37 w6  x26 w6  | Golden Axe (World) (Rev A)
    w51 w51 w51 x31 w51 w51 x26 w51 a35 a35 a35 x31 a35 a35 x26 a35 | Golden Axe (World) (Rev B) (Sega Smash Pack)
-     alternative to Golden Axe (World) (Rev A) [9-11,13-14,16]
+   .   .   .   .   .   .   .   .   a6  a6  a9  .   .   a6  .   a6  | Mega Games 2 (Europe)
 == golden axe ii
    w51 w51 w51 x31 w51 w51 x26 w51 w34 w34 w34 x31 w34 w34 x26 w46 | Golden Axe II (World)
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Golden Axe II (World) (Beta)
@@ -2263,14 +2231,14 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 x23 w46 w46 w46 x31 w46 w46 x26 x23 | GunSlugs (World) (RC3) (Aftermarket) (Unl)
 == gunstar heroes
    g   g   g   g   g   g   g   g   gd  gd  gd  gd  gd  gd  gd  gd  |
-   w51 w51 w51 x31 x27 w51 x26 w51 a42 a48 .   x31 x27 a42 x26 a42 | Gunstar Heroes (Europe)
+   w51 w51 w51 x31 x27 w51 x26 w51 a42 a48 w42 x31 x27 a42 x26 a42 | Gunstar Heroes (Europe)
      alternative to Gunstar Heroes (Japan) [10]
-     alternative to Gunstar Heroes (USA) [9,14,16]
-   w51 w51 w51 x31 x27 w51 x26 w51 a48 .   a48 x31 x27 a48 x26 a48 | Gunstar Heroes (Japan)
+     alternative to Gunstar Heroes (USA) [9,14]
+   w51 w51 w51 x31 x27 w51 x26 w51 a48 w48 a48 x31 x27 a48 x26 a48 | Gunstar Heroes (Japan)
      alternative to Gunstar Heroes (Europe) [11]
-     alternative to Gunstar Heroes (USA) [9,14,16]
-   w51 w51 w51 x31 x27 w51 x26 x17 .   .   .   x31 x27 .   x26 x17 | Gunstar Heroes (Japan) (April, 1993) (Sample)
-   w51 w51 w51 x31 w51 w51 x26 w51 .   a48 a42 x31 w46 .   x26 .   | Gunstar Heroes (USA)
+     alternative to Gunstar Heroes (USA) [9,14]
+   w51 w51 w51 x31 x27 w51 x26 x17 w42 w48 w42 x31 x27 w42 x26 x17 | Gunstar Heroes (Japan) (April, 1993) (Sample)
+   w51 w51 w51 x31 w51 w51 x26 w51 w42 a48 a42 x31 w46 w42 x26 w42 | Gunstar Heroes (USA)
      alternative to Gunstar Heroes (Europe) [11]
      alternative to Gunstar Heroes (Japan) [10]
    .   .   .   .   .   .   .   .   a48 a48 x30 x31 x27 a48 x26 x22 | Huoqiang Yingxiong (China) (Pirate)
@@ -2385,10 +2353,8 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 x27 w51 x26 x21 .   .   .   .   .   .   .   .   | Hyper Dunk - The Playoff Edition (Japan) (February, 1994) (Beta)
 == hyper marbles
    w51 w51 w51 x31 x27 w51 x26 w51 a35 a35 a35 x31 x27 a35 x26 a35 | Hyper Marbles (Japan) (Game no Kanzume Otokuyou)
-     alternative to Hyper Marbles (Japan) (SegaNet) [9-11,14,16]
    w51 w51 w51 x31 x27 w51 x26 w51 a35 a35 a35 x31 x27 a35 x26 a35 | Hyper Marbles (Japan) (Game no Kanzume Vol. 1)
-     alternative to Hyper Marbles (Japan) (SegaNet) [9-11,14,16]
-   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Hyper Marbles (Japan) (SegaNet)
+   w51 w51 w51 x31 x27 w51 x26 w51 w35 w7  w35 x31 x27 w35 x26 w35 | Hyper Marbles (Japan) (SegaNet)
 == i love mickey and donald - fushigi na magic box
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   .   .   .   .   .   | I Love Mickey and Donald - Fushigi na Magic Box (Japan)
@@ -2400,8 +2366,7 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 x23 w46 w46 w46 x31 w46 w46 x26 x23 | IK+ Deluxe (World) (Aftermarket) (Unl)
 == ikasuze! koi no doki doki penguin land md
    w51 w51 w51 x31 x27 w51 x26 w51 a35 a35 a35 x31 x27 a35 x26 a35 | Ikasuze! Koi no Doki Doki Penguin Land MD (Japan) (Game no Kanzume Otokuyou)
-     alternative to Ikasuze! Koi no Doki Doki Penguin Land MD (Japan) (SegaNet) [9-11,14,16]
-   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Ikasuze! Koi no Doki Doki Penguin Land MD (Japan) (SegaNet)
+   w51 w51 w51 x31 x27 w51 x26 w51 w35 w7  w35 x31 x27 w35 x26 w35 | Ikasuze! Koi no Doki Doki Penguin Land MD (Japan) (SegaNet)
 == img international tour tennis
    w51 w51 w51 x31 w51 w51 x26 w51 w46 w46 w46 x31 w46 w46 x26 w46 | IMG International Tour Tennis (USA, Europe)
 == immortal, the
@@ -2546,9 +2511,9 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 x22 a34 a34 a34 x31 a34 a34 x26 x22 | Joe Montana II - Sports Talk Football (World) (Pirate)
    w51 w51 w51 x31 w51 w51 x26 w51 w37 w37 w37 x31 w37 w37 x26 w37 | Joe Montana II - Sports Talk Football (World) (Rev A)
 == john madden football
-   w51 w51 w51 x31 w51 w51 x26 w51 .   .   .   x31 w41 .   x26 .   | John Madden Football (USA, Europe)
+   .   .   .   .   .   .   .   .   a11 .   .   .   .   a11 .   a11 | EA Sports Double Header (Europe)
+   w51 w51 w51 x31 w51 w51 x26 w51 w41 w41 w41 x31 w41 w41 x26 w41 | John Madden Football (USA, Europe)
    w51 w51 w51 x31 w51 w51 x26 w51 a41 a41 a41 x31 a41 a41 x26 a41 | John Madden Football (USA, Europe) (1990-11-07) (Sega Channel)
-     alternative to John Madden Football (USA, Europe) [9-11,14,16]
 == john madden football '92
    w51 w51 w51 x31 w51 w51 x26 w51 w48 a48 w48 x31 w46 w48 x26 w48 | John Madden Football '92 (USA, Europe)
    .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 a48 x26 a48 | John Madden Football - Pro Football (Japan)
@@ -3024,8 +2989,7 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
 == md soft checker
    w51 w51 w51 x31 x27 w51 x26 x21 w46 w46 w46 x31 x27 w46 x26 x13 | MD Soft Checker (Unknown) (v0.30) (Proto) (Unl)
 == medal city
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Medal City (Japan) (SegaNet)
+   w51 w51 w51 x31 x27 w51 x26 w51 w46 w7  w46 x31 x27 w46 x26 w46 | Medal City (Japan) (SegaNet)
 == mega 3d noah's ark
    w51 w51 w51 x31 w51 w51 x26 x23 w46 w46 w46 x31 w46 w46 x26 x23 | Mega 3D Noah's Ark (USA) (Aftermarket) (Unl)
 == mega 6 vol. 3
@@ -3053,8 +3017,9 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
    w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Mega Games 2 (Europe)
 == mega games 3
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Mega Games 3 (Europe, Asia) (En)
+   g   g   g   g   g   g   g   g   .   .   .   g   g   g   g   .   |
+   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 w8  x26 .   | Mega Games 3 (Europe, Asia) (En)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a9  .   .   | Sega Sports 1 (Europe)
 == mega games 6
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
    w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Mega Games 6 (Europe)
@@ -3500,15 +3465,10 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | NHL All-Star Hockey 95 (USA) (Beta) (1994-12-01) (Alt)
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | NHL All-Star Hockey 95 (USA) (Beta) (1994-12-02)
 == nhl hockey
-   .   .   .   .   .   .   .   .   a42 a48 .   x31 x27 a42 x26 a42 | EA Hockey (Europe)
-     alternative to EA Hockey (Japan) [10]
-     alternative to NHL Hockey (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a48 .   a48 x31 x27 a48 x26 a48 | EA Hockey (Japan)
-     alternative to EA Hockey (Europe) [11]
-     alternative to NHL Hockey (USA) [9,14,16]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   a48 a42 x31 w46 .   x26 .   | NHL Hockey (USA)
-     alternative to EA Hockey (Europe) [11]
-     alternative to EA Hockey (Japan) [10]
+   .   .   .   .   .   .   .   .   a42 a48 w42 x31 x27 a42 x26 a42 | EA Hockey (Europe)
+   .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 a48 x26 a48 | EA Hockey (Japan)
+   .   .   .   .   .   .   .   .   .   a3  a9  .   .   .   .   .   | EA Sports Double Header (Europe)
+   w51 w51 w51 x31 w51 w51 x26 w51 w42 a48 a42 x31 w46 w42 x26 w42 | NHL Hockey (USA)
 == nhlpa hockey
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w51 w51 w51 x31 w51 w51 x26 w51 w46 w46 w46 x31 w46 w46 x26 w46 | NHLPA Hockey (USA) (HeartBeat Catalyst)
@@ -3656,8 +3616,7 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 x27 w51 x26 w51 w46 w46 w46 x31 x27 w46 x26 w46 | Pachinko Kuunyan (Japan)
 == paddle fighter
    w51 w51 w51 x31 x27 w51 x26 w51 a35 a35 a35 x31 x27 a35 x26 a35 | Paddle Fighter (Japan) (Game no Kanzume Otokuyou)
-     alternative to Paddle Fighter (Japan) (SegaNet) [9-11,14,16]
-   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Paddle Fighter (Japan) (SegaNet)
+   w51 w51 w51 x31 x27 w51 x26 w51 w35 w7  w35 x31 x27 w35 x26 w35 | Paddle Fighter (Japan) (SegaNet)
 == pagemaster, the
    w51 w51 w51 x31 x27 w51 x26 w51 a42 a42 w42 x31 x27 a42 x26 a42 | Pagemaster, The (Europe)
    w51 w51 w51 x31 w51 w51 x26 w51 w42 w42 a42 x31 w34 w42 x26 w42 | Pagemaster, The (USA)
@@ -3690,19 +3649,11 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
 == party quiz mega q
    w51 w51 w51 x31 x27 w51 x26 w51 w46 w46 w46 x31 x27 w46 x26 w46 | Party Quiz Mega Q (Japan)
 == pat riley basketball
-   w51 w51 w51 x31 w51 w51 x26 w51 .   a48 a42 x31 w34 .   x26 .   | Pat Riley Basketball (USA)
-     alternative to Super Real Basketball (Europe) [11]
-     alternative to Super Real Basketball (Japan, Korea) (Ja) [10]
+   w51 w51 w51 x31 w51 w51 x26 w51 w42 a48 a42 x31 w34 w42 x26 w42 | Pat Riley Basketball (USA)
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Pat Riley Basketball (USA) (Beta) (1990-06-14)
-     alternative to Pat Riley Basketball (USA) [9,14]
-     alternative to Super Real Basketball (Europe) [11]
-     alternative to Super Real Basketball (Japan, Korea) (Ja) [10]
-   .   .   .   .   .   .   .   .   a42 a48 .   x31 x27 a42 x26 a42 | Super Real Basketball (Europe)
-     alternative to Pat Riley Basketball (USA) [9,14,16]
-     alternative to Super Real Basketball (Japan, Korea) (Ja) [10]
-   .   .   .   .   .   .   .   .   a48 .   a48 x31 x27 a48 x26 a48 | Super Real Basketball (Japan, Korea) (Ja)
-     alternative to Pat Riley Basketball (USA) [9,14,16]
-     alternative to Super Real Basketball (Europe) [11]
+   .   .   .   .   .   .   .   .   a11 a11 a11 .   .   a11 .   a11 | Sport Games (Brazil) (En)
+   .   .   .   .   .   .   .   .   a42 a48 w42 x31 x27 a42 x26 a42 | Super Real Basketball (Europe)
+   .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 a48 x26 a48 | Super Real Basketball (Japan, Korea) (Ja)
 == payne stewart pro golf
    w51 w51 w51 x31 w51 w51 x26 x21 a37 a37 a37 x31 a37 a37 x26 x21 | Payne Stewart Pro Golf (USA) (Proto 1)
    w51 w51 w51 x31 w51 w51 x26 x21 w37 w37 w37 x31 w37 w37 x26 x21 | Payne Stewart Pro Golf (USA) (Proto 2)
@@ -4030,8 +3981,7 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 w51 w42 w42 a42 x31 w46 w42 x26 w42 | Punisher, The (USA)
 == putter golf
    w51 w51 w51 x31 x27 w51 x26 w51 a35 a35 a35 x31 x27 a35 x26 a35 | Putter Golf (Japan) (Game no Kanzume Otokuyou)
-     alternative to Putter Golf (Japan) (SegaNet) [9-11,14,16]
-   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Putter Golf (Japan) (SegaNet)
+   w51 w51 w51 x31 x27 w51 x26 w51 w35 w7  w35 x31 x27 w35 x26 w35 | Putter Golf (Japan) (SegaNet)
 == putty squad
    w51 w51 w51 x31 x27 w51 x26 x21 a37 a37 a37 x31 x27 a37 x26 x21 | Putty Squad (Europe) (Proto 1)
    w51 w51 w51 x31 x27 w51 x26 x21 w37 w37 w37 x31 x27 w37 x26 x21 | Putty Squad (Europe) (Proto 2)
@@ -4050,8 +4000,7 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 x23 w46 w46 w46 x31 w46 w46 x26 x23 | Puzzli (World) (v1.1) (Aftermarket) (Unl)
 == pyramid magic
    w51 w51 w51 x31 x27 w51 x26 w51 a35 a35 a35 x31 x27 a35 x26 a35 | Pyramid Magic (Japan) (Game no Kanzume Otokuyou)
-     alternative to Pyramid Magic (Japan) (SegaNet) [9-11,14,16]
-   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Pyramid Magic (Japan) (SegaNet)
+   w51 w51 w51 x31 x27 w51 x26 w51 w35 w7  w35 x31 x27 w35 x26 w35 | Pyramid Magic (Japan) (SegaNet)
 == pyramid magic ii
    w51 w51 w51 x31 x27 w51 x26 w51 w46 w46 w46 x31 x27 w46 x26 w46 | Pyramid Magic II (Japan) (SegaNet)
 == pyramid magic iii
@@ -4060,10 +4009,8 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 x27 w51 x26 w51 w46 w46 w46 x31 x27 w46 x26 w46 | Pyramid Magic Special (Japan) (SegaNet)
 == quackshot starring donald duck
    w51 w51 w51 x31 w51 w51 x26 w51 a37 a37 a37 x31 a37 a37 x26 a37 | QuackShot Starring Donald Duck (World)
-     alternative to QuackShot Starring Donald Duck (World) (Rev A) [9-11,14,16]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   .   .   x31 w40 .   x26 .   | QuackShot Starring Donald Duck (World) (Rev A)
+   w51 w51 w51 x31 w51 w51 x26 w51 w40 w40 w40 x31 w40 w40 x26 w40 | QuackShot Starring Donald Duck (World) (Rev A)
    w51 w51 w51 x31 w51 w51 x26 w51 a40 a40 a40 x31 a40 a40 x26 a40 | QuackShot Starring Donald Duck (World) (Rev A) (Alt)
-     alternative to QuackShot Starring Donald Duck (World) (Rev A) [9-11,14,16]
 == quad challenge
    .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 a48 x26 a48 | MegaTrax (Japan)
    w51 w51 w51 x31 w51 w51 x26 w51 w48 a48 w48 x31 w46 w48 x26 w48 | Quad Challenge (USA)
@@ -4134,176 +4081,17 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 x30 x31 x27 w51 x26 x22 .   .   .   .   .   .   .   .   | Renzhe Wu lei Chuanshuo (China) (Pirate)
 == resq
    w51 w51 w51 x31 x27 w51 x26 x21 w46 w46 w46 x31 x27 w46 x26 x21 | Resq (Europe) (Proto)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   gd  gd  gd  .   gd  gd  .   gd  |
-   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | 10 Super Jogos (Brazil) (En)
-     alternative to California Games (USA, Europe) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a9  a9  a6  .   a9  a9  .   a9  | 6-Pak (USA)
-     alternative to Columns (Japan) (En) [10]
-     alternative to Columns (USA, Europe) [9,11,13-14,16]
-   .   .   .   .   .   .   .   .   a9  a9  a9  .   a9  .   .   a9  | Arcade Legends Sega Mega Drive (World)
-     alternative to Altered Beast (Japan, USA) (En) (Rev A) [9,13,16]
-     alternative to Altered Beast (USA, Europe) [11]
-     alternative to Dr. Robotnik's Mean Bean Machine (USA) [10]
-   .   .   .   .   .   .   .   .   a9  a3  a9  .   a9  .   .   a9  | Arcade Legends Street Fighter II' - Special Champion Edition (World)
-     alternative to Street Fighter II' - Special Champion Edition (Europe) [11]
-     alternative to Street Fighter II' - Special Champion Edition (USA) [9,13,16]
-     alternative to Street Fighter II' Plus - Champion Edition (Japan, Korea) (Ja) [10]
-   .   .   .   .   .   .   .   .   a6  a7  a9  .   .   .   .   a6  | Classic Collection (Europe)
-     alternative to Alex Kidd - Tenkuu Majou (Japan) [10]
-     alternative to Alex Kidd in the Enchanted Castle (Europe) [11]
-     alternative to Alex Kidd in the Enchanted Castle (USA) [9,16]
-   .   .   .   .   .   .   .   .   a9  a9  a9  .   .   a9  .   a9  | Disney Collection, The - QuackShot Starring Donald Duck + Castle of Illusion Starring Mickey Mouse (Europe)
-     alternative to Castle of Illusion Starring Mickey Mouse (USA, Europe) [9,11,14,16]
-     alternative to I Love Mickey Mouse - Fushigi no Oshiro Daibouken (Japan) [10]
-   .   .   .   .   .   .   .   .   a11 a3  a9  .   .   a11 .   a11 | EA Sports Double Header (Europe)
-     alternative to EA Hockey (Europe) [11]
-     alternative to EA Hockey (Japan) [10]
-     alternative to John Madden Football (USA, Europe) [9,14,16]
-   .   .   .   .   .   .   .   .   .   a2  .   .   .   .   .   .   | Flicky (USA, Europe)
-     alternative to Game no Kanzume Otokuyou (Japan) (Sega Channel) [10]
-   .   .   .   .   .   .   .   .   a5  .   a5  .   .   .   .   a5  | Game no Kanzume Otokuyou (Japan) (Sega Channel)
-     alternative to 16t (Japan) (SegaNet) [9,11,16]
-   .   .   .   .   .   .   .   .   .   .   .   .   .   a2  .   .   | Juuouki (Japan)
-     alternative to Classic Collection (Europe) [14]
-   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | Mega 6 Vol. 3 (Europe)
-     alternative to Columns (Japan) (En) [10]
-     alternative to Columns (USA, Europe) [9,11,14,16]
-   .   .   .   .   .   .   .   .   a6  a6  a9  .   .   a6  .   a6  | Mega Games 2 (Europe)
-     alternative to Golden Axe (World) (Rev A) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a9  a3  a9  .   .   .   .   a9  | Mega Games 3 (Europe, Asia) (En)
-     alternative to Alien Storm (World) [9-11,16]
-   .   .   .   .   .   .   .   .   a6  a11 a9  .   .   a6  .   a6  | Mega Games 6 (Europe)
-     alternative to Columns (Japan) (En) [10]
-     alternative to Columns (USA, Europe) [9,11,14,16]
-   .   .   .   .   .   .   .   .   a6  a11 a9  .   .   a6  .   a6  | Mega Games 6 Vol. 2 (Europe)
-     alternative to Columns (Japan) (En) [10]
-     alternative to Columns (USA, Europe) [9,11,14,16]
-   .   .   .   .   .   .   .   .   a6  a11 a9  .   .   a6  .   a6  | Mega Games I (Europe)
-     alternative to Columns (Japan) (En) [10]
-     alternative to Columns (USA, Europe) [9,11,14,16]
-   .   .   .   .   .   .   .   .   .   .   .   .   .   a50 .   .   | Rockheaven (Asia) (Ja) (Pirate)
-     alternative to Classic Collection (Europe) [14]
-   .   .   .   .   .   .   .   .   a9  a9  a6  .   .   a9  .   a9  | Sega Sports 1 (Europe)
-     alternative to Mega Games 3 (Europe, Asia) (En) [14]
-     alternative to Super Monaco GP (Japan, USA) (En,Ja) [9-10,16]
-     alternative to Super Monaco GP (World) (En,Ja) (Rev A) [11]
-   .   .   .   .   .   .   .   .   a6  a11 a6  .   .   a6  .   a6  | Sega Top Five (Brazil) (En)
-     alternative to Classic Collection (Europe) [14]
-     alternative to Flicky (USA, Europe) [9,11,16]
-     alternative to Game no Kanzume Otokuyou (Japan) (Sega Channel) [10]
-   .   .   .   .   .   .   .   .   a9  a9  a9  .   a9  a9  .   a9  | Sonic & Knuckles + Sonic The Hedgehog 2 + Sonic The Hedgehog 3 (World) (Virtual Console)
-     alternative to Sonic & Knuckles + Sonic The Hedgehog 2 (World) (Rev A) (Lock-on Combination) [9-11,13-14,16]
-   .   .   .   .   .   .   .   .   a10 a10 a10 .   .   a1  .   a10 | Sonic Compilation (Europe)
-     alternative to Dr. Robotnik's Mean Bean Machine (Europe) [11]
-     alternative to Dr. Robotnik's Mean Bean Machine (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a10 a10 a10 .   a10 a1  .   a10 | Sonic Compilation (USA, Europe, Korea) (En) (Rev A)
-     alternative to Dr. Robotnik's Mean Bean Machine (Europe) [11]
-     alternative to Dr. Robotnik's Mean Bean Machine (USA) [9-10,13-14,16]
-   .   .   .   .   .   .   .   .   a11 a11 a11 .   .   a11 .   a11 | Sport Games (Brazil) (En)
-     alternative to Pat Riley Basketball (USA) [9,14,16]
-     alternative to Super Real Basketball (Europe) [11]
-     alternative to Super Real Basketball (Japan, Korea) (Ja) [10]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   gd  gd  g   .   g   gd  .   gd  |
-   .   .   .   .   .   .   .   .   w35 w7  w35 .   .   w35 .   w35 | 16t (Japan) (SegaNet)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | Alex Kidd - Tenkuu Majou (Japan)
-   .   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   | Alex Kidd in the Enchanted Castle (Europe)
-   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   .   w42 | Alex Kidd in the Enchanted Castle (USA)
-   .   .   .   .   .   .   .   .   w35 w35 w35 .   .   .   .   w35 | Alien Storm (World)
-   .   .   .   .   .   .   .   .   w6  .   .   .   w37 .   .   w6  | Altered Beast (Japan, USA) (En) (Rev A)
-   .   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   | Altered Beast (USA, Europe)
-   .   .   .   .   .   .   .   .   w46 w7  w46 .   .   .   .   w46 | Aworg (Japan) (SegaNet)
-   .   .   .   .   .   .   .   .   w46 w46 w46 .   .   w46 .   w46 | California Games (USA, Europe)
-   .   .   .   .   .   .   .   .   w48 .   w48 .   .   w48 .   w48 | Castle of Illusion Starring Mickey Mouse (USA, Europe)
-   .   .   .   .   .   .   .   .   .   .   .   .   .   w5  .   .   | Classic Collection (Europe)
-   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   .   | Columns (Japan) (En)
-   .   .   .   .   .   .   .   .   w6  .   w6  .   w48 w6  .   w6  | Columns (USA, Europe)
-   .   .   .   .   .   .   .   .   .   .   w10 .   .   .   .   .   | Dr. Robotnik's Mean Bean Machine (Europe)
-   .   .   .   .   .   .   .   .   w10 w10 .   .   w10 w42 .   w10 | Dr. Robotnik's Mean Bean Machine (USA)
-   .   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   | EA Hockey (Europe)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | EA Hockey (Japan)
-   .   .   .   .   .   .   .   .   w48 .   w48 .   .   w48 .   w48 | Fatal Labyrinth (USA, Europe)
-   .   .   .   .   .   .   .   .   w6  .   w6  .   w46 w5  .   w6  | Flicky (USA, Europe)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   w4  .   .   | Game no Kanzume Otokuyou (Japan) (Sega Channel)
-   .   .   .   .   .   .   .   .   w6  w6  w6  .   w37 w6  .   w6  | Golden Axe (World) (Rev A)
-   .   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   | Gunstar Heroes (Europe)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | Gunstar Heroes (Japan)
-   .   .   .   .   .   .   .   .   w42 w48 w42 .   .   w42 .   .   | Gunstar Heroes (Japan) (April, 1993) (Sample)
-   .   .   .   .   .   .   .   .   w42 .   .   .   .   w42 .   w42 | Gunstar Heroes (USA)
-   .   .   .   .   .   .   .   .   w35 w7  w35 .   .   w35 .   w35 | Hyper Marbles (Japan) (SegaNet)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | I Love Mickey Mouse - Fushigi no Oshiro Daibouken (Japan)
-   .   .   .   .   .   .   .   .   w35 w7  w35 .   .   w35 .   w35 | Ikasuze! Koi no Doki Doki Penguin Land MD (Japan) (SegaNet)
-   .   .   .   .   .   .   .   .   w41 w41 w41 .   .   w41 .   w41 | John Madden Football (USA, Europe)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | Juuouki (Japan)
-   .   .   .   .   .   .   .   .   w46 w7  w46 .   .   w46 .   w46 | Medal City (Japan) (SegaNet)
-   .   .   .   .   .   .   .   .   .   .   .   .   .   w8  .   .   | Mega Games 3 (Europe, Asia) (En)
-   .   .   .   .   .   .   .   .   w42 .   .   .   .   w42 .   w42 | NHL Hockey (USA)
-   .   .   .   .   .   .   .   .   w35 w7  w35 .   .   w35 .   w35 | Paddle Fighter (Japan) (SegaNet)
-   .   .   .   .   .   .   .   .   w42 .   .   .   .   w42 .   w42 | Pat Riley Basketball (USA)
-   .   .   .   .   .   .   .   .   w35 w7  w35 .   .   w35 .   w35 | Putter Golf (Japan) (SegaNet)
-   .   .   .   .   .   .   .   .   w35 w7  w35 .   .   w35 .   w35 | Pyramid Magic (Japan) (SegaNet)
-   .   .   .   .   .   .   .   .   w40 w40 w40 .   .   w40 .   w40 | QuackShot Starring Donald Duck (World) (Rev A)
-   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   .   | Revenge of Shinobi, The (Japan, USA) (En)
-   .   .   .   .   .   .   .   .   w6  .   w6  .   w48 w6  .   w6  | Revenge of Shinobi, The (USA, Europe) (Rev B)
-   .   .   .   .   .   .   .   .   w46 w7  w46 .   .   w46 .   w46 | Robot Battler (Japan) (SegaNet)
-   .   .   .   .   .   .   .   .   w48 w48 w48 .   .   w48 .   w48 | Shadow Dancer - The Secret of Shinobi (World)
-   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   .   | Shi no Meikyuu - Labyrinth of Death (Japan) (SegaNet)
-   .   .   .   .   .   .   .   .   w34 w34 w34 .   w34 w34 .   w46 | Sonic & Knuckles + Sonic The Hedgehog 2 (World) (Rev A) (Lock-on Combination)
-   .   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   | Sonic & Knuckles + Sonic The Hedgehog 3 (Europe) (Lock-on Combination)
-   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   .   | Sonic & Knuckles + Sonic The Hedgehog 3 (Japan) (En) (Lock-on Combination)
-   .   .   .   .   .   .   .   .   w42 .   .   .   w46 w42 .   w42 | Sonic & Knuckles + Sonic The Hedgehog 3 (USA) (Lock-on Combination)
-   .   .   .   .   .   .   .   .   w57 w57 w58 .   .   w57 .   w57 | Sonic The Hedgehog (Japan, Europe, Korea) (En)
-   .   .   .   .   .   .   .   .   .   .   .   .   w48 .   .   .   | Sonic The Hedgehog (USA, Europe)
-   .   .   .   .   .   .   .   .   w37 w37 w37 .   w37 w37 .   w37 | Sonic The Hedgehog 2 (World) (Rev B)
-   .   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   | Street Fighter II' - Special Champion Edition (Europe)
-   .   .   .   .   .   .   .   .   w42 .   .   .   w35 .   .   w42 | Street Fighter II' - Special Champion Edition (USA)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | Street Fighter II' Plus - Champion Edition (Japan, Korea) (Ja)
-   .   .   .   .   .   .   .   .   w6  w6  w6  .   w37 w6  .   w6  | Streets of Rage (World) (Rev A)
-   .   .   .   .   .   .   .   .   .   .   w6  .   .   .   .   .   | Super Hang-On (Europe) (En,Ja) (Rev A)
-   .   .   .   .   .   .   .   .   w6  w42 .   .   w48 w6  .   w6  | Super Hang-On (Japan, USA) (En,Ja)
-   .   .   .   .   .   .   .   .   w47 w47 .   .   .   w8  .   w47 | Super Monaco GP (Japan, USA) (En,Ja)
-   .   .   .   .   .   .   .   .   .   .   w6  .   .   .   .   .   | Super Monaco GP (World) (En,Ja) (Rev A)
-   .   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   | Super Real Basketball (Europe)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | Super Real Basketball (Japan, Korea) (Ja)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | Super Thunder Blade (Japan) (Launch Cart)
-   .   .   .   .   .   .   .   .   w6  .   w6  .   .   w8  .   w6  | Super Thunder Blade (World)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | Super Volley Ball (Japan)
-   .   .   .   .   .   .   .   .   w48 .   w48 .   .   w48 .   w48 | Super Volleyball (USA)
-   .   .   .   .   .   .   .   .   w46 w7  w46 .   .   w46 .   w46 | Teddy Boy Blues (Japan) (SegaNet)
-   .   .   .   .   .   .   .   .   w34 w34 w34 .   .   w34 .   w46 | Ultimate Soccer (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   | Wimbledon (Europe)
-   .   .   .   .   .   .   .   .   .   w48 .   .   .   .   .   .   | Wimbledon Championship Tennis (Japan)
-   .   .   .   .   .   .   .   .   w42 .   .   .   .   w42 .   w42 | Wimbledon Championship Tennis (USA)
-   .   .   .   .   .   .   .   .   w42 w42 .   .   .   w42 .   w42 | World Championship Soccer (Japan, USA) (En) (Rev B)
-   .   .   .   .   .   .   .   .   .   .   w42 .   .   .   .   .   | World Championship Soccer II (Europe)
-   .   .   .   .   .   .   .   .   w42 w42 .   .   .   w42 .   w42 | World Championship Soccer II (USA)
-   .   .   .   .   .   .   .   .   .   .   w6  .   .   .   .   .   | World Cup Italia '90 (Europe)
 == return to genesis
    w51 w51 w51 x31 w51 w51 x26 x23 w46 w46 w46 x31 w46 w46 x26 x23 | Return to Genesis (World) (Aftermarket) (Unl)
 == revenge of shinobi, the
-   w51 w51 w51 x31 w51 w51 x26 w51 a37 .   a42 x31 a37 a37 x26 a37 | Revenge of Shinobi, The (Japan, USA) (En)
-     alternative to Revenge of Shinobi, The (USA, Europe) (Rev B) [9,11,13-14,16]
+   w51 w51 w51 x31 w51 w51 x26 w51 a37 w42 a42 x31 a37 a37 x26 a37 | Revenge of Shinobi, The (Japan, USA) (En)
    w51 w51 w51 x31 w51 w51 x26 w51 a37 a37 a37 x31 a37 a37 x26 a37 | Revenge of Shinobi, The (USA, Europe)
-     alternative to Revenge of Shinobi, The (Japan, USA) (En) [10]
-     alternative to Revenge of Shinobi, The (USA, Europe) (Rev B) [9,11,13-14,16]
    w51 w51 w51 x31 w51 w51 x26 w51 a37 a37 a37 x31 a37 a37 x26 a37 | Revenge of Shinobi, The (USA, Europe) (Rev A)
-     alternative to Revenge of Shinobi, The (Japan, USA) (En) [10]
-     alternative to Revenge of Shinobi, The (USA, Europe) (Rev B) [9,11,13-14,16]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Revenge of Shinobi, The (USA, Europe) (Rev A) (Beta) (1990-02-01)
-     alternative to Revenge of Shinobi, The (Japan, USA) (En) [10]
-     alternative to Revenge of Shinobi, The (USA, Europe) (Rev B) [9,11,13-14]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   a42 .   x31 .   .   x26 .   | Revenge of Shinobi, The (USA, Europe) (Rev B)
-     alternative to Revenge of Shinobi, The (Japan, USA) (En) [10]
+   w51 w51 w51 x31 w51 w51 x26 w51 w6  a42 w6  x31 w48 w6  x26 w6  | Revenge of Shinobi, The (USA, Europe) (Rev B)
    w51 w51 w51 x31 w51 w51 x26 w51 a48 a48 a48 x31 a48 a48 x26 a48 | Revenge of Shinobi, The (World) (Rev B) (Virtual Console)
-     alternative to Revenge of Shinobi, The (Japan, USA) (En) [10]
-     alternative to Revenge of Shinobi, The (USA, Europe) (Rev B) [9,11,13-14,16]
    .   .   .   .   .   .   .   .   a48 a34 a48 x31 x27 a48 x26 x21 | Super Shinobi, The (Japan) (En) (Beta) (1989-08-21) (Sega Channel)
-     alternative to Revenge of Shinobi, The (Japan, USA) (En) [10]
-     alternative to Revenge of Shinobi, The (USA, Europe) (Rev B) [9,11,14]
    .   .   .   .   .   .   .   .   a35 a34 a35 x31 x27 a35 x26 x21 | Super Shinobi, The (Japan) (En) (Beta) (1989-xx-xx) (Sega Smash Pack)
-     alternative to Revenge of Shinobi, The (Japan, USA) (En) [10]
-     alternative to Revenge of Shinobi, The (USA, Europe) (Rev B) [9,11,14]
 == revolution x
    w51 w51 w51 x31 w51 w51 x26 w51 w46 w46 w46 x31 w46 w46 x26 w46 | Revolution X (USA, Europe)
 == richard scarry's busytown
@@ -4384,8 +4172,7 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | RoboCop Versus The Terminator (USA) (Beta) (1993-04-30)
    w51 w51 w51 x31 w51 w51 x26 x22 a34 a34 a34 x31 a34 a34 x26 x22 | Robocop Versus The Terminator (USA) (Pirate)
 == robot battler
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Robot Battler (Japan) (SegaNet)
+   w51 w51 w51 x31 x27 w51 x26 w51 w46 w7  w46 x31 x27 w46 x26 w46 | Robot Battler (Japan) (SegaNet)
 == robot wreckage
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w51 w51 w51 x31 w51 w51 x26 x21 .   .   .   .   .   .   .   .   | Robot Wreckage (USA) (July, 1992) (Beta)
@@ -4572,12 +4359,9 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
 == shadow dancer - the secret of shinobi
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    .   .   .   .   .   .   .   .   a34 a34 a34 x31 a34 a34 x26 x22 | Shadow Dancer (World) (Pirate)
-     alternative to Shadow Dancer - The Secret of Shinobi (World) [9-11,14]
    w51 w51 w51 x31 w51 w51 x26 w51 a48 a48 a48 x31 a48 a48 x26 a48 | Shadow Dancer - The Secret of Shinobi (USA, Europe) (SEGA Classic Collection)
-     alternative to Shadow Dancer - The Secret of Shinobi (World) [9-11,14,16]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   .   .   x31 w48 .   x26 .   | Shadow Dancer - The Secret of Shinobi (World)
+   w51 w51 w51 x31 w51 w51 x26 w51 w48 w48 w48 x31 w48 w48 x26 w48 | Shadow Dancer - The Secret of Shinobi (World)
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Shadow Dancer - The Secret of Shinobi (World) (Beta) (1990-10-02)
-     alternative to Shadow Dancer - The Secret of Shinobi (World) [9-11,14]
 == shadow of the beast
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w51 w51 w51 x31 x27 w51 x26 x22 a34 a34 a34 x31 x27 a34 x26 x22 | Shadow of the Beast (Japan) (Pirate)
@@ -4771,21 +4555,15 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 w51 w42 a42 w42 x31 w46 w42 x26 w42 | Sonic & Knuckles + Sonic The Hedgehog (USA, Europe) (Lock-on Combination)
 == sonic & knuckles + sonic the hedgehog 2
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Sonic & Knuckles + Sonic The Hedgehog 2 (World) (Beta) (1994-05-24)
-     alternative to Sonic & Knuckles + Sonic The Hedgehog 2 (World) (Rev A) (Lock-on Combination) [9-11,13-14]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   .   .   x31 .   .   x26 .   | Sonic & Knuckles + Sonic The Hedgehog 2 (World) (Rev A) (Lock-on Combination)
+   w51 w51 w51 x31 w51 w51 x26 w51 w34 w34 w34 x31 w34 w34 x26 w46 | Sonic & Knuckles + Sonic The Hedgehog 2 (World) (Rev A) (Lock-on Combination)
+   .   .   .   .   .   .   .   .   a9  a9  a9  .   a9  a9  .   a9  | Sonic & Knuckles + Sonic The Hedgehog 2 + Sonic The Hedgehog 3 (World) (Virtual Console)
 == sonic & knuckles + sonic the hedgehog 2 + sonic the hedgehog 3
    g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
    w51 w51 w51 x31 w51 w51 x26 w51 .   .   .   x31 .   .   x26 .   | Sonic & Knuckles + Sonic The Hedgehog 2 + Sonic The Hedgehog 3 (World) (Virtual Console)
 == sonic & knuckles + sonic the hedgehog 3
-   w51 w51 w51 x31 x27 w51 x26 w51 a42 a42 .   x31 x27 a42 x26 a42 | Sonic & Knuckles + Sonic The Hedgehog 3 (Europe) (Lock-on Combination)
-     alternative to Sonic & Knuckles + Sonic The Hedgehog 3 (Japan) (En) (Lock-on Combination) [10]
-     alternative to Sonic & Knuckles + Sonic The Hedgehog 3 (USA) (Lock-on Combination) [9,14,16]
-   w51 w51 w51 x31 x27 w51 x26 w51 a42 .   a42 x31 x27 a42 x26 a42 | Sonic & Knuckles + Sonic The Hedgehog 3 (Japan) (En) (Lock-on Combination)
-     alternative to Sonic & Knuckles + Sonic The Hedgehog 3 (Europe) (Lock-on Combination) [11]
-     alternative to Sonic & Knuckles + Sonic The Hedgehog 3 (USA) (Lock-on Combination) [9,14,16]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   a42 a42 x31 .   .   x26 .   | Sonic & Knuckles + Sonic The Hedgehog 3 (USA) (Lock-on Combination)
-     alternative to Sonic & Knuckles + Sonic The Hedgehog 3 (Europe) (Lock-on Combination) [11]
-     alternative to Sonic & Knuckles + Sonic The Hedgehog 3 (Japan) (En) (Lock-on Combination) [10]
+   w51 w51 w51 x31 x27 w51 x26 w51 a42 a42 w42 x31 x27 a42 x26 a42 | Sonic & Knuckles + Sonic The Hedgehog 3 (Europe) (Lock-on Combination)
+   w51 w51 w51 x31 x27 w51 x26 w51 a42 w42 a42 x31 x27 a42 x26 a42 | Sonic & Knuckles + Sonic The Hedgehog 3 (Japan) (En) (Lock-on Combination)
+   w51 w51 w51 x31 w51 w51 x26 w51 w42 a42 a42 x31 w46 w42 x26 w42 | Sonic & Knuckles + Sonic The Hedgehog 3 (USA) (Lock-on Combination)
 == sonic 3
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   .   .   .   .   .   | Sonic 3 (Europe)
@@ -4823,47 +4601,27 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Sonic Spinball (USA) (August, 1993) (Beta)
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Sonic Spinball (USA) (October, 1993) (Beta)
 == sonic the hedgehog
-   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Sonic The Hedgehog (Japan, Europe, Korea) (En)
-   w51 w51 w51 x31 w51 w51 x26 w51 a57 a57 a56 x31 .   a57 x26 a57 | Sonic The Hedgehog (USA, Europe)
-     alternative to Sonic The Hedgehog (Japan, Europe, Korea) (En) [9-11,14,16]
+   w51 w51 w51 x31 x27 w51 x26 w51 w57 w57 w58 x31 x27 w57 x26 w57 | Sonic The Hedgehog (Japan, Europe, Korea) (En)
+   w51 w51 w51 x31 w51 w51 x26 w51 a57 a57 a56 x31 w48 a57 x26 a57 | Sonic The Hedgehog (USA, Europe)
    w51 w51 w51 x31 w51 w51 x26 w51 a52 a52 a56 x31 a35 a52 x26 a52 | Sonic The Hedgehog (USA, Europe) (Sonic Classic Collection)
-     alternative to Sonic The Hedgehog (Japan, Europe, Korea) (En) [9-11,14,16]
-     alternative to Sonic The Hedgehog (USA, Europe) [13]
    w51 w51 w51 x31 x27 w51 x26 x21 a58 a58 a58 x31 x27 a58 x26 x21 | Sonic The Hedgehog (Unknown) (Beta)
-     alternative to Sonic The Hedgehog (Japan, Europe, Korea) (En) [9-11,14]
    w51 w51 w51 x31 w51 w51 x26 w51 a58 a58 a58 x31 a48 a58 x26 a58 | Sonic The Hedgehog (World) (Sonic Mega Collection)
-     alternative to Sonic The Hedgehog (Japan, Europe, Korea) (En) [9-11,14,16]
-     alternative to Sonic The Hedgehog (USA, Europe) [13]
 == sonic the hedgehog 2
    w51 w51 w51 x31 w51 w51 x26 w51 a37 a37 a37 x31 a37 a37 x26 a37 | Sonic The Hedgehog 2 (World)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14,16]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Sonic The Hedgehog 2 (World) (Beta) (1992-08-21)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Sonic The Hedgehog 2 (World) (Beta) (1992-09-14)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Sonic The Hedgehog 2 (World) (Beta) (1992-09-18)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Sonic The Hedgehog 2 (World) (Beta) (1992-09-21)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Sonic The Hedgehog 2 (World) (Beta) (1992-09-22)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Sonic The Hedgehog 2 (World) (Beta) (1992-09-24)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Sonic The Hedgehog 2 (World) (Beta) (1992-09-24) (Alt)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Sonic The Hedgehog 2 (World) (July, 1992) (Beta)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Sonic The Hedgehog 2 (World) (June, 1992) (Beta)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14]
    w51 w51 w51 x31 w51 w51 x26 w51 a37 a37 a37 x31 a37 a37 x26 a37 | Sonic The Hedgehog 2 (World) (Rev A)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14,16]
    w51 w51 w51 x31 w51 w51 x26 w51 a35 a35 a35 x31 a35 a35 x26 a35 | Sonic The Hedgehog 2 (World) (Rev A) (Sonic Classic Collection)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14,16]
    w51 w51 w51 x31 w51 w51 x26 w51 a35 a35 a35 x31 a35 a35 x26 a35 | Sonic The Hedgehog 2 (World) (Rev A) (Sonic Mega Collection)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14,16]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   .   .   x31 .   .   x26 .   | Sonic The Hedgehog 2 (World) (Rev B)
+   w51 w51 w51 x31 w51 w51 x26 w51 w37 w37 w37 x31 w37 w37 x26 w37 | Sonic The Hedgehog 2 (World) (Rev B)
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Sonic The Hedgehog 2 (World) (September, 1992) (Beta)
-     alternative to Sonic The Hedgehog 2 (World) (Rev B) [9-11,13-14]
 == sonic the hedgehog 3
    .   .   .   .   .   .   .   .   a42 a48 w42 x31 x27 a42 x26 a42 | Sonic 3 (Europe)
    w51 w51 w51 x31 x27 w51 x26 w51 a48 w48 a48 x31 x27 a48 x26 a48 | Sonic The Hedgehog 3 (Japan, Korea) (Ja)
@@ -5051,39 +4809,17 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 x27 w51 x26 x21 .   .   .   .   .   .   .   .   | Street Fighter II' - Champion Edition (Europe) (Beta) (1993-03-25)
    w51 w51 w51 x31 w51 w51 x26 x21 .   .   .   .   .   .   .   .   | Street Fighter II' - Champion Edition (USA) (Beta) (1993-07-30)
 == street fighter ii' - special champion edition
+   g   g   g   g   g   g   g   g   gd  gd  gd  g   gd  g   g   gd  |
+   .   .   .   .   .   .   .   .   a9  a3  a9  .   a9  .   .   a9  | Arcade Legends Street Fighter II' - Special Champion Edition (World)
    .   .   .   .   .   .   .   .   a34 a34 a34 x31 a34 a34 x26 x21 | ST II' Turbo (USA) (Proto) (Pirate)
-     alternative to Street Fighter II' - Special Champion Edition (Europe) [11]
-     alternative to Street Fighter II' - Special Champion Edition (USA) [9,13]
-     alternative to Street Fighter II' Plus - Champion Edition (Japan, Korea) (Ja) [10]
    .   .   .   .   .   .   .   .   a34 a34 a34 x31 x27 a34 x26 x21 | Street Fighter II' - Champion Edition (Europe) (Beta) (1993-03-25)
-     alternative to Street Fighter II' - Special Champion Edition (Europe) [11]
-     alternative to Street Fighter II' - Special Champion Edition (USA) [9]
-     alternative to Street Fighter II' Plus - Champion Edition (Japan, Korea) (Ja) [10]
    .   .   .   .   .   .   .   .   a34 a34 a34 x31 a34 a34 x26 x21 | Street Fighter II' - Champion Edition (USA) (Beta) (1993-07-30)
-     alternative to Street Fighter II' - Special Champion Edition (Europe) [11]
-     alternative to Street Fighter II' - Special Champion Edition (USA) [9,13]
-     alternative to Street Fighter II' Plus - Champion Edition (Japan, Korea) (Ja) [10]
-   w51 w51 w51 x31 x27 w51 x26 w51 a42 a48 .   x31 x27 a42 x26 a42 | Street Fighter II' - Special Champion Edition (Europe)
-     alternative to Street Fighter II' - Special Champion Edition (USA) [9,16]
-     alternative to Street Fighter II' Plus - Champion Edition (Japan, Korea) (Ja) [10]
+   w51 w51 w51 x31 x27 w51 x26 w51 a42 a48 w42 x31 x27 a42 x26 a42 | Street Fighter II' - Special Champion Edition (Europe)
    w51 w51 w51 x31 x27 w51 x26 w51 a35 a35 a35 x31 x27 a35 x26 a35 | Street Fighter II' - Special Champion Edition (Europe) (Virtual Console)
-     alternative to Street Fighter II' - Special Champion Edition (Europe) [11]
-     alternative to Street Fighter II' - Special Champion Edition (USA) [9,16]
-     alternative to Street Fighter II' Plus - Champion Edition (Japan, Korea) (Ja) [10]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   a48 a42 x31 .   w42 x26 .   | Street Fighter II' - Special Champion Edition (USA)
-     alternative to Street Fighter II' - Special Champion Edition (Europe) [11]
-     alternative to Street Fighter II' Plus - Champion Edition (Japan, Korea) (Ja) [10]
+   w51 w51 w51 x31 w51 w51 x26 w51 w42 a48 a42 x31 w35 w42 x26 w42 | Street Fighter II' - Special Champion Edition (USA)
    w51 w51 w51 x31 w51 w51 x26 w51 a35 a35 a35 x31 a35 a35 x26 a35 | Street Fighter II' - Special Champion Edition (USA) (Virtual Console)
-     alternative to Street Fighter II' - Special Champion Edition (Europe) [11]
-     alternative to Street Fighter II' - Special Champion Edition (USA) [9,13,16]
-     alternative to Street Fighter II' Plus - Champion Edition (Japan, Korea) (Ja) [10]
    .   .   .   .   .   .   .   .   a35 a35 a35 x31 x27 a35 x26 a35 | Street Fighter II' Plus - Champion Edition (Japan) (Virtual Console)
-     alternative to Street Fighter II' - Special Champion Edition (Europe) [11]
-     alternative to Street Fighter II' - Special Champion Edition (USA) [9,16]
-     alternative to Street Fighter II' Plus - Champion Edition (Japan, Korea) (Ja) [10]
-   .   .   .   .   .   .   .   .   a48 .   a48 x31 x27 a48 x26 a48 | Street Fighter II' Plus - Champion Edition (Japan, Korea) (Ja)
-     alternative to Street Fighter II' - Special Champion Edition (Europe) [11]
-     alternative to Street Fighter II' - Special Champion Edition (USA) [9,16]
+   .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 a48 x26 a48 | Street Fighter II' Plus - Champion Edition (Japan, Korea) (Ja)
 == street fighter ii' plus - champion edition
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   .   .   .   .   .   | Street Fighter II' Plus - Champion Edition (Japan) (Virtual Console)
@@ -5097,10 +4833,8 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
 == streets of rage
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w51 w51 w51 x31 w51 w51 x26 w51 a37 a37 a37 x31 a37 a37 x26 a37 | Streets of Rage (World)
-     alternative to Streets of Rage (World) (Rev A) [9-11,13-14,16]
    w51 w51 w51 x31 w51 w51 x26 x22 a34 a34 a34 x31 a34 a34 x26 x22 | Streets of Rage (World) (Pirate)
-     alternative to Streets of Rage (World) (Rev A) [9-11,13-14]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   .   .   x31 .   .   x26 .   | Streets of Rage (World) (Rev A)
+   w51 w51 w51 x31 w51 w51 x26 w51 w6  w6  w6  x31 w37 w6  x26 w6  | Streets of Rage (World) (Rev A)
 == streets of rage 2
    .   .   .   .   .   .   .   .   a34 a34 a34 x31 x27 w29 x26 x21 | Bare Knuckle II (Japan) (Beta)
    w51 w51 w51 x31 x27 w51 x26 w51 a48 a35 a48 x31 x27 a48 x26 a48 | Streets of Rage 2 (Japan) (En,Ja) (Mega Drive Mini)
@@ -5208,16 +4942,10 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   .   .   .   .   .   | Super H.Q. (Japan)
 == super hang-on
-   w51 w51 w51 x31 x27 w51 x26 w51 a42 a42 .   x31 x27 a42 x26 a42 | Super Hang-On (Europe) (En,Ja) (Rev A)
-     alternative to Super Hang-On (Japan, USA) (En,Ja) [9-10,14,16]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   .   a42 x31 .   .   x26 .   | Super Hang-On (Japan, USA) (En,Ja)
-     alternative to Super Hang-On (Europe) (En,Ja) (Rev A) [11]
+   w51 w51 w51 x31 x27 w51 x26 w51 a42 a42 w6  x31 x27 a42 x26 a42 | Super Hang-On (Europe) (En,Ja) (Rev A)
+   w51 w51 w51 x31 w51 w51 x26 w51 w6  w42 a42 x31 w48 w6  x26 w6  | Super Hang-On (Japan, USA) (En,Ja)
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Super Hang-On (World) (En,Ja) (Beta) (1989-08-18) (Sega Channel)
-     alternative to Super Hang-On (Europe) (En,Ja) (Rev A) [11]
-     alternative to Super Hang-On (Japan, USA) (En,Ja) [9-10,13-14]
    w51 w51 w51 x31 w51 w51 x26 w51 a48 a48 a48 x31 a48 a48 x26 a48 | Super Hang-On (World) (Sega Smash Pack 2)
-     alternative to Super Hang-On (Europe) (En,Ja) (Rev A) [11]
-     alternative to Super Hang-On (Japan, USA) (En,Ja) [9-10,13-14,16]
 == super heavy duty
    w51 w51 w51 x31 w51 w51 x26 x23 w46 w46 w46 x31 w46 w46 x26 x23 | Super Heavy Duty (World) (Aftermarket) (Unl)
    w51 w51 w51 x31 w51 w51 x26 x17 w46 w46 w46 x31 w46 w46 x26 x17 | Super Heavy Duty (World) (Demo) (2020-08-27) (Aftermarket) (Unl)
@@ -5255,16 +4983,11 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w51 w51 w51 x31 w51 w51 x26 x23 w46 w46 w46 x31 w46 w46 x26 x23 | Super Maximum Overkill (World) (Aftermarket) (Unl)
 == super monaco gp
-   w51 w51 w51 x31 w51 w51 x26 w51 .   .   a42 x31 a44 .   x26 .   | Super Monaco GP (Japan, USA) (En,Ja)
-     alternative to Super Monaco GP (World) (En,Ja) (Rev A) [11]
+   .   .   .   .   .   .   .   .   a9  a9  a6  .   .   .   .   a9  | Sega Sports 1 (Europe)
+   w51 w51 w51 x31 w51 w51 x26 w51 w47 w47 a42 x31 a44 w8  x26 w47 | Super Monaco GP (Japan, USA) (En,Ja)
    w51 w51 w51 x31 w51 w51 x26 w51 a38 a42 a38 x31 w47 a38 x26 a38 | Super Monaco GP (USA) (En,Ja)
-     alternative to Super Monaco GP (Japan, USA) (En,Ja) [9-10,14,16]
-     alternative to Super Monaco GP (World) (En,Ja) (Rev A) [11]
    w51 w51 w51 x31 w51 w51 x26 w51 a37 a37 a37 x31 a37 a37 x26 a37 | Super Monaco GP (World) (En,Ja)
-     alternative to Super Monaco GP (Japan, USA) (En,Ja) [9-10,14,16]
-     alternative to Super Monaco GP (World) (En,Ja) (Rev A) [11]
-   w51 w51 w51 x31 w51 w51 x26 w51 a47 a47 .   x31 a47 a47 x26 a47 | Super Monaco GP (World) (En,Ja) (Rev A)
-     alternative to Super Monaco GP (Japan, USA) (En,Ja) [9-10,14,16]
+   w51 w51 w51 x31 w51 w51 x26 w51 a47 a47 w6  x31 a47 a47 x26 a47 | Super Monaco GP (World) (En,Ja) (Rev A)
 == super off road
    w51 w51 w51 x31 w51 w51 x26 x23 w46 w46 w46 x31 w46 w46 x26 x23 | Super Off Road (USA, Europe) (Unl)
 == super real basketball
@@ -5299,18 +5022,14 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
 == super tank war
    w51 w51 w51 x31 x27 w51 x26 x23 w46 w46 w46 x31 x27 w46 x26 x23 | Super Tank War (Taiwan) (En) (Unl)
 == super thunder blade
-   w51 w51 w51 x31 x27 w51 x26 w51 a48 .   a48 x31 x27 a48 x26 a48 | Super Thunder Blade (Japan) (Launch Cart)
-     alternative to Super Thunder Blade (World) [9,11,14,16]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   a48 .   x31 w46 .   x26 .   | Super Thunder Blade (World)
-     alternative to Super Thunder Blade (Japan) (Launch Cart) [10]
+   w51 w51 w51 x31 x27 w51 x26 w51 a48 w48 a48 x31 x27 a48 x26 a48 | Super Thunder Blade (Japan) (Launch Cart)
+   w51 w51 w51 x31 w51 w51 x26 w51 w6  a48 w6  x31 w46 w8  x26 w6  | Super Thunder Blade (World)
 == super volley ball
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   .   .   .   .   .   | Super Volley Ball (Japan)
 == super volleyball
-   .   .   .   .   .   .   .   .   a48 .   a48 x31 x27 a48 x26 a48 | Super Volley Ball (Japan)
-     alternative to Super Volleyball (USA) [9,11,14,16]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   a48 .   x31 w46 .   x26 .   | Super Volleyball (USA)
-     alternative to Super Volley Ball (Japan) [10]
+   .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 a48 x26 a48 | Super Volley Ball (Japan)
+   w51 w51 w51 x31 w51 w51 x26 w51 w48 a48 w48 x31 w46 w48 x26 w48 | Super Volleyball (USA)
 == superman
    w51 w51 w51 x31 w51 w51 x26 w51 w42 w42 a42 x31 w34 w42 x26 w42 | Superman (USA)
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Superman (USA) (Beta)
@@ -5486,8 +5205,7 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   .   .   .   .   .   | Tecmo World Cup '92 (Japan)
 == teddy boy blues
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   x31 x27 .   x26 .   | Teddy Boy Blues (Japan) (SegaNet)
+   w51 w51 w51 x31 x27 w51 x26 w51 w46 w7  w46 x31 x27 w46 x26 w46 | Teddy Boy Blues (Japan) (SegaNet)
 == teenage mutant hero turtles - the hyperstone heist
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   .   .   .   .   .   | Teenage Mutant Hero Turtles - The Hyperstone Heist (Europe)
@@ -5779,9 +5497,8 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    w51 w51 w51 x31 w51 w51 x26 w51 w48 a48 w48 x31 w46 w48 x26 w48 | Ultimate QIX (USA)
    .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 a48 x26 a48 | Volfied (Japan)
 == ultimate soccer
-   w51 w51 w51 w51 x27 w51 x26 w51 .   .   .   w34 x27 .   x26 .   | Ultimate Soccer (Europe) (En,Fr,De,Es,It)
+   w51 w51 w51 w51 x27 w51 x26 w51 w34 w34 w34 w34 x27 w34 x26 w46 | Ultimate Soccer (Europe) (En,Fr,De,Es,It)
    w51 w51 w51 w51 x27 w51 x26 x21 a34 a34 a34 a34 x27 a34 x26 x21 | Ultimate Soccer (Europe) (En,Fr,De,Es,It) (Beta)
-     alternative to Ultimate Soccer (Europe) (En,Fr,De,Es,It) [9-11,14]
 == ultracore
    w51 w51 w51 x31 x27 w51 x26 x23 a42 a42 w42 x31 x27 a42 x26 x23 | Ultracore (Europe) (Aftermarket) (Unl)
    w51 w51 w51 x31 x27 w51 x26 x23 a42 w42 a42 x31 x27 a42 x26 x23 | Ultracore (Japan) (En) (Aftermarket) (Unl)
@@ -5968,19 +5685,10 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   .   .   .   .   .   | Wimbledon (Europe)
 == wimbledon championship tennis
-   .   .   .   .   .   .   .   .   a42 a48 .   x31 x27 a42 x26 a42 | Wimbledon (Europe)
-     alternative to Wimbledon Championship Tennis (Japan) [10]
-     alternative to Wimbledon Championship Tennis (USA) [9,14,16]
-   w51 w51 w51 x31 x27 w51 x26 w51 a48 .   a48 x31 x27 a48 x26 a48 | Wimbledon Championship Tennis (Japan)
-     alternative to Wimbledon (Europe) [11]
-     alternative to Wimbledon Championship Tennis (USA) [9,14,16]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   a48 a42 x31 w34 .   x26 .   | Wimbledon Championship Tennis (USA)
-     alternative to Wimbledon (Europe) [11]
-     alternative to Wimbledon Championship Tennis (Japan) [10]
+   .   .   .   .   .   .   .   .   a42 a48 w42 x31 x27 a42 x26 a42 | Wimbledon (Europe)
+   w51 w51 w51 x31 x27 w51 x26 w51 a48 w48 a48 x31 x27 a48 x26 a48 | Wimbledon Championship Tennis (Japan)
+   w51 w51 w51 x31 w51 w51 x26 w51 w42 a48 a42 x31 w34 w42 x26 w42 | Wimbledon Championship Tennis (USA)
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | Wimbledon Championship Tennis (USA) (Beta)
-     alternative to Wimbledon (Europe) [11]
-     alternative to Wimbledon Championship Tennis (Japan) [10]
-     alternative to Wimbledon Championship Tennis (USA) [9,14]
 == wings of wor
    .   .   .   .   .   .   .   .   a42 a48 w42 x31 x27 a42 x26 a42 | Gynoug (Europe)
    .   .   .   .   .   .   .   .   a48 w48 a48 x31 x27 a48 x26 a48 | Gynoug (Japan)
@@ -6035,80 +5743,32 @@ rule r58: Superset parent selection REF0119: Group after good dump/production/re
 == world championship soccer
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w51 w51 w51 x31 w51 w51 x26 w51 a37 a37 a37 x31 a37 a37 x26 a37 | World Championship Soccer (Japan, USA) (En)
-     alternative to World Championship Soccer (Japan, USA) (En) (Rev B) [9-10,14,16]
-     alternative to World Cup Italia '90 (Europe) [11]
    w51 w51 w51 x31 w51 w51 x26 w51 a37 a37 a37 x31 a37 a37 x26 a37 | World Championship Soccer (Japan, USA) (En) (Rev A)
-     alternative to World Championship Soccer (Japan, USA) (En) (Rev B) [9-10,14,16]
-     alternative to World Cup Italia '90 (Europe) [11]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   .   a42 x31 w37 .   x26 .   | World Championship Soccer (Japan, USA) (En) (Rev B)
-     alternative to World Cup Italia '90 (Europe) [11]
-   .   .   .   .   .   .   .   .   a42 a42 .   x31 x27 a42 x26 a42 | World Cup Italia '90 (Europe)
-     alternative to World Championship Soccer (Japan, USA) (En) (Rev B) [9-10,14,16]
+   w51 w51 w51 x31 w51 w51 x26 w51 w42 w42 a42 x31 w37 w42 x26 w42 | World Championship Soccer (Japan, USA) (En) (Rev B)
+   .   .   .   .   .   .   .   .   a42 a42 w6  x31 x27 a42 x26 a42 | World Cup Italia '90 (Europe)
    .   .   .   .   .   .   .   .   a42 a37 a42 x31 x27 a42 x26 a42 | World Cup Soccer (Japan) (En)
-     alternative to World Championship Soccer (Japan, USA) (En) (Rev B) [9-10,14,16]
-     alternative to World Cup Italia '90 (Europe) [11]
 == world championship soccer ii
-   w51 w51 w51 x31 x27 w51 x26 w51 a42 a42 .   x31 x27 a42 x26 a42 | World Championship Soccer II (Europe)
-     alternative to World Championship Soccer II (USA) [9-10,14,16]
-   w51 w51 w51 x31 w51 w51 x26 w51 .   .   a42 x31 w34 .   x26 .   | World Championship Soccer II (USA)
-     alternative to World Championship Soccer II (Europe) [11]
+   w51 w51 w51 x31 x27 w51 x26 w51 a42 a42 w42 x31 x27 a42 x26 a42 | World Championship Soccer II (Europe)
+   w51 w51 w51 x31 w51 w51 x26 w51 w42 w42 a42 x31 w34 w42 x26 w42 | World Championship Soccer II (USA)
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-02-22)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-02-23)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-02-28)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-03)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-03) (Alt)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-04)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-09)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-09) (Alt)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-14)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-18)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-23)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-24)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-25)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-26)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-27)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-29)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-29) (Alt)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (Beta) (1994-03-30)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
    w51 w51 w51 x31 w51 w51 x26 x21 a34 a34 a34 x31 a34 a34 x26 x21 | World Championship Soccer II (USA) (January, 1994) (Beta)
-     alternative to World Championship Soccer II (Europe) [11]
-     alternative to World Championship Soccer II (USA) [9-10,14]
 == world class leader board
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w51 w51 w51 x31 x27 w51 x26 w51 .   .   .   .   .   .   .   .   | World Class Leader Board (Europe)

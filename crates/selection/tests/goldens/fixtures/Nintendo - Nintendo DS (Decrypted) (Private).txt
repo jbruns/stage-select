@@ -220,6 +220,12 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == 2 games on 1 card - monster trucks mayhem & atv - thunder ridge riders
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | 2 Games on 1 Card - Monster Trucks Mayhem & ATV - Thunder Ridge Riders (Europe) (En,Fr,De,Es,It)
+== 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   g   g   g   .   .   g   .   g   |
+   .   .   .   .   .   .   .   .   w12 w12 w12 .   .   w12 .   w12 | 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It)
+== 2 in 1 - My Riding Stables + My Western Horse (Europe) (En,Fr,De)
+   .   .   .   .   .   .   .   .   g   g   g   .   .   g   .   g   |
+   .   .   .   .   .   .   .   .   w12 w12 w12 .   .   w12 .   w12 | 2 in 1 - My Riding Stables + My Western Horse (Europe) (En,Fr,De)
 == 2 in 1 - best of bibi blocksberg - neustadt im hex-chaos + das gestohlene hexbuch
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 2 in 1 - Best of Bibi Blocksberg - Neustadt im Hex-Chaos + Das Gestohlene Hexbuch (Germany)
@@ -230,14 +236,17 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   .   gd  .   gd  .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 2 in 1 - Mahjong + Mahjong Around the World (Europe) (En,Fr,De,Es,It)
 == 2 in 1 - music for kids + englisch macht spass - eine reise nach london!
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 2 in 1 - Music for Kids + Englisch Macht Spass - Eine Reise nach London! (Europe) (En,De) (NDSi Enhanced)
+   w61 w61 w61 w61 x42 w61 x41 w61 w10 w10 w9  w9  x42 w10 x41 w10 | 2 in 1 - Music for Kids + Englisch Macht Spass - Eine Reise nach London! (Europe) (En,De) (NDSi Enhanced)
+   .   .   .   .   .   .   .   .   a3  a3  a3  a24 .   a3  .   a3  | Englisch Macht Spass - Eine Reise nach London! (Germany)
 == 2 in 1 - my little baby + my boyfriend
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 2 in 1 - My Little Baby + My Boyfriend (Europe) (En,Fr,De,Es,It,Sv,No,Da)
 == 2 in 1 - my pet hotel + my vet practice - in the country
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 2 in 1 - My Pet Hotel + My Vet Practice - In the Country (Europe) (En,Fr,De)
+   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
+   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   w18 x42 .   x41 .   | 2 in 1 - My Pet Hotel + My Vet Practice - In the Country (Europe) (En,Fr,De)
+   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   .   .   | 2 in 1 - My Pet Hotel 2 + My Vet Practice - In the Country (Europe) (Fr,De)
+   .   .   .   .   .   .   .   .   .   .   .   a4  .   .   .   .   | 3 in 1 - My Horse + My Vet Practice + My Vet Practice in the Country (Europe) (Fr,De,It)
+   .   .   .   .   .   .   .   .   .   .   .   a24 .   .   .   .   | Meine Tierpension (Germany) (En,De)
 == 2 in 1 - my pet hotel 2 + my vet practice - in the country
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 2 in 1 - My Pet Hotel 2 + My Vet Practice - In the Country (Europe) (Fr,De)
@@ -245,8 +254,11 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 2 in 1 - My Pet School + Best Friends - My Horse (Europe) (En,Fr,De)
 == 2 in 1 - my riding stables + my riding stables - life with horses
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It)
+   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
+   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   w11 x42 .   x41 .   | 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   .   .   | 2 in 1 - My Riding Stables + My Western Horse (Europe) (En,Fr,De)
+   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   .   .   | 3 in 1 - Horses (Europe) (En,Fr,De)
+   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   .   .   | 3 in 1 - My Riding Stables - Life with Horses + My Pet Hotel 2 & + My Pet School (Europe) (Fr,De,It)
 == 2 in 1 - my riding stables + my western horse
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 2 in 1 - My Riding Stables + My Western Horse (Europe) (En,Fr,De)
@@ -273,9 +285,21 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == 3 game pack! - uno + skip-bo + uno free fall
    .   .   .   .   .   .   .   .   a54 a54 w54 w57 x42 a54 x41 a54 | 3 Game Pack! - Uno & Skip-Bo & Uno Free Fall (Europe) (En,Fr,De,Es,It)
    w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | 3 Game Pack! - Uno + Skip-Bo + Uno Free Fall (USA)
+== 3 in 1 - Horses (Europe) (En,Fr,De)
+   .   .   .   .   .   .   .   .   g   g   g   .   .   g   .   g   |
+   .   .   .   .   .   .   .   .   a25 a25 a21 .   .   a25 .   a25 | 3 in 1 - Horses (Europe) (En,Fr,De)
+     alternative to 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It) [9-11,14,16]
+== 3 in 1 - My Riding Stables + My Pet School + My Western Horse (Europe) (Fr,De,It)
+   .   .   .   .   .   .   .   .   g   g   g   .   .   g   .   g   |
+   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | 3 in 1 - My Riding Stables + My Pet School + My Western Horse (Europe) (Fr,De,It)
+     alternative to 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It) [9-11,14,16]
+== 3 in 1 - My Riding Stables - Life with Horses + My Pet Hotel 2 & + My Pet School (Europe) (Fr,De,It)
+   .   .   .   .   .   .   .   .   g   g   g   .   .   g   .   g   |
+   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | 3 in 1 - My Riding Stables - Life with Horses + My Pet Hotel 2 & + My Pet School (Europe) (Fr,De,It)
+     alternative to 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It) [9-11,14,16]
 == 3 in 1 - animals
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 3 in 1 - Animals (Europe) (En,Fr,De)
+   .   .   .   .   .   .   .   .   a25 a25 a21 a4  .   a25 .   a25 | 2 in 1 - My Pet School + Best Friends - My Horse (Europe) (En,Fr,De)
+   w61 w61 w61 w61 x42 w61 x41 w61 w12 w12 w12 w11 x42 w12 x41 w12 | 3 in 1 - Animals (Europe) (En,Fr,De)
 == 3 in 1 - horses
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 3 in 1 - Horses (Europe) (En,Fr,De)
@@ -283,28 +307,26 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 3 in 1 - My Horse + My Vet Practice + My Vet Practice in the Country (Europe) (Fr,De,It)
 == 3 in 1 - my riding stables + my pet school + my western horse
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 3 in 1 - My Riding Stables + My Pet School + My Western Horse (Europe) (Fr,De,It)
+   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
+   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   w11 x42 .   x41 .   | 3 in 1 - My Riding Stables + My Pet School + My Western Horse (Europe) (Fr,De,It)
 == 3 in 1 - my riding stables - life with horses + my pet hotel 2 & + my pet school
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 3 in 1 - My Riding Stables - Life with Horses + My Pet Hotel 2 & + My Pet School (Europe) (Fr,De,It)
 == 3 in 1 - my vet practice & riding star & my vet practice in australia
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It)
+   g   g   g   g   g   g   g   g   .   .   g   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   .   a21 a21 .   .   .   .   | 2 in 1 - My Vet Practice + My Pet Hotel 2 (Europe) (En,Fr,De,Es,It)
+   w61 w61 w61 w61 x42 w61 x41 w61 .   .   w19 w19 x42 .   x41 .   | 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   | Meine Tierarztpraxis in Australien (Germany)
+   .   .   .   .   .   .   .   .   .   .   a24 .   .   .   .   .   | Paws & Claws - Pet Vet - Australian Adventures (USA)
 == 3 in 1 - solitaire, mahjong & tangram
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | 3 in 1 - Solitaire, Mahjong & Tangram (Europe) (En,Fr,De,Es,It)
 == 4 elements
-   w61 w61 w61 x46 x42 w61 x41 w61 a54 a54 .   x46 x42 a54 x41 a54 | 4 Elements (Europe)
-     alternative to Gem Quest - 4 Elements (USA) (En,Fr) [9-10,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 a51 a51 a51 .   x42 a51 x41 a51 | 4 Elements (Europe) (Fr,De)
-     alternative to 4 Elements (Europe) [11]
-     alternative to Gem Quest - 4 Elements (USA) (En,Fr) [9-10,14,16]
+   w61 w61 w61 x46 x42 w61 x41 w61 a54 a54 w54 x46 x42 a54 x41 a54 | 4 Elements (Europe)
+   w61 w61 w61 w61 x42 w61 x41 w61 a51 a51 a51 w57 x42 a51 x41 a51 | 4 Elements (Europe) (Fr,De)
    w61 w61 w61 x46 x42 w61 x41 w61 a51 a51 a51 x46 x42 a51 x41 a51 | 4 Elements (Europe) (Fr,Nl)
-     alternative to 4 Elements (Europe) [11]
-     alternative to Gem Quest - 4 Elements (USA) (En,Fr) [9-10,14,16]
-   .   .   .   .   .   .   .   .   .   .   a54 x46 w57 .   x41 .   | Gem Quest - 4 Elements (USA) (En,Fr)
-     alternative to 4 Elements (Europe) [11]
+   .   .   .   .   .   .   .   .   w54 w54 a54 x46 w57 w54 x41 w54 | Gem Quest - 4 Elements (USA) (En,Fr)
+   .   .   .   .   .   .   .   .   a4  a4  a4  a25 .   a4  .   a4  | Jewel Match & 4 Elements (Germany) (Fr,De)
 == 4 game fun pack - monopoly + boggle + yahtzee + battleship
    w61 w61 w61 x46 x42 w61 x41 w61 a54 a54 w54 x46 x42 a54 x41 a54 | 4 Game Fun Pack - Monopoly + Boggle + Yahtzee + Battleship (Europe)
    w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | 4 Game Fun Pack - Monopoly + Boggle + Yahtzee + Battleship (USA)
@@ -846,11 +868,10 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 w61 x42 x40 x41 w61 a54 a54 w54 w57 x42 x40 x41 a54 | Army Men - Soldiers of Misfortune (Europe) (En,Fr,De,Es,It)
    w61 w61 w61 x46 w61 x40 x41 w61 w54 w54 a54 x46 w57 x40 x41 w54 | Army Men - Soldiers of Misfortune (USA)
 == around the world in 80 days
-   w61 w61 w61 w61 x42 x40 x41 w61 a52 a52 a52 .   x42 x40 x41 a52 | Around the World in 80 Days (Europe) (En,Fr,De)
-     alternative to Around the World in 80 Days (Europe) (En,Fr,Nl) (Rev 1) [9-11,16]
+   w61 w61 w61 w61 x42 x40 x41 w61 a52 a52 a52 w57 x42 x40 x41 a52 | Around the World in 80 Days (Europe) (En,Fr,De)
    w61 w61 w61 x46 x42 x40 x41 w61 a52 a52 a52 x46 x42 x40 x41 a52 | Around the World in 80 Days (Europe) (En,Fr,Nl)
-     alternative to Around the World in 80 Days (Europe) (En,Fr,Nl) (Rev 1) [9-11,16]
-   w61 w61 w61 x46 x42 x40 x41 w61 .   .   .   x46 x42 x40 x41 .   | Around the World in 80 Days (Europe) (En,Fr,Nl) (Rev 1)
+   w61 w61 w61 x46 x42 x40 x41 w61 w52 w52 w52 x46 x42 x40 x41 w52 | Around the World in 80 Days (Europe) (En,Fr,Nl) (Rev 1)
+   .   .   .   .   .   .   .   .   a4  a4  a4  a25 .   .   .   a4  | Um die Welt in 80 Tagen & Fishdom (Germany) (Fr,De)
 == art academy
    w61 w61 w61 w61 x42 x40 x41 w61 a54 a60 w54 w54 x42 x40 x41 a54 | Art Academy (Europe) (En,Fr,De,Es,It) (NDSi Enhanced)
    w61 w61 w61 w61 w61 x40 x41 w61 w54 a60 a54 a54 w57 x40 x41 w54 | Art Academy (USA) (En,Fr,Es) (NDSi Enhanced)
@@ -936,8 +957,9 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 x40 x41 w61 .   .   .   .   .   .   .   .   | Atlantic Quest (Europe) (Fr,De)
 == atlantic quest + galactic quest
-   g   g   g   g   g   g   g   g   .   .   .   .   g   g   g   .   |
-   w61 w61 w61 w61 x42 x40 x41 w61 .   .   .   .   x42 x40 x41 .   | Atlantic Quest + Galactic Quest (Europe) (En,Fr,De,Nl)
+   g   g   g   g   g   g   g   g   .   .   .   g   g   g   g   .   |
+   .   .   .   .   .   .   .   .   .   .   .   a1  .   .   .   .   | Atlantic Quest (Europe) (Fr,De)
+   w61 w61 w61 w61 x42 x40 x41 w61 .   .   .   w5  x42 x40 x41 .   | Atlantic Quest + Galactic Quest (Europe) (En,Fr,De,Nl)
 == atsumare! power pro kun no ds koushien
    w61 w61 w61 x46 x42 x40 x41 w61 a52 a52 a52 x46 x42 x40 x41 a52 | Atsumare! Power Pro Kun no DS Koushien (Japan)
    w61 w61 w61 x46 x42 x40 x41 w61 w52 w52 w52 x46 x42 x40 x41 w52 | Atsumare! Power Pro Kun no DS Koushien (Japan) (Rev 1)
@@ -1237,18 +1259,14 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w54 x42 a54 x41 a54 | Bella Sara (Europe) (En,Fr,De,Es,It)
    w61 w61 w61 w61 w61 w61 x41 w61 w54 w54 a54 a54 w57 w54 x41 w54 | Bella Sara (USA) (En,Fr,De,Es,It)
 == ben 10 - alien force
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 .   .   x42 a54 x41 a54 | Ben 10 - Alien Force (Europe) (En,Fr,De,Es,It)
-     alternative to Ben 10 - Alien Force (USA) (En,Fr,De,Es,It) (Rev 1) [9-10,14,16]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w7  w7  x42 a54 x41 a54 | Ben 10 - Alien Force (Europe) (En,Fr,De,Es,It)
    w61 w61 w61 w61 w61 w61 x41 w61 a52 a52 a52 a52 a52 a52 x41 a52 | Ben 10 - Alien Force (USA) (En,Fr,De,Es,It)
-     alternative to Ben 10 - Alien Force (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Ben 10 - Alien Force (USA) (En,Fr,De,Es,It) (Rev 1) [9-10,13-14,16]
-   w61 w61 w61 w61 w61 w61 x41 w61 .   .   a54 a54 .   .   x41 .   | Ben 10 - Alien Force (USA) (En,Fr,De,Es,It) (Rev 1)
-     alternative to Ben 10 - Alien Force (Europe) (En,Fr,De,Es,It) [11-12]
+   w61 w61 w61 w61 w61 w61 x41 w61 w7  w7  a54 a54 w52 w7  x41 w7  | Ben 10 - Alien Force (USA) (En,Fr,De,Es,It) (Rev 1)
+   .   .   .   .   .   .   .   .   a7  a7  a21 a21 .   a7  .   a7  | Ben 10 - Triple Pack (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a21 a21 a7  a7  a21 a21 .   a21 | Ben 10 - Triple Pack (USA) (En,Fr,De,Es,It)
 == ben 10 - alien force - vilgax attacks
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 .   .   x42 a54 x41 a54 | Ben 10 - Alien Force - Vilgax Attacks (Europe) (En,Fr,De,Es,It)
-     alternative to Ben 10 - Alien Force - Vilgax Attacks (USA) (En,Fr,De,Es,It) [9-10,14,16]
-   w61 w61 w61 w61 w61 w61 x41 w61 .   .   a54 a54 .   .   x41 .   | Ben 10 - Alien Force - Vilgax Attacks (USA) (En,Fr,De,Es,It)
-     alternative to Ben 10 - Alien Force - Vilgax Attacks (Europe) (En,Fr,De,Es,It) [11-12]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w7  w7  x42 a54 x41 a54 | Ben 10 - Alien Force - Vilgax Attacks (Europe) (En,Fr,De,Es,It)
+   w61 w61 w61 w61 w61 w61 x41 w61 w7  w7  a54 a54 w57 w7  x41 w7  | Ben 10 - Alien Force - Vilgax Attacks (USA) (En,Fr,De,Es,It)
 == ben 10 - galactic racing
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w54 x42 a54 x41 a54 | Ben 10 - Galactic Racing (Europe) (En,Fr,De,Es,It)
    w61 w61 w61 w61 w61 w61 x41 w61 w54 w54 a54 a54 w57 w54 x41 w54 | Ben 10 - Galactic Racing (USA) (En,Fr,De,Es,It)
@@ -1257,12 +1275,8 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 w61 w61 w61 x41 w61 w54 w54 a54 a54 w57 w54 x41 w54 | Ben 10 - Omniverse (USA) (En,Fr,Es)
 == ben 10 - protector of earth
    w61 w61 w61 x46 x42 w61 x41 w61 a55 a55 a55 x46 x42 a55 x41 a55 | Ben 10 - Protector of Earth (Europe)
-     alternative to Ben 10 - Protector of Earth (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Ben 10 - Protector of Earth (USA) [9-10,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 .   .   x42 a54 x41 a54 | Ben 10 - Protector of Earth (Europe) (En,Fr,De,Es,It)
-     alternative to Ben 10 - Protector of Earth (USA) [9-10,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 .   .   x41 .   | Ben 10 - Protector of Earth (USA)
-     alternative to Ben 10 - Protector of Earth (Europe) (En,Fr,De,Es,It) [11]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w7  w7  x42 a54 x41 a54 | Ben 10 - Protector of Earth (Europe) (En,Fr,De,Es,It)
+   w61 w61 w61 x46 w61 w61 x41 w61 w7  w7  a54 x46 w57 w7  x41 w7  | Ben 10 - Protector of Earth (USA)
 == ben 10 - triple pack
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Ben 10 - Triple Pack (Europe) (En,Fr,De,Es,It)
@@ -1340,23 +1354,21 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | BFF TV (Europe) (En,Fr,De,Es,It)
 == bibi & tina - das grosse unwetter
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Bibi & Tina - Das Grosse Unwetter (Germany)
+   .   .   .   .   .   .   .   .   a4  a4  a4  a25 .   a4  .   a4  | 2 in 1 - Best Of Bibi Und Tina - Die Grosse Schnitzeljagd + Das Grosse Unwetter (Germany)
+   w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Bibi & Tina - Das Grosse Unwetter (Germany)
 == bibi & tina - die grosse schnitzeljagd
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Bibi & Tina - Die Grosse Schnitzeljagd (Europe) (En,Fr,De)
+   w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Bibi & Tina - Die Grosse Schnitzeljagd (Europe) (En,Fr,De)
 == bibi & tina - jump & ride
    w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Bibi & Tina - Jump & Ride (Germany)
 == bibi blocksberg - das gestohlene hexbuch
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Bibi Blocksberg - Das Gestohlene Hexbuch (Germany)
+   .   .   .   .   .   .   .   .   a21 a21 a21 a21 .   a21 .   a21 | 2 in 1 - Best of Bibi Blocksberg - Neustadt im Hex-Chaos + Das Gestohlene Hexbuch (Germany)
+   w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Bibi Blocksberg - Das Gestohlene Hexbuch (Germany)
 == bibi blocksberg - der verhexte schloss-schatz
    w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Bibi Blocksberg - Der Verhexte Schloss-Schatz (Germany)
 == bibi blocksberg - grundschule mathematik - klasse 1 bis 4
    w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Bibi Blocksberg - Grundschule Mathematik - Klasse 1 bis 4 (Germany)
 == bibi blocksberg - neustadt im hex-chaos
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Bibi Blocksberg - Neustadt im Hex-Chaos (Germany)
+   w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Bibi Blocksberg - Neustadt im Hex-Chaos (Germany)
 == bibliothek der klassischen buecher
    w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Bibliothek der Klassischen Buecher (Germany)
 == biene maja, die - klatschmohnwiese in gefahr
@@ -1873,15 +1885,10 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Camping Mama + Papa (Japan)
 == camping mama - outdoor adventures
-   .   .   .   .   .   .   .   .   a60 .   a60 x46 x42 a60 x41 a60 | Camping Mama + Papa (Japan)
-     alternative to Camping Mama - Outdoor Adventures (USA) [9,14,16]
-     alternative to Cooking Mama World - Outdoor Adventures (Europe) (En,Fr,De,Es,It) [11]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   a60 a54 x46 .   .   x41 .   | Camping Mama - Outdoor Adventures (USA)
-     alternative to Camping Mama + Papa (Japan) [10]
-     alternative to Cooking Mama World - Outdoor Adventures (Europe) (En,Fr,De,Es,It) [11]
-   .   .   .   .   .   .   .   .   a54 a60 .   w57 x42 a54 x41 a54 | Cooking Mama World - Outdoor Adventures (Europe) (En,Fr,De,Es,It)
-     alternative to Camping Mama + Papa (Japan) [10]
-     alternative to Camping Mama - Outdoor Adventures (USA) [9,14,16]
+   .   .   .   .   .   .   .   .   a60 w60 a60 x46 x42 a60 x41 a60 | Camping Mama + Papa (Japan)
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 a60 a54 x46 w57 w54 x41 w54 | Camping Mama - Outdoor Adventures (USA)
+   .   .   .   .   .   .   .   .   a54 a60 w54 w57 x42 a54 x41 a54 | Cooking Mama World - Outdoor Adventures (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a21 a4  .   .   a21 a21 .   a21 | Mama's Combo Pack - Volume 1 (USA)
 == candace kane's candy factory
    w61 w61 w61 x46 w61 w61 x41 w61 w57 w57 w57 x46 w57 w57 x41 w57 | Candace Kane's Candy Factory (USA)
 == captain america - super soldier
@@ -2486,53 +2493,31 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Cooking Guide - Can't Decide What to Eat (Europe) (Rev 2)
 == cooking mama
    w61 w61 w61 w61 x42 w61 x41 w61 a51 a51 a51 w51 x42 a51 x41 a51 | Cooking Mama (Europe) (De,Es,It)
-     alternative to Cooking Mama (Europe) (En,Fr,It) [11]
-     alternative to Cooking Mama (Japan) [10]
-     alternative to Cooking Mama (USA) [9,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a60 .   a51 x42 a54 x41 a54 | Cooking Mama (Europe) (En,Fr,It)
-     alternative to Cooking Mama (Japan) [10]
-     alternative to Cooking Mama (USA) [9,14,16]
-   w61 w61 w61 x46 x42 w61 x41 w61 a60 .   a60 x46 x42 a60 x41 a60 | Cooking Mama (Japan)
-     alternative to Cooking Mama (Europe) (En,Fr,It) [11]
-     alternative to Cooking Mama (USA) [9,14,16]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a60 w54 a51 x42 a54 x41 a54 | Cooking Mama (Europe) (En,Fr,It)
+   w61 w61 w61 x46 x42 w61 x41 w61 a60 w60 a60 x46 x42 a60 x41 a60 | Cooking Mama (Japan)
    w61 w61 x45 x46 x42 w61 x41 w61 a60 a60 x45 x46 x42 a60 x41 a60 | Cooking Mama (Korea)
-     alternative to Cooking Mama (Japan) [10]
-     alternative to Cooking Mama (USA) [9,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   a60 a54 x46 .   .   x41 .   | Cooking Mama (USA)
-     alternative to Cooking Mama (Europe) (En,Fr,It) [11]
-     alternative to Cooking Mama (Japan) [10]
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 a60 a54 x46 w57 w54 x41 w54 | Cooking Mama (USA)
+   .   .   .   .   .   .   .   .   .   .   a25 .   .   .   .   .   | Mama's Combo Pack - Volume 1 (USA)
 == cooking mama 2
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Cooking Mama 2 (Japan)
 == cooking mama 2 - dinner with friends
-   .   .   .   .   .   .   .   .   a60 .   a60 x46 x42 a60 x41 a60 | Cooking Mama 2 (Japan)
-     alternative to Cooking Mama 2 - Dinner with Friends (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Cooking Mama 2 - Dinner with Friends (USA) [9,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a60 .   .   x42 a54 x41 a54 | Cooking Mama 2 - Dinner with Friends (Europe) (En,Fr,De,Es,It)
-     alternative to Cooking Mama 2 (Japan) [10]
-     alternative to Cooking Mama 2 - Dinner with Friends (USA) [9,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   a60 a54 x46 .   .   x41 .   | Cooking Mama 2 - Dinner with Friends (USA)
-     alternative to Cooking Mama 2 (Japan) [10]
-     alternative to Cooking Mama 2 - Dinner with Friends (Europe) (En,Fr,De,Es,It) [11]
+   .   .   .   .   .   .   .   .   a60 w60 a60 x46 x42 a60 x41 a60 | Cooking Mama 2 (Japan)
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a60 w7  w57 x42 a54 x41 a54 | Cooking Mama 2 - Dinner with Friends (Europe) (En,Fr,De,Es,It)
+   w61 w61 w61 x46 w61 w61 x41 w61 w7  a60 a54 x46 w57 w7  x41 w7  | Cooking Mama 2 - Dinner with Friends (USA)
+   .   .   .   .   .   .   .   .   a7  a4  a21 a21 .   a7  .   a7  | Cooking Mama World - Combo Pack - Volume 1 (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a21 a4  a7  .   a21 a21 .   a21 | Mama's Combo Pack - Volume 2 (USA)
 == cooking mama 3
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Cooking Mama 3 (Europe) (En,Fr,De,Es,It)
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Cooking Mama 3 (Europe) (En,Sv,No,Da,Fi)
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Cooking Mama 3 (Japan)
 == cooking mama 3 - shop & chop
-   .   .   .   .   .   .   .   .   a54 a60 .   .   x42 a54 x41 a54 | Cooking Mama 3 (Europe) (En,Fr,De,Es,It)
-     alternative to Cooking Mama 3 (Japan) [10]
-     alternative to Cooking Mama 3 - Shop & Chop (USA) [9,14,16]
+   .   .   .   .   .   .   .   .   a54 a60 w54 w57 x42 a54 x41 a54 | Cooking Mama 3 (Europe) (En,Fr,De,Es,It)
    .   .   .   .   .   .   .   .   a55 a55 a55 x46 x42 a55 x41 a55 | Cooking Mama 3 (Europe) (En,Sv,No,Da,Fi)
-     alternative to Cooking Mama 3 (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Cooking Mama 3 (Japan) [10]
-     alternative to Cooking Mama 3 - Shop & Chop (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a60 .   a60 x46 x42 a60 x41 a60 | Cooking Mama 3 (Japan)
-     alternative to Cooking Mama 3 (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Cooking Mama 3 - Shop & Chop (USA) [9,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   a60 a54 x46 w57 .   x41 .   | Cooking Mama 3 - Shop & Chop (USA)
-     alternative to Cooking Mama 3 (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Cooking Mama 3 (Japan) [10]
+   .   .   .   .   .   .   .   .   a60 w60 a60 x46 x42 a60 x41 a60 | Cooking Mama 3 (Japan)
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 a60 a54 x46 w57 w54 x41 w54 | Cooking Mama 3 - Shop & Chop (USA)
+   .   .   .   .   .   .   .   .   a7  a4  a21 a21 .   a7  .   a7  | Cooking Mama World - Combo Pack - Volume 2 (Europe) (En,Fr,De,Es,It)
 == cooking mama world - combo pack - volume 1
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Cooking Mama World - Combo Pack - Volume 1 (Europe) (En,Fr,De,Es,It)
@@ -2590,13 +2575,13 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == countdown - the game
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Countdown - The Game (Europe)
 == cradle of rome
-   w61 w61 w61 w61 w61 w61 x41 w61 .   .   a54 a54 w57 .   x41 .   | Cradle of Rome (USA) (En,Fr,De,Es,It,Nl)
-     alternative to Jewel Master - Cradle of Rome (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-   .   .   .   .   .   .   .   .   a54 a54 .   .   x42 a54 x41 a54 | Jewel Master - Cradle of Rome (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Cradle of Rome (USA) (En,Fr,De,Es,It,Nl) [9-10,14,16]
+   .   .   .   .   .   .   .   .   a25 a25 a21 a21 .   a25 .   a25 | 2 Games in 1 - Jewel Master - Cradle of Egypt + Mahjongg - Ancient Egypt (Europe) (En,Fr,De,Es,It,Nl)
+   .   .   .   .   .   .   .   .   a7  a7  .   .   .   a7  .   a7  | 3 Game Pack! - Cradle of Rome + Cradle of Athena + Cradle of Egypt (Europe) (En,Fr,De,Es,It,Nl)
+   .   .   .   .   .   .   .   .   a7  a7  .   .   .   a7  .   a7  | 3 Game Pack! - Cradle of Rome + Cradle of Athena + Cradle of Egypt (Europe) (En,Fr,De,Es,It,Nl) (Rev 1)
+   w61 w61 w61 w61 w61 w61 x41 w61 w54 w54 a54 a54 w57 w54 x41 w54 | Cradle of Rome (USA) (En,Fr,De,Es,It,Nl)
+   .   .   .   .   .   .   .   .   a7  a7  .   .   .   a7  .   a7  | Double Pack - Cradle of Rome + Cradle of Egypt (Europe) (En,Fr,Es,It)
+   .   .   .   .   .   .   .   .   a54 a54 w54 w54 x42 a54 x41 a54 | Jewel Master - Cradle of Rome (Europe) (En,Fr,De,Es,It,Nl)
    .   .   .   .   .   .   .   .   a54 a54 a54 a54 x42 a54 x41 a54 | Jewel Master - Cradle of Rome (Germany) (En,Fr,De,Es,It,Nl)
-     alternative to Cradle of Rome (USA) (En,Fr,De,Es,It,Nl) [9-10,14,16]
-     alternative to Jewel Master - Cradle of Rome (Europe) (En,Fr,De,Es,It,Nl) [11-12]
 == cradle of rome 2
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Cradle of Rome 2 (Europe) (En,Fr,Es,It)
@@ -2604,15 +2589,9 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Craft Mama (Japan)
 == crafting mama
-   .   .   .   .   .   .   .   .   a54 a60 .   .   x42 a54 x41 a54 | Cooking Mama World - Hobbies & Fun (Europe) (En,Fr,De,Es,It)
-     alternative to Craft Mama (Japan) [10]
-     alternative to Crafting Mama (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a60 .   a60 x46 x42 a60 x41 a60 | Craft Mama (Japan)
-     alternative to Cooking Mama World - Hobbies & Fun (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Crafting Mama (USA) [9,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   a60 a54 x46 .   .   x41 .   | Crafting Mama (USA)
-     alternative to Cooking Mama World - Hobbies & Fun (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Craft Mama (Japan) [10]
+   .   .   .   .   .   .   .   .   a54 a60 w7  w57 x42 a54 x41 a54 | Cooking Mama World - Hobbies & Fun (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a60 w60 a60 x46 x42 a60 x41 a60 | Craft Mama (Japan)
+   w61 w61 w61 x46 w61 w61 x41 w61 w7  a60 a54 x46 w57 w7  x41 w7  | Crafting Mama (USA)
 == crash - mind over mutant
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w54 x42 a54 x41 a54 | Crash - Mind over Mutant (Europe) (En,Fr,De,Es,It,Nl)
    w61 w61 w61 w61 w61 w61 x41 w61 w54 w54 a54 a54 w57 w54 x41 w54 | Crash - Mind over Mutant (USA) (En,Fr,De,Es,It,Nl)
@@ -2692,10 +2671,9 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == croket! ds - tenkuu no yuusha-tachi
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Croket! DS - Tenkuu no Yuusha-tachi (Japan)
 == croods, the - prehistoric party!
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 .   .   x42 a54 x41 a54 | Croods, The - Prehistoric Party! (Europe) (En,Fr,De,Es,It)
-     alternative to Croods, The - Prehistoric Party! (USA) (En,Fr,Es) [9-10,14,16]
-   w61 w61 w61 w61 w61 w61 x41 w61 .   .   a54 a54 w57 .   x41 .   | Croods, The - Prehistoric Party! (USA) (En,Fr,Es)
-     alternative to Croods, The - Prehistoric Party! (Europe) (En,Fr,De,Es,It) [11-12]
+   .   .   .   .   .   .   .   .   a25 a25 a21 a21 .   a25 .   a25 | Combo Pack - Madagascar 3 - Europe's Most Wanted + Croods, The - Prehistoric Party! (Europe) (En,Fr,De,Es,It)
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w54 x42 a54 x41 a54 | Croods, The - Prehistoric Party! (Europe) (En,Fr,De,Es,It)
+   w61 w61 w61 w61 w61 w61 x41 w61 w54 w54 a54 a54 w57 w54 x41 w54 | Croods, The - Prehistoric Party! (USA) (En,Fr,Es)
 == cross treasures
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Cross Treasures (Japan)
 == crossword de manabou! chiri - rekishi
@@ -3017,8 +2995,8 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
      alternative to Dig Dug - Digging Strike (Europe) [11]
      alternative to Dig Dug - Digging Strike (Japan) [10]
 == digging for dinosaurs
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   .   x46 .   .   x41 .   | Digging For Dinosaurs (USA)
+   .   .   .   .   .   .   .   .   a21 a21 a21 .   a21 a21 .   a21 | 2 Game Pack - My Amusement Park + Digging for Dinosaurs (USA)
+   w61 w61 w61 x46 w61 w61 x41 w61 w57 w57 w57 x46 w57 w57 x41 w57 | Digging For Dinosaurs (USA)
 == digimon championship
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Digimon Championship (Japan)
@@ -3115,12 +3093,9 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a60 w60 a60 x46 x42 a60 x41 a60 | Makai Senki Disgaea - Makai no Ouji to Akai Tsuki (Japan)
 == disney big hero 6 - battle in the bay
    w61 w61 w61 x46 x42 w61 x41 w61 a55 a55 a55 x46 x42 a55 x41 a55 | Disney Big Hero 6 - Battle in the Bay (Europe)
-     alternative to Disney Big Hero 6 - Battle in the Bay (Europe) (En,Fr,De,Es,It,Nl) [11]
-     alternative to Disney Big Hero 6 - Battle in the Bay (USA) [9-10,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 .   w57 x42 a54 x41 a54 | Disney Big Hero 6 - Battle in the Bay (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Disney Big Hero 6 - Battle in the Bay (USA) [9-10,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 .   .   x41 .   | Disney Big Hero 6 - Battle in the Bay (USA)
-     alternative to Disney Big Hero 6 - Battle in the Bay (Europe) (En,Fr,De,Es,It,Nl) [11]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w57 x42 a54 x41 a54 | Disney Big Hero 6 - Battle in the Bay (Europe) (En,Fr,De,Es,It,Nl)
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Disney Big Hero 6 - Battle in the Bay (USA)
+   .   .   .   .   .   .   .   .   a21 a21 a25 .   a21 a21 .   a21 | Disney Two Pack - Frozen Olaf's Quest + Big Hero 6 - Battle in the Bay (USA)
 == disney friends
    w61 w61 w61 x46 x42 w61 x41 w61 a54 a60 w54 x46 x42 a54 x41 a54 | Disney Friends (Europe)
    w61 w61 w61 w61 x42 w61 x41 w61 a60 a60 a60 a60 x42 a60 x41 a60 | Disney Friends (Germany)
@@ -3132,12 +3107,8 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a60 a60 x45 w60 x42 a60 x41 a60 | Tus Amigos de Disney (Spain)
 == disney frozen - olaf's quest
    w61 w61 w61 x46 x42 w61 x41 w61 a55 a55 a55 x46 x42 a55 x41 a55 | Disney Frozen - Olaf's Quest (Europe)
-     alternative to Disney Frozen - Olaf's Quest (Europe) (En,Fr,De,It,Nl) [11]
-     alternative to Disney Frozen - Olaf's Quest (USA) [9-10,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 .   w57 x42 a54 x41 a54 | Disney Frozen - Olaf's Quest (Europe) (En,Fr,De,It,Nl)
-     alternative to Disney Frozen - Olaf's Quest (USA) [9-10,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 .   .   x41 .   | Disney Frozen - Olaf's Quest (USA)
-     alternative to Disney Frozen - Olaf's Quest (Europe) (En,Fr,De,It,Nl) [11]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w57 x42 a54 x41 a54 | Disney Frozen - Olaf's Quest (Europe) (En,Fr,De,It,Nl)
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Disney Frozen - Olaf's Quest (USA)
 == disney planes
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w54 x42 a54 x41 a54 | Disney Planes (Europe) (En,Es)
    w61 w61 w61 x46 x42 w61 x41 w61 a55 a55 a55 x46 x42 a55 x41 a55 | Disney Planes (Europe) (En,Sv,Fi)
@@ -3503,34 +3474,16 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == dramatic dungeon - sakura taisen - kimi aru ga tame
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Dramatic Dungeon - Sakura Taisen - Kimi Aru ga Tame (Japan)
 == drawn to life
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a60 .   .   x42 a54 x41 a54 | Drawn to Life (Europe) (En,Fr,De,Es,It)
-     alternative to Drawn to Life (USA) (En,Fr) [9,14,16]
-     alternative to Drawn to Life - Kamisama no Marionette (Japan) [10]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   a60 a54 x46 .   .   x41 .   | Drawn to Life (USA) (En,Fr)
-     alternative to Drawn to Life (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Drawn to Life - Kamisama no Marionette (Japan) [10]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a60 w7  w7  x42 a54 x41 a54 | Drawn to Life (Europe) (En,Fr,De,Es,It)
+   w61 w61 w61 x46 w61 w61 x41 w61 w7  a60 a54 x46 w57 w7  x41 w7  | Drawn to Life (USA) (En,Fr)
    w61 w61 w61 x46 x42 w61 x41 x33 a52 a52 a52 x46 x42 a52 x41 x33 | Drawn to Life (Unknown) (Beta 1)
-     alternative to Drawn to Life (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Drawn to Life (USA) (En,Fr) [9,14]
-     alternative to Drawn to Life - Kamisama no Marionette (Japan) [10]
    w61 w61 w61 x46 x42 w61 x41 x33 a60 a60 a60 x46 x42 a60 x41 x33 | Drawn to Life (Unknown) (Beta 2)
-     alternative to Drawn to Life (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Drawn to Life (USA) (En,Fr) [9,14]
-     alternative to Drawn to Life - Kamisama no Marionette (Japan) [10]
    w61 w61 w61 x46 x42 w61 x41 x33 a48 a48 a48 x46 x42 a48 x41 x33 | Drawn to Life (Unknown) (Beta) (Milestone 5)
-     alternative to Drawn to Life (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Drawn to Life (USA) (En,Fr) [9,14]
-     alternative to Drawn to Life - Kamisama no Marionette (Japan) [10]
    w61 w61 w61 x46 x42 w61 x41 x33 a48 a48 a48 x46 x42 a48 x41 x33 | Drawn to Life (Unknown) (Beta) (Milestone 6, 2006-12-04)
-     alternative to Drawn to Life (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Drawn to Life (USA) (En,Fr) [9,14]
-     alternative to Drawn to Life - Kamisama no Marionette (Japan) [10]
-   .   .   .   .   .   .   .   .   a60 .   a60 x46 x42 a60 x41 a60 | Drawn to Life - Kamisama no Marionette (Japan)
-     alternative to Drawn to Life (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Drawn to Life (USA) (En,Fr) [9,14,16]
+   .   .   .   .   .   .   .   .   a7  a7  a21 a21 .   a7  .   a7  | Drawn to Life - Collection (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a21 a21 a7  a7  a21 a21 .   a21 | Drawn to Life - Collection (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a60 w60 a60 x46 x42 a60 x41 a60 | Drawn to Life - Kamisama no Marionette (Japan)
    .   .   .   .   .   .   .   .   a60 a60 x45 x46 x42 a60 x41 a60 | Geuryeora, Touch! - Naega Mandeuneun Sesang (Korea)
-     alternative to Drawn to Life (USA) (En,Fr) [9,14,16]
-     alternative to Drawn to Life - Kamisama no Marionette (Japan) [10]
 == drawn to life - collection
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Drawn to Life - Collection (Europe) (En,Fr,De,Es,It)
@@ -3549,13 +3502,9 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Drawn to Life - SpongeBob SquarePants Edition (USA) (En,Fr)
    .   .   .   .   .   .   .   .   a60 a60 x45 x46 x42 a60 x41 a60 | Geuryeora, Touch! - SpongeBob Nemobaji (Korea)
 == drawn to life - the next chapter
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 .   .   x42 a54 x41 a54 | Drawn to Life - The Next Chapter (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Drawn to Life - The Next Chapter (USA) (En,Fr) (Rev 1) [9-10,14,16]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w7  w7  x42 a54 x41 a54 | Drawn to Life - The Next Chapter (Europe) (En,Fr,De,Es,It,Nl)
    w61 w61 w61 x46 w61 w61 x41 w61 a52 a52 a52 x46 a52 a52 x41 a52 | Drawn to Life - The Next Chapter (USA) (En,Fr)
-     alternative to Drawn to Life - The Next Chapter (Europe) (En,Fr,De,Es,It,Nl) [11]
-     alternative to Drawn to Life - The Next Chapter (USA) (En,Fr) (Rev 1) [9-10,13-14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 .   .   x41 .   | Drawn to Life - The Next Chapter (USA) (En,Fr) (Rev 1)
-     alternative to Drawn to Life - The Next Chapter (Europe) (En,Fr,De,Es,It,Nl) [11]
+   w61 w61 w61 x46 w61 w61 x41 w61 w7  w7  a54 x46 w52 w7  x41 w7  | Drawn to Life - The Next Chapter (USA) (En,Fr) (Rev 1)
 == dream chronicles
    w61 w61 w61 x46 w61 w61 x41 w61 w57 w57 w57 x46 w57 w57 x41 w57 | Dream Chronicles (USA)
 == dream dancer
@@ -4047,8 +3996,8 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == englisch entdecken mit ben & bella
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Englisch Entdecken Mit Ben & Bella (Germany) (En)
 == englisch macht spass - eine reise nach london!
-   w61 w61 w61 w61 x42 w61 x41 w61 a3  a3  a3  a24 x42 a3  x41 a3  | Englisch Macht Spass - Eine Reise nach London! (Germany)
-     alternative to 2 in 1 - Music for Kids + Englisch Macht Spass - Eine Reise nach London! (Europe) (En,De) (NDSi Enhanced) [9-12,14,16]
+   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
+   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Englisch Macht Spass - Eine Reise nach London! (Germany)
 == english buddy
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    .   .   .   .   .   .   .   .   a55 a55 a55 a51 x42 a55 x41 a55 | Englisch Buddy (Europe) (En,Fr,De)
@@ -4389,11 +4338,9 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w57 x42 a54 x41 a54 | Fish Tycoon (Europe) (En,Fr,De,Es,It)
    w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Fish Tycoon (USA)
 == fishdom
-   w61 w61 w61 w61 x42 w61 x41 w61 a55 a55 a60 .   x42 a55 x41 a55 | Fishdom (Europe) (Fr,De)
-     alternative to Fishdom (USA) (En,Fr) [9-11,14,16]
+   w61 w61 w61 w61 x42 w61 x41 w61 a55 a55 a60 w57 x42 a55 x41 a55 | Fishdom (Europe) (Fr,De)
    w61 w61 w61 x46 x42 w61 x41 w61 a60 a60 a51 x46 x42 a60 x41 a60 | Fishdom (Europe) (Fr,Nl)
-     alternative to Fishdom (USA) (En,Fr) [9-11,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   .   x46 w57 .   x41 .   | Fishdom (USA) (En,Fr)
+   w61 w61 w61 x46 w61 w61 x41 w61 w60 w60 w60 x46 w57 w8  x41 w60 | Fishdom (USA) (En,Fr)
 == fit for fun - der interaktive ernaehrungscoach
    w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Fit for Fun - Der Interaktive Ernaehrungscoach (Germany)
 == fix it
@@ -4694,18 +4641,9 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 x42 w61 x41 w61 a54 a54 a54 x46 x42 a54 x41 a54 | Gardening Guide - How to Get Green Fingers (United Kingdom)
 == gardening mama
    w61 w61 w61 w61 x42 w61 x41 w61 a52 a52 a52 a52 x42 a52 x41 a52 | Gardening Mama (Europe) (En,Fr,De,Es,It)
-     alternative to Gardening Mama (Europe) (En,Fr,De,Es,It) (Rev 1) [11-12]
-     alternative to Gardening Mama (Japan) [10]
-     alternative to Gardening Mama (USA) [9,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a60 .   .   x42 a54 x41 a54 | Gardening Mama (Europe) (En,Fr,De,Es,It) (Rev 1)
-     alternative to Gardening Mama (Japan) [10]
-     alternative to Gardening Mama (USA) [9,14,16]
-   w61 w61 w61 x46 x42 w61 x41 w61 a60 .   a60 x46 x42 a60 x41 a60 | Gardening Mama (Japan)
-     alternative to Gardening Mama (Europe) (En,Fr,De,Es,It) (Rev 1) [11]
-     alternative to Gardening Mama (USA) [9,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   a60 a54 x46 w57 .   x41 .   | Gardening Mama (USA)
-     alternative to Gardening Mama (Europe) (En,Fr,De,Es,It) (Rev 1) [11]
-     alternative to Gardening Mama (Japan) [10]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a60 w54 w52 x42 a54 x41 a54 | Gardening Mama (Europe) (En,Fr,De,Es,It) (Rev 1)
+   w61 w61 w61 x46 x42 w61 x41 w61 a60 w60 a60 x46 x42 a60 x41 a60 | Gardening Mama (Japan)
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 a60 a54 x46 w57 w54 x41 w54 | Gardening Mama (USA)
 == gardenscapes
    w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Gardenscapes (Europe) (En,Fr,De,Nl)
 == garfield - a tail of two kitties
@@ -5563,19 +5501,11 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == horrid henry's horrid adventure
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Horrid Henry's Horrid Adventure (Europe)
 == horse & foal - my riding stables
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   a55 .   x42 .   x41 .   | Horse & Foal - My Riding Stables (Europe) (En,Es,It)
-     alternative to Horse & Foal - My Riding Stables (Europe) (En,Fr,De) [11]
-   w61 w61 w61 w61 x42 w61 x41 w61 a55 a55 .   a51 x42 a55 x41 a55 | Horse & Foal - My Riding Stables (Europe) (En,Fr,De)
-     alternative to Horse & Foal - My Riding Stables (Europe) (En,Es,It) [9-10,12,14,16]
+   w61 w61 w61 w61 x42 w61 x41 w61 w12 w12 a55 w11 x42 w12 x41 w12 | Horse & Foal - My Riding Stables (Europe) (En,Es,It)
+   w61 w61 w61 w61 x42 w61 x41 w61 a55 a55 w12 a51 x42 a55 x41 a55 | Horse & Foal - My Riding Stables (Europe) (En,Fr,De)
    w61 w61 w61 x46 x42 w61 x41 w61 a55 a55 a55 x46 x42 a55 x41 a55 | Horse & Foal - My Riding Stables (Europe) (En,Sv,No,Da)
-     alternative to Horse & Foal - My Riding Stables (Europe) (En,Es,It) [9-10,14,16]
-     alternative to Horse & Foal - My Riding Stables (Europe) (En,Fr,De) [11]
    .   .   .   .   .   .   .   .   a54 a54 a54 x46 x42 a54 x41 a54 | Paard & Pony - Mijn Paardenstal (Netherlands) (En,Nl)
-     alternative to Horse & Foal - My Riding Stables (Europe) (En,Es,It) [9-10,14,16]
-     alternative to Horse & Foal - My Riding Stables (Europe) (En,Fr,De) [11]
    .   .   .   .   .   .   .   .   a48 a48 a48 a51 x42 a48 x41 a48 | Pferd & Pony - Mein Gestuet (Europe) (En,De)
-     alternative to Horse & Foal - My Riding Stables (Europe) (En,Es,It) [9-10,12,14,16]
-     alternative to Horse & Foal - My Riding Stables (Europe) (En,Fr,De) [11]
 == horse life
    w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Horse Life (USA)
    .   .   .   .   .   .   .   .   a54 a54 w54 w57 x42 a54 x41 a54 | Whitaker Family Presents, The - Horse Life (Europe) (En,Fr,De,Es,It,Nl,Pt)
@@ -5736,16 +5666,11 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == i heart geeks
    w61 w61 w61 x46 w61 w61 x41 w61 w57 w57 w57 x46 w57 w57 x41 w57 | I Heart Geeks (USA)
 == i love babies
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 w57 .   x41 .   | I Love Babies (USA)
-     alternative to My Little Baby (Europe) (En,Fr,De,Es) [11]
+   .   .   .   .   .   .   .   .   a21 a21 .   .   .   a21 .   a21 | 2 in 1 - My Little Baby + My Boyfriend (Europe) (En,Fr,De,Es,It,Sv,No,Da)
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | I Love Babies (USA)
    .   .   .   .   .   .   .   .   a55 a55 a55 a51 x42 a55 x41 a55 | My Little Baby (Europe) (En,De)
-     alternative to I Love Babies (USA) [9-10,14,16]
-     alternative to My Little Baby (Europe) (En,Fr,De,Es) [11-12]
-   .   .   .   .   .   .   .   .   a54 a54 .   .   x42 a54 x41 a54 | My Little Baby (Europe) (En,Fr,De,Es)
-     alternative to I Love Babies (USA) [9-10,14,16]
+   .   .   .   .   .   .   .   .   a54 a54 w54 w51 x42 a54 x41 a54 | My Little Baby (Europe) (En,Fr,De,Es)
    .   .   .   .   .   .   .   .   a49 a49 a49 a49 x42 a49 x41 x38 | My Little Baby (Europe) (En,Fr,De,Es,It,Sv,No,Da) [b]
-     alternative to I Love Babies (USA) [9-10,14]
-     alternative to My Little Baby (Europe) (En,Fr,De,Es) [11-12]
 == i love beauty - hollywood makeover
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w54 x42 a54 x41 a54 | I Love Beauty - Hollywood Makeover (Europe) (En,Fr,De,Es,It)
    w61 w61 w61 w61 w61 w61 x41 w61 w54 w54 a54 a54 w57 w54 x41 w54 | I Love Beauty - Hollywood Makeover (USA) (En,Fr,Es)
@@ -5770,21 +5695,15 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 w61 w61 x41 w61 w57 w57 w57 x46 w57 w57 x41 w57 | I Spy - Castle (USA)
 == i spy - fun house
    w61 w61 w61 x46 x42 w61 x41 w61 a55 a55 a55 x46 x42 a55 x41 a55 | I Spy - Fun House (Europe)
-     alternative to I Spy - Fun House (Europe) (En,Fr,De,It,Nl) [11]
-     alternative to I Spy - Fun House (USA) [9-10,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 .   w57 x42 a54 x41 a54 | I Spy - Fun House (Europe) (En,Fr,De,It,Nl)
-     alternative to I Spy - Fun House (USA) [9-10,14,16]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w57 x42 a54 x41 a54 | I Spy - Fun House (Europe) (En,Fr,De,It,Nl)
    w61 w61 w61 x46 x42 w61 x41 x34 a49 a49 a49 x46 x42 a49 x41 x34 | I Spy - Fun House (Europe) (En,Ru) (Beta)
-     alternative to I Spy - Fun House (Europe) (En,Fr,De,It,Nl) [11]
-     alternative to I Spy - Fun House (USA) [9-10,14]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 .   .   x41 .   | I Spy - Fun House (USA)
-     alternative to I Spy - Fun House (Europe) (En,Fr,De,It,Nl) [11]
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | I Spy - Fun House (USA)
+   .   .   .   .   .   .   .   .   a21 a21 a25 .   a21 a21 .   a21 | I Spy - Game Pack (USA)
 == i spy - game pack
    g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
    w61 w61 w61 x46 w61 w61 x41 w61 .   .   .   x46 .   .   x41 .   | I Spy - Game Pack (USA)
 == i spy - universe
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   .   x46 .   .   x41 .   | I Spy - Universe (USA)
+   w61 w61 w61 x46 w61 w61 x41 w61 w57 w57 w57 x46 w57 w57 x41 w57 | I Spy - Universe (USA)
 == i'm a celebrity - get me out of here!
    w61 w61 w61 x46 x42 w61 x41 w61 w60 w60 w60 x46 x42 w60 x41 w60 | I'm a Celebrity - Get Me Out of Here! (Europe)
    .   .   .   .   .   .   .   .   a60 a60 a60 x46 x42 a60 x41 a60 | Koh-Lanta - Survie dans la Jungle! (France)
@@ -6330,15 +6249,13 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 x42 w61 x41 w61 w51 w51 w51 x46 x42 w51 x41 w51 | Jewel Link - Arctic Quest (Europe)
    .   .   .   .   .   .   .   .   a51 a51 a51 w57 x42 a51 x41 a51 | Yeti Quest - Crazy Penguins (Europe) (Fr,De,Nl)
 == jewel link - atlantic quest
-   .   .   .   .   .   .   .   .   a51 a51 a51 a1  x42 x40 x41 a51 | Atlantic Quest (Europe) (Fr,De)
-     alternative to Atlantic Quest + Galactic Quest (Europe) (En,Fr,De,Nl) [12]
-     alternative to Jewel Link - Atlantic Quest (Europe) [9-11,16]
-   w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   x46 x42 .   x41 .   | Jewel Link - Atlantic Quest (Europe)
+   .   .   .   .   .   .   .   .   a51 a51 a51 .   x42 x40 x41 a51 | Atlantic Quest (Europe) (Fr,De)
+   .   .   .   .   .   .   .   .   a21 a21 a21 .   .   .   .   a21 | Atlantic Quest + Galactic Quest (Europe) (En,Fr,De,Nl)
+   w61 w61 w61 x46 x42 w61 x41 w61 w22 w22 w22 x46 x42 w51 x41 w22 | Jewel Link - Atlantic Quest (Europe)
    w61 w61 w61 x46 x42 w61 x41 w61 a51 a51 a51 x46 x42 a51 x41 a51 | Jewel Link - Atlantic Quest (Europe) (Fr,Nl)
-     alternative to Jewel Link - Atlantic Quest (Europe) [9-11,14,16]
+   .   .   .   .   .   .   .   .   a22 a22 a22 .   .   a2  .   a22 | Jewel Link Double Pack (Europe)
 == jewel link - galactic quest
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   x46 x42 .   x41 .   | Jewel Link - Galactic Quest (Europe)
+   w61 w61 w61 x46 x42 w61 x41 w61 w22 w22 w22 x46 x42 w57 x41 w22 | Jewel Link - Galactic Quest (Europe)
 == jewel link - legends of atlantis
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Jewel Link - Legends of Atlantis (Europe) (En,Fr,Es,It)
@@ -6359,16 +6276,13 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a48 a48 a48 a48 x42 a48 x41 a48 | Jewel Link - Legends of Atlantis (Europe) (En,Fr,Es,It)
    w61 w61 w61 w61 x42 w61 x41 w61 w48 w48 w48 w48 x42 w48 x41 w48 | Jewel Master - Atlantis (Europe) (En,Fr,De,Es,It,Nl)
 == jewel master - cradle of athena
+   .   .   .   .   .   .   .   .   .   .   a21 a21 .   .   .   .   | 3 Game Pack! - Cradle of Rome + Cradle of Athena + Cradle of Egypt (Europe) (En,Fr,De,Es,It,Nl)
+   .   .   .   .   .   .   .   .   .   .   a21 a21 .   .   .   .   | 3 Game Pack! - Cradle of Rome + Cradle of Athena + Cradle of Egypt (Europe) (En,Fr,De,Es,It,Nl) (Rev 1)
    .   .   .   .   .   .   .   .   a55 a55 a55 a55 x42 a55 x41 a55 | Jewel Link Chronicles - Legend of Athena (Europe) (En,Fr,Es,It)
-     alternative to Jewel Master - Cradle of Athena (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-     alternative to Jewel Master - Cradle of Athena (USA) (En,Fr,Es) (Rev 1) [9-10,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 .   .   x42 a54 x41 a54 | Jewel Master - Cradle of Athena (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Jewel Master - Cradle of Athena (USA) (En,Fr,Es) (Rev 1) [9-10,14,16]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w7  w7  x42 a54 x41 a54 | Jewel Master - Cradle of Athena (Europe) (En,Fr,De,Es,It,Nl)
    w61 w61 w61 w61 w61 w61 x41 w61 a52 a52 a52 a52 a52 a52 x41 a52 | Jewel Master - Cradle of Athena (USA) (En,Fr,Es)
-     alternative to Jewel Master - Cradle of Athena (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-     alternative to Jewel Master - Cradle of Athena (USA) (En,Fr,Es) (Rev 1) [9-10,13-14,16]
-   w61 w61 w61 w61 w61 w61 x41 w61 .   .   a54 a54 .   .   x41 .   | Jewel Master - Cradle of Athena (USA) (En,Fr,Es) (Rev 1)
-     alternative to Jewel Master - Cradle of Athena (Europe) (En,Fr,De,Es,It,Nl) [11-12]
+   w61 w61 w61 w61 w61 w61 x41 w61 w7  w7  a54 a54 w52 w7  x41 w7  | Jewel Master - Cradle of Athena (USA) (En,Fr,Es) (Rev 1)
+   .   .   .   .   .   .   .   .   a21 a21 a7  a7  a21 a21 .   a21 | Jewel Master Collection (USA) (En,Fr,Es)
 == jewel master - cradle of egypt
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Jewel Master - Cradle of Egypt (Europe) (En,Fr,De,Es,It,Nl)
@@ -6390,24 +6304,17 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w54 x42 a54 x41 a54 | Jewel Master - Cradle of Rome 2 (Europe) (En,Fr,De,Es,It,Nl)
    w61 w61 w61 w61 w61 w61 x41 w61 w54 w54 a54 a54 w57 w54 x41 w54 | Jewel Master - Cradle of Rome 2 (USA) (En,Fr,Es)
 == jewel master - egypt
-   .   .   .   .   .   .   .   .   a54 a54 .   .   x42 a54 x41 a54 | Jewel Master - Cradle of Egypt (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Jewel Master - Egypt (USA) (En,Fr,Es) [9-10,14,16]
+   .   .   .   .   .   .   .   .   .   .   a21 a21 .   .   .   .   | Double Pack - Cradle of Rome + Cradle of Egypt (Europe) (En,Fr,Es,It)
+   .   .   .   .   .   .   .   .   a54 a54 w7  w7  x42 a54 x41 a54 | Jewel Master - Cradle of Egypt (Europe) (En,Fr,De,Es,It,Nl)
    .   .   .   .   .   .   .   .   a55 a55 a55 a55 x42 a55 x41 a55 | Jewel Master - Cradle of Egypt (Europe) (En,Fr,Es,It)
-     alternative to Jewel Master - Cradle of Egypt (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-     alternative to Jewel Master - Egypt (USA) (En,Fr,Es) [9-10,14,16]
-   w61 w61 w61 w61 w61 w61 x41 w61 .   .   a54 a54 .   .   x41 .   | Jewel Master - Egypt (USA) (En,Fr,Es)
-     alternative to Jewel Master - Cradle of Egypt (Europe) (En,Fr,De,Es,It,Nl) [11-12]
+   w61 w61 w61 w61 w61 w61 x41 w61 w7  w7  a54 a54 w57 w7  x41 w7  | Jewel Master - Egypt (USA) (En,Fr,Es)
 == jewel master collection
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   g   .   |
    w61 w61 w61 w61 w61 w61 x41 w61 .   .   .   .   .   .   x41 .   | Jewel Master Collection (USA) (En,Fr,Es)
 == jewel match
-   w61 w61 w61 w61 x42 w61 x41 w61 a55 a55 .   .   x42 a55 x41 a55 | Jewel Match (Europe) (En,Fr,De)
-     alternative to Jewel Match (USA) (En,Fr) [9-10,14,16]
+   w61 w61 w61 w61 x42 w61 x41 w61 a55 a55 w54 w57 x42 a55 x41 a55 | Jewel Match (Europe) (En,Fr,De)
    w61 w61 w61 x46 x42 w61 x41 w61 a54 a54 a55 x46 x42 a54 x41 a54 | Jewel Match (Europe) (En,Fr,Nl)
-     alternative to Jewel Match (Europe) (En,Fr,De) [11]
-     alternative to Jewel Match (USA) (En,Fr) [9-10,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 w57 .   x41 .   | Jewel Match (USA) (En,Fr)
-     alternative to Jewel Match (Europe) (En,Fr,De) [11]
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Jewel Match (USA) (En,Fr)
 == jewel match & 4 elements
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Jewel Match & 4 Elements (Germany) (Fr,De)
@@ -6416,17 +6323,15 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == jewel match 3
    w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Jewel Match 3 (Europe) (En,Fr,De,Nl)
 == jewel quest - expeditions
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 a55 .   x42 a54 x41 a54 | Jewel Quest - Expeditions (Europe) (En,Es,It)
-     alternative to Jewel Quest - Expeditions (Europe) (En,Fr,Nl) [11]
-     alternative to Jewel Quest - Expeditions (USA) [9-10,14,16]
-   w61 w61 w61 x46 x42 w61 x41 w61 a55 a55 .   x46 x42 a55 x41 a55 | Jewel Quest - Expeditions (Europe) (En,Fr,Nl)
-     alternative to Jewel Quest - Expeditions (USA) [9-10,14,16]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 a55 w13 x42 a54 x41 a54 | Jewel Quest - Expeditions (Europe) (En,Es,It)
+   w61 w61 w61 x46 x42 w61 x41 w61 a55 a55 w7  x46 x42 a55 x41 a55 | Jewel Quest - Expeditions (Europe) (En,Fr,Nl)
    w61 w61 w61 w61 x42 w61 x41 w61 a60 a60 a60 a60 x42 a60 x41 a60 | Jewel Quest - Expeditions (Germany)
-     alternative to Jewel Quest - Expeditions (Europe) (En,Es,It) [12]
-     alternative to Jewel Quest - Expeditions (Europe) (En,Fr,Nl) [11]
-     alternative to Jewel Quest - Expeditions (USA) [9-10,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 .   .   x41 .   | Jewel Quest - Expeditions (USA)
-     alternative to Jewel Quest - Expeditions (Europe) (En,Fr,Nl) [11]
+   w61 w61 w61 x46 w61 w61 x41 w61 w14 w14 a54 x46 w14 w14 x41 w14 | Jewel Quest - Expeditions (USA)
+   .   .   .   .   .   .   .   .   a7  a7  a21 .   .   a7  .   a7  | Quest Trio, The (Europe)
+   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | Quest Trio, The (Germany)
+   .   .   .   .   .   .   .   .   a7  a7  a21 .   .   a7  .   a7  | Quest Trio, The - Jewels, Cards and Tiles (Europe) (En,Fr,Nl)
+   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | Quest Trio, The - Jewels, Cards and Tiles (Europe) (Fr,Nl)
+   .   .   .   .   .   .   .   .   .   .   a7  .   .   .   .   .   | Quest Trio, The - Jewels, Cards and Tiles (USA)
 == jewel quest - mysteries
    w61 w61 w61 x46 x42 w61 x41 w61 a54 a54 w54 x46 x42 a54 x41 a54 | Jewel Quest - Mysteries (Europe) (En,Fr,Nl)
    w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Jewel Quest - Mysteries (USA)
@@ -6448,10 +6353,8 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Jewel Quest - Solitaire - 3 Tolle Solitaire-Spiele (Germany)
 == jewel quest - solitaire - solitaire with a twist!
    .   .   .   .   .   .   .   .   a60 a60 a60 x46 x42 a60 x41 x38 | Jewel Quest - Solitaire (France) [b]
-     alternative to Jewel Quest - Solitaire - Solitaire with a Twist! (Europe) [11]
      alternative to Quest Trio, The - Jewels, Cards and Tiles (USA) [9-10,14]
-   w61 w61 w61 x46 x42 w61 x41 w61 a24 a24 .   x46 x42 a24 x41 a24 | Jewel Quest - Solitaire - Solitaire with a Twist! (Europe)
-     alternative to Quest Trio, The - Jewels, Cards and Tiles (USA) [9-10,14,16]
+   w61 w61 w61 x46 x42 w61 x41 w61 .   .   w7  x46 x42 .   x41 .   | Jewel Quest - Solitaire - Solitaire with a Twist! (Europe)
 == jewel quest - solitaire trio
    .   .   .   .   .   .   .   .   a60 a60 a60 w57 x42 a60 x41 a60 | Jewel Quest - Solitaire - 3 Tolle Solitaire-Spiele (Germany)
    w61 w61 w61 x46 x42 w61 x41 w61 a55 a55 a55 x46 x42 a55 x41 a55 | Jewel Quest - Solitaire Trio (Europe)
@@ -6936,10 +6839,8 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a60 a60 a60 w57 x42 a60 x41 a60 | GripsKids - Deutsch (Germany)
    w61 w61 w61 x46 w61 w61 x41 w61 w60 w60 w60 x46 w57 w60 x41 w60 | Kids Learn - Spelling and Grammar - A+ Edition (USA)
 == kids learn music - a+ edition
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 w57 .   x41 .   | Kids Learn Music - A+ Edition (USA) (NDSi Enhanced)
-     alternative to Music for Kids (Europe) (En,De) (NDSi Enhanced) [11]
-   .   .   .   .   .   .   .   .   a54 a54 .   .   x42 a54 x41 a54 | Music for Kids (Europe) (En,De) (NDSi Enhanced)
-     alternative to Kids Learn Music - A+ Edition (USA) (NDSi Enhanced) [9-10,14,16]
+   w61 w61 w61 x46 w61 w61 x41 w61 w10 w10 a54 x46 w57 w10 x41 w10 | Kids Learn Music - A+ Edition (USA) (NDSi Enhanced)
+   .   .   .   .   .   .   .   .   a54 a54 w9  w9  x42 a54 x41 a54 | Music for Kids (Europe) (En,De) (NDSi Enhanced)
 == kiite hajimeru - eigo kaiwa training - kikitore
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Kiite Hajimeru - Eigo Kaiwa Training - Kikitore (Japan)
 == kikansha thomas - ds de hajimeru chiiku gakushuu
@@ -7627,23 +7528,13 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w54 x42 a54 x41 a54 | LEGO Rock Band (Europe) (En,Fr,De,Es,It,Da)
    w61 w61 w61 w61 w61 w61 x41 w61 w54 w54 a54 a54 w57 w54 x41 w54 | LEGO Rock Band (USA) (En,Fr,De,Es,It,Da)
 == lego star wars - the complete saga
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | LEGO Star Wars - The Complete Saga (Europe) (En,Fr,De,Es,It,Da)
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   .   x46 .   .   x41 .   | LEGO Star Wars - The Complete Saga (USA)
+   w61 w61 w61 w61 x42 w61 x41 w61 a7  a7  w15 w15 x42 a7  x41 a7  | LEGO Star Wars - The Complete Saga (Europe) (En,Fr,De,Es,It,Da)
+   w61 w61 w61 x46 w61 w61 x41 w61 w17 w16 a7  x46 w17 w17 x41 w17 | LEGO Star Wars - The Complete Saga (USA)
 == lego star wars ii - the original trilogy
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a60 .   .   x42 a54 x41 a54 | LEGO Star Wars II - The Original Trilogy (Europe) (En,Fr,De,Es,It,Da)
-     alternative to LEGO Star Wars II - The Original Trilogy (Japan) [10]
-     alternative to LEGO Star Wars II - The Original Trilogy (USA) (Rev 1) [9,14,16]
-   w61 w61 w61 x46 x42 w61 x41 w61 a60 .   a60 x46 x42 a60 x41 a60 | LEGO Star Wars II - The Original Trilogy (Japan)
-     alternative to LEGO Star Wars II - The Original Trilogy (Europe) (En,Fr,De,Es,It,Da) [11]
-     alternative to LEGO Star Wars II - The Original Trilogy (USA) (Rev 1) [9,14,16]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a60 w15 w15 x42 a54 x41 a54 | LEGO Star Wars II - The Original Trilogy (Europe) (En,Fr,De,Es,It,Da)
+   w61 w61 w61 x46 x42 w61 x41 w61 a60 w16 a60 x46 x42 a60 x41 a60 | LEGO Star Wars II - The Original Trilogy (Japan)
    w61 w61 w61 x46 w61 w61 x41 w61 a52 a52 a52 x46 a52 a52 x41 a52 | LEGO Star Wars II - The Original Trilogy (USA)
-     alternative to LEGO Star Wars II - The Original Trilogy (Europe) (En,Fr,De,Es,It,Da) [11]
-     alternative to LEGO Star Wars II - The Original Trilogy (Japan) [10]
-     alternative to LEGO Star Wars II - The Original Trilogy (USA) (Rev 1) [9,13-14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   a60 a54 x46 .   .   x41 .   | LEGO Star Wars II - The Original Trilogy (USA) (Rev 1)
-     alternative to LEGO Star Wars II - The Original Trilogy (Europe) (En,Fr,De,Es,It,Da) [11]
-     alternative to LEGO Star Wars II - The Original Trilogy (Japan) [10]
+   w61 w61 w61 x46 w61 w61 x41 w61 w17 a60 a54 x46 w17 w17 x41 w17 | LEGO Star Wars II - The Original Trilogy (USA) (Rev 1)
 == lego star wars iii - the clone wars
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w54 x42 a54 x41 a54 | LEGO Star Wars III - The Clone Wars (Europe) (En,Fr,De,Es,It,Da)
    w61 w61 w61 w61 w61 w61 x41 w61 w54 w54 a54 a54 w57 w54 x41 w54 | LEGO Star Wars III - The Clone Wars (USA) (En,Fr,Es)
@@ -7729,15 +7620,9 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Let's Play Shops (Europe) (En,Fr,De,Es,It)
 == let's ride - friends forever
    .   .   .   .   .   .   .   .   a55 a55 a55 x46 x42 a55 x41 a55 | Best Friends - Mijn Paard (Europe) (En,Nl)
-     alternative to Let's Ride - Friends Forever (USA) [9-10,14,16]
-     alternative to Real Stories - Best Friends - Mon Poulain, Mon Cheval (Europe) (En,Fr,De,It,Sv,No,Da) [11]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 w57 .   x41 .   | Let's Ride - Friends Forever (USA)
-     alternative to Real Stories - Best Friends - Mon Poulain, Mon Cheval (Europe) (En,Fr,De,It,Sv,No,Da) [11]
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Let's Ride - Friends Forever (USA)
    .   .   .   .   .   .   .   .   a60 a60 a60 a60 x42 a60 x41 a60 | Pferd & Pony - Best Friends - Mein Pferd (Germany)
-     alternative to Let's Ride - Friends Forever (USA) [9-10,14,16]
-     alternative to Real Stories - Best Friends - Mon Poulain, Mon Cheval (Europe) (En,Fr,De,It,Sv,No,Da) [11-12]
-   .   .   .   .   .   .   .   .   a54 a54 .   .   x42 a54 x41 a54 | Real Stories - Best Friends - Mon Poulain, Mon Cheval (Europe) (En,Fr,De,It,Sv,No,Da)
-     alternative to Let's Ride - Friends Forever (USA) [9-10,14,16]
+   .   .   .   .   .   .   .   .   a54 a54 w54 w60 x42 a54 x41 a54 | Real Stories - Best Friends - Mon Poulain, Mon Cheval (Europe) (En,Fr,De,It,Sv,No,Da)
 == let's yoga!
    .   .   .   .   .   .   .   .   a60 w60 a60 x46 x42 a60 x41 a60 | Dokodemo Yoga (Japan)
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a60 w54 w54 x42 a54 x41 a54 | Let's Yoga! (Europe) (En,Fr,De,Es,It)
@@ -8060,18 +7945,15 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 x45 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Madagascar 2 (Spain)
    w61 w61 x45 x46 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Madagascar 2 (Sweden)
 == madagascar 3
-   w61 w61 w61 w61 w61 w61 x41 w61 .   .   a54 a54 w57 .   x41 .   | Madagascar 3 (USA) (En,Fr,Es)
-     alternative to Madagascar 3 - Europe's Most Wanted (Europe) (En,Fr,De,Es,It,Nl,Ru) [11-12]
-   .   .   .   .   .   .   .   .   a54 a54 .   .   x42 a54 x41 a54 | Madagascar 3 - Europe's Most Wanted (Europe) (En,Fr,De,Es,It,Nl,Ru)
-     alternative to Madagascar 3 (USA) (En,Fr,Es) [9-10,14,16]
+   w61 w61 w61 w61 w61 w61 x41 w61 w54 w54 a54 a54 w57 w54 x41 w54 | Madagascar 3 (USA) (En,Fr,Es)
+   .   .   .   .   .   .   .   .   a54 a54 w54 w54 x42 a54 x41 a54 | Madagascar 3 - Europe's Most Wanted (Europe) (En,Fr,De,Es,It,Nl,Ru)
 == madagascar 3 - europe's most wanted
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Madagascar 3 - Europe's Most Wanted (Europe) (En,Fr,De,Es,It,Nl,Ru)
 == madagascar kartz
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 .   w57 x42 a54 x41 a54 | Madagascar Kartz (Europe) (En,Fr,De,Es,It,Nl,Sv)
-     alternative to Madagascar Kartz (USA) (En,Fr) [9-10,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 .   .   x41 .   | Madagascar Kartz (USA) (En,Fr)
-     alternative to Madagascar Kartz (Europe) (En,Fr,De,Es,It,Nl,Sv) [11]
+   .   .   .   .   .   .   .   .   a21 a21 a25 .   a21 a21 .   a21 | DreamWorks 2-in-1 Party Pack (USA) (En,Fr)
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w57 x42 a54 x41 a54 | Madagascar Kartz (Europe) (En,Fr,De,Es,It,Nl,Sv)
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Madagascar Kartz (USA) (En,Fr)
 == madden nfl 06
    w61 w61 w61 x46 x42 w61 x41 w61 a54 a54 w54 x46 x42 a54 x41 a54 | Madden NFL 06 (Europe)
    w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Madden NFL 06 (USA)
@@ -8153,29 +8035,21 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 w61 w61 x41 w61 w54 a60 a54 x46 w57 w60 x41 w54 | Magnetica (USA)
    .   .   .   .   .   .   .   .   a60 w60 a60 x46 x42 a60 x41 a60 | Shunkan Puzz Loop (Japan)
 == mah jong quest - expeditions
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 a55 .   x42 a54 x41 a54 | Mah Jong Quest - Expeditions (Europe) (En,Es,It)
-     alternative to Mah Jong Quest - Expeditions (Europe) (En,Fr,Nl) [11]
-     alternative to Mah Jong Quest - Expeditions (USA) [9-10,14,16]
-   w61 w61 w61 x46 x42 w61 x41 w61 a55 a55 .   x46 x42 a55 x41 a55 | Mah Jong Quest - Expeditions (Europe) (En,Fr,Nl)
-     alternative to Mah Jong Quest - Expeditions (USA) [9-10,14,16]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 a55 w13 x42 a54 x41 a54 | Mah Jong Quest - Expeditions (Europe) (En,Es,It)
+   w61 w61 w61 x46 x42 w61 x41 w61 a55 a55 w7  x46 x42 a55 x41 a55 | Mah Jong Quest - Expeditions (Europe) (En,Fr,Nl)
    w61 w61 w61 w61 x42 w61 x41 w61 a60 a60 a60 a60 x42 a60 x41 a60 | Mah Jong Quest - Expeditions (Germany)
-     alternative to Mah Jong Quest - Expeditions (Europe) (En,Es,It) [12]
-     alternative to Mah Jong Quest - Expeditions (Europe) (En,Fr,Nl) [11]
-     alternative to Mah Jong Quest - Expeditions (USA) [9-10,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 .   .   x41 .   | Mah Jong Quest - Expeditions (USA)
-     alternative to Mah Jong Quest - Expeditions (Europe) (En,Fr,Nl) [11]
+   w61 w61 w61 x46 w61 w61 x41 w61 w14 w14 a54 x46 w14 w14 x41 w14 | Mah Jong Quest - Expeditions (USA)
 == mah-jong 300
    w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Mah-Jong 300 (Europe) (En,Fr,Es,It)
 == mahjong
+   g   g   g   g   g   g   g   g   gd  gd  gd  gd  g   gd  g   gd  |
+   .   .   .   .   .   .   .   .   a21 a21 a21 a21 .   a21 .   a21 | 2 in 1 - Mahjong + Mahjong Around the World (Europe) (En,Fr,De,Es,It)
    .   .   .   .   .   .   .   .   a54 a54 a54 x46 x42 a54 x41 a54 | Eindeloos Mahjong (Netherlands) (En,Nl)
-     alternative to Mahjong (Europe) (En,Fr,De,Es,It) [9-11,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Mahjong (Europe) (En,Fr,De,Es,It)
+   w61 w61 w61 w61 x42 w61 x41 w61 w54 w54 w54 w60 x42 w54 x41 w54 | Mahjong (Europe) (En,Fr,De,Es,It)
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 a54 a60 x42 a54 x41 a54 | Mahjong (Germany) (En,De)
-     alternative to Mahjong (Europe) (En,Fr,De,Es,It) [9-12,14,16]
 == mahjong - eine reise um die welt
    .   .   .   .   .   .   .   .   a60 a60 x45 x46 x42 a60 x41 a60 | Eindeloos Mahjong 2 - Een Reis om de Wereld (Netherlands)
-     alternative to Mahjong - Eine Reise um die Welt (Europe) (En,Fr,De,Es,It) [9-10,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Mahjong - Eine Reise um die Welt (Europe) (En,Fr,De,Es,It)
+   w61 w61 w61 w61 x42 w61 x41 w61 w60 w60 w57 w57 x42 w60 x41 w60 | Mahjong - Eine Reise um die Welt (Europe) (En,Fr,De,Es,It)
 == mahjong fight club ds - wi-fi taiou
    w61 w61 w61 x46 x42 w61 x41 w61 a52 a52 a52 x46 x42 a52 x41 a52 | Mahjong Fight Club DS - Wi-Fi Taiou (Japan)
    w61 w61 w61 x46 x42 w61 x41 w61 w52 w52 w52 x46 x42 w52 x41 w52 | Mahjong Fight Club DS - Wi-Fi Taiou (Japan) (Rev 1)
@@ -8209,15 +8083,9 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Mahjongg DS (Europe) (En,Fr,De,Es,It,Nl)
 == mahjongg mysteries - ancient egypt
    .   .   .   .   .   .   .   .   a52 a52 a52 x46 x42 a52 x41 a52 | Mahjong Mysteries - Ancient Egypt (Europe)
-     alternative to Mahjong Mysteries - Ancient Egypt (Europe) (En,Fr,Es,It) (Rev 1) [11]
-     alternative to Mahjongg Mysteries - Ancient Egypt (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a54 a54 .   .   x42 a54 x41 a54 | Mahjong Mysteries - Ancient Egypt (Europe) (En,Fr,Es,It) (Rev 1)
-     alternative to Mahjongg Mysteries - Ancient Egypt (USA) [9-10,14,16]
+   .   .   .   .   .   .   .   .   a54 a54 w54 w48 x42 a54 x41 a54 | Mahjong Mysteries - Ancient Egypt (Europe) (En,Fr,Es,It) (Rev 1)
    .   .   .   .   .   .   .   .   a48 a48 a48 a48 x42 a48 x41 a48 | Mahjongg - Ancient Egypt (Europe) (En,Fr,De,Es,It)
-     alternative to Mahjong Mysteries - Ancient Egypt (Europe) (En,Fr,Es,It) (Rev 1) [11-12]
-     alternative to Mahjongg Mysteries - Ancient Egypt (USA) [9-10,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 w57 .   x41 .   | Mahjongg Mysteries - Ancient Egypt (USA)
-     alternative to Mahjong Mysteries - Ancient Egypt (Europe) (En,Fr,Es,It) (Rev 1) [11]
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Mahjongg Mysteries - Ancient Egypt (USA)
 == mahou ni kakerarete
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Mahou ni Kakerarete (Japan)
@@ -9487,8 +9355,7 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 x42 w61 x41 w61 a54 a54 w54 x46 x42 a54 x41 a54 | MX vs. ATV Untamed (Europe)
    w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | MX vs. ATV Untamed (USA)
 == my amusement park
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   .   x46 .   .   x41 .   | My Amusement Park (USA)
+   w61 w61 w61 x46 w61 w61 x41 w61 w57 w57 w57 x46 w57 w57 x41 w57 | My Amusement Park (USA)
 == my animal centre
    w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | My Animal Centre (Europe) (En,Fr,De,Es,It,Nl)
 == my animal centre - baby animals
@@ -9522,9 +9389,9 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | My Best Friends - Cats & Dogs (Europe) (En,Fr,De,Es,It)
 == my boyfriend
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | My Boyfriend (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   .   a21 a21 .   .   .   .   | 2 in 1 - My Little Baby + My Boyfriend (Europe) (En,Fr,De,Es,It,Sv,No,Da)
+   w61 w61 w61 w61 x42 w61 x41 w61 w54 w54 w54 w60 x42 w54 x41 w54 | My Boyfriend (Europe) (En,Fr,De,Es,It)
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 a54 a60 x42 a54 x41 a54 | My Boyfriend (Germany) (En,De)
-     alternative to My Boyfriend (Europe) (En,Fr,De,Es,It) [9-12,14,16]
    w61 w61 w61 w61 w61 w61 x41 w61 .   .   .   .   .   .   .   .   | My Boyfriend (Summer of My Life) (USA) (En,Fr,De,Es,It)
 == my boyfriend (summer of my life)
    .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
@@ -9690,10 +9557,8 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | My Pet Puppy (Europe) (En,Fr,De,Es,It)
 == my pet school
    .   .   .   .   .   .   .   .   a54 a54 a54 a60 x42 a54 x41 a54 | Meine Tierschule (Germany) (En,De)
-     alternative to My Pet School (Europe) (En,Fr,Es,It) [9-12,14,16]
    .   .   .   .   .   .   .   .   a54 a54 a54 x46 x42 a54 x41 a54 | Mijn Dierenschool (Netherlands) (En,Nl)
-     alternative to My Pet School (Europe) (En,Fr,Es,It) [9-11,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | My Pet School (Europe) (En,Fr,Es,It)
+   w61 w61 w61 w61 x42 w61 x41 w61 w12 w12 w12 w11 x42 w12 x41 w12 | My Pet School (Europe) (En,Fr,Es,It)
 == my pet shop
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a60 w54 w54 x42 a54 x41 a54 | My Pet Shop (Europe) (En,Fr,De,Es,It)
    w61 w61 w61 w61 w61 w61 x41 w61 w54 a60 a54 a54 w57 w54 x41 w54 | My Pet Shop (USA) (En,Fr,De,Es,It)
@@ -9731,13 +9596,11 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 w61 x41 x38 .   .   .   .   .   .   .   .   | My Vet Practice - In Australia (Europe) (En,Fr,De,Es,It) [b]
 == my vet practice - in the country
+   .   .   .   .   .   .   .   .   .   .   a21 .   .   .   .   .   | 2 in 1 - My Pet Hotel + My Vet Practice - In the Country (Europe) (En,Fr,De)
+   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | 3 in 1 - My Horse + My Vet Practice + My Vet Practice in the Country (Europe) (Fr,De,It)
    .   .   .   .   .   .   .   .   a60 a60 a60 a60 x42 a60 x41 a60 | Meine Tierarztpraxis - Einsatz auf dem Land (Germany)
-     alternative to My Vet Practice - In the Country (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Paws & Claws - Pet Vet 2 (USA) [9-10,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 .   .   x42 a54 x41 a54 | My Vet Practice - In the Country (Europe) (En,Fr,De,Es,It)
-     alternative to Paws & Claws - Pet Vet 2 (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   .   .   a54 x46 .   .   x41 .   | Paws & Claws - Pet Vet 2 (USA)
-     alternative to My Vet Practice - In the Country (Europe) (En,Fr,De,Es,It) [11]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w7  w18 x42 a54 x41 a54 | My Vet Practice - In the Country (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   w7  w7  a54 x46 w57 w7  x41 w7  | Paws & Claws - Pet Vet 2 (USA)
 == my virtual tutor - reading - 1st grade to 2nd grade
    w61 w61 w61 x46 w61 w61 x41 w61 w57 w57 w57 x46 w57 w57 x41 w57 | My Virtual Tutor - Reading - 1st Grade to 2nd Grade (USA)
 == my virtual tutor - reading - k to 1st grade
@@ -10222,18 +10085,16 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Ni no Kuni - Shikkoku no Madoushi (Japan)
 == nickelodeon dora and friends' - fantastic flight
    .   .   .   .   .   .   .   .   a55 a55 a55 x46 x42 a55 x41 a55 | Dora & Friends' - Fantastic Flight (Europe)
-     alternative to Nickelodeon Dora and Friends' - Fantastic Flight (Europe) (En,Fr,Es,Nl) [11]
      alternative to Nickelodeon Team Umizoomi and Dora's Fantastic Flight (USA) [9-10,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 a24 a24 .   w57 x42 a24 x41 a24 | Nickelodeon Dora and Friends' - Fantastic Flight (Europe) (En,Fr,Es,Nl)
-     alternative to Nickelodeon Team Umizoomi and Dora's Fantastic Flight (USA) [9-10,14,16]
+   w61 w61 w61 w61 x42 w61 x41 w61 .   .   w55 w57 x42 .   x41 .   | Nickelodeon Dora and Friends' - Fantastic Flight (Europe) (En,Fr,Es,Nl)
+   .   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   | Nickelodeon Team Umizoomi and Dora's Fantastic Flight (USA)
 == nickelodeon team - umizoomi
-   w61 w61 w61 x46 x42 w61 x41 w61 a54 a54 .   x46 x42 a54 x41 a54 | Nickelodeon Team - Umizoomi (Europe)
-     alternative to Nickelodeon Team - Umizoomi (USA) [9-10,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 .   .   x41 .   | Nickelodeon Team - Umizoomi (USA)
-     alternative to Nickelodeon Team - Umizoomi (Europe) [11]
+   w61 w61 w61 x46 x42 w61 x41 w61 a54 a54 w54 x46 x42 a54 x41 a54 | Nickelodeon Team - Umizoomi (Europe)
+   w61 w61 w61 x46 w61 w61 x41 w61 w20 w20 a54 x46 w20 w20 x41 w20 | Nickelodeon Team - Umizoomi (USA)
 == nickelodeon team umizoomi and dora's fantastic flight
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   .   x46 .   .   x41 .   | Nickelodeon Team Umizoomi and Dora's Fantastic Flight (USA)
+   g   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a24 a24 .   .   .   a24 .   a24 | Nickelodeon Dora and Friends' - Fantastic Flight (Europe) (En,Fr,Es,Nl)
+   w61 w61 w61 x46 w61 w61 x41 w61 w20 w20 .   x46 w20 w20 x41 w20 | Nickelodeon Team Umizoomi and Dora's Fantastic Flight (USA)
 == nicktoons - attack of the toybots
    w61 w61 w61 x46 x42 w61 x41 w61 a54 a60 w54 x46 x42 a54 x41 a54 | Nicktoons - Attack of the Toybots (Europe) (En,Fr)
    w61 w61 w61 w61 x42 w61 x41 w61 a51 a51 a51 w60 x42 a51 x41 a51 | Nicktoons - Attack of the Toybots (Europe) (Es,It)
@@ -10776,12 +10637,10 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 x45 x46 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Paweo Reinjeo Kaeptin Poseu - Byeonsin! 35 Jeondae! (Korea)
 == pawly pets - my pet hotel
-   .   .   .   .   .   .   .   .   a54 a54 a54 a24 x42 a54 x41 a54 | Meine Tierpension (Germany) (En,De)
-     alternative to 2 in 1 - My Pet Hotel + My Vet Practice - In the Country (Europe) (En,Fr,De) [12]
-     alternative to Pawly Pets - My Pet Hotel (Europe) (En,Fr) [9-11,14,16]
+   .   .   .   .   .   .   .   .   a7  a7  .   .   .   a7  .   a7  | 2 in 1 - My Pet Hotel + My Vet Practice - In the Country (Europe) (En,Fr,De)
+   .   .   .   .   .   .   .   .   a54 a54 a54 .   x42 a54 x41 a54 | Meine Tierpension (Germany) (En,De)
    .   .   .   .   .   .   .   .   a54 a54 a54 x46 x42 a54 x41 a54 | Mijn Dierenpension (Netherlands) (En,Nl)
-     alternative to Pawly Pets - My Pet Hotel (Europe) (En,Fr) [9-11,14,16]
-   w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   x46 x42 .   x41 .   | Pawly Pets - My Pet Hotel (Europe) (En,Fr)
+   w61 w61 w61 x46 x42 w61 x41 w61 w54 w54 w54 x46 x42 w54 x41 w54 | Pawly Pets - My Pet Hotel (Europe) (En,Fr)
 == pawly pets - my vet practice
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Pawly Pets - My Vet Practice (Europe)
@@ -10803,55 +10662,31 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Paws & Claws - Pampered Pets 2 (USA) (NDSi Enhanced)
    .   .   .   .   .   .   .   .   a54 a54 w54 w57 x42 a54 x41 a54 | VIPs - Very Important Pets (Europe) (En,De) (NDSi Enhanced)
 == paws & claws - pet resort
+   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | 2 in 1 - My Pet Hotel 2 + My Vet Practice - In the Country (Europe) (Fr,De)
+   .   .   .   .   .   .   .   .   a7  a7  .   .   .   a7  .   a7  | 2 in 1 - My Vet Practice + My Pet Hotel 2 (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a21 a21 a7  .   a21 a21 .   a21 | Kids Learn & Play - Pets & Vets Bundle (USA)
    .   .   .   .   .   .   .   .   a54 a54 a54 a60 x42 a54 x41 a54 | Meine Tierpension 2 (Germany) (En,De)
-     alternative to My Pet Hotel 2 (Europe) (En,It) [11]
-     alternative to My Pet Hotel 2 (Europe) (Fr,Es) [12]
-     alternative to Paws & Claws - Pet Resort (USA) [9-10,14,16]
    .   .   .   .   .   .   .   .   a54 a54 a54 x46 x42 a54 x41 a54 | Mijn Dierenpension 2 (Netherlands) (En,Nl)
-     alternative to My Pet Hotel 2 (Europe) (En,It) [11]
-     alternative to Paws & Claws - Pet Resort (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a54 a54 .   a51 x42 a54 x41 a54 | My Pet Hotel 2 (Europe) (En,It)
-     alternative to My Pet Hotel 2 (Europe) (Fr,Es) [12]
-     alternative to Paws & Claws - Pet Resort (USA) [9-10,14,16]
+   .   .   .   .   .   .   .   .   a54 a54 w7  a51 x42 a54 x41 a54 | My Pet Hotel 2 (Europe) (En,It)
    .   .   .   .   .   .   .   .   a55 a55 a55 x46 x42 a55 x41 a55 | My Pet Hotel 2 (Europe) (En,Sv,No,Da)
-     alternative to My Pet Hotel 2 (Europe) (En,It) [11]
-     alternative to Paws & Claws - Pet Resort (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a51 a51 a51 .   x42 a51 x41 a51 | My Pet Hotel 2 (Europe) (Fr,Es)
-     alternative to My Pet Hotel 2 (Europe) (En,It) [11]
-     alternative to Paws & Claws - Pet Resort (USA) [9-10,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 .   .   x41 .   | Paws & Claws - Pet Resort (USA)
-     alternative to My Pet Hotel 2 (Europe) (En,It) [11]
+   .   .   .   .   .   .   .   .   a51 a51 a51 w6  x42 a51 x41 a51 | My Pet Hotel 2 (Europe) (Fr,Es)
+   w61 w61 w61 x46 w61 w61 x41 w61 w7  w7  a54 x46 w57 w7  x41 w7  | Paws & Claws - Pet Resort (USA)
 == paws & claws - pet vet
+   .   .   .   .   .   .   .   .   a25 a25 .   .   .   a25 .   a25 | 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It)
    .   .   .   .   .   .   .   .   a54 a54 a54 a60 x42 a54 x41 a54 | Meine Tierarztpraxis (Germany) (En,De)
-     alternative to Pawly Pets - My Vet Practice (Europe) (En,Es,It) [12]
-     alternative to Pawly Pets - My Vet Practice (Europe) (En,Fr,De) [11]
-     alternative to Paws & Claws - Pet Vet (USA) [9-10,14,16]
    .   .   .   .   .   .   .   .   a54 a54 a54 x46 x42 a54 x41 a54 | Mijn Dierenpraktijk (Netherlands) (En,Nl)
-     alternative to Pawly Pets - My Vet Practice (Europe) (En,Fr,De) [11]
-     alternative to Paws & Claws - Pet Vet (USA) [9-10,14,16]
    .   .   .   .   .   .   .   .   a55 a55 a55 x46 x42 a55 x41 a55 | Pawly Pets - My Vet Practice (Europe)
-     alternative to Pawly Pets - My Vet Practice (Europe) (En,Fr,De) [11]
-     alternative to Paws & Claws - Pet Vet (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a54 a54 a55 .   x42 a54 x41 a54 | Pawly Pets - My Vet Practice (Europe) (En,Es,It)
-     alternative to Pawly Pets - My Vet Practice (Europe) (En,Fr,De) [11]
-     alternative to Paws & Claws - Pet Vet (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a55 a55 .   a51 x42 a55 x41 a55 | Pawly Pets - My Vet Practice (Europe) (En,Fr,De)
-     alternative to Pawly Pets - My Vet Practice (Europe) (En,Es,It) [12]
-     alternative to Paws & Claws - Pet Vet (USA) [9-10,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 w57 .   x41 .   | Paws & Claws - Pet Vet (USA)
-     alternative to Pawly Pets - My Vet Practice (Europe) (En,Fr,De) [11]
+   .   .   .   .   .   .   .   .   a54 a54 a55 w19 x42 a54 x41 a54 | Pawly Pets - My Vet Practice (Europe) (En,Es,It)
+   .   .   .   .   .   .   .   .   a55 a55 w19 a51 x42 a55 x41 a55 | Pawly Pets - My Vet Practice (Europe) (En,Fr,De)
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Paws & Claws - Pet Vet (USA)
 == paws & claws - pet vet - australian adventures
-   .   .   .   .   .   .   .   .   a60 a60 a60 a9  x42 a60 x41 a60 | Meine Tierarztpraxis in Australien (Germany)
-     alternative to 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Paws & Claws - Pet Vet - Australian Adventures (USA) [9-10,14,16]
+   .   .   .   .   .   .   .   .   a60 a60 a60 .   x42 a60 x41 a60 | Meine Tierarztpraxis in Australien (Germany)
+     alternative to 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It) [11]
    .   .   .   .   .   .   .   .   a60 a60 a60 a60 x42 a60 x41 x38 | My Vet Practice - In Australia (Europe) (En,Fr,De,Es,It) [b]
      alternative to 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Paws & Claws - Pet Vet - Australian Adventures (USA) [9-10,14]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a24 x46 w57 .   x41 .   | Paws & Claws - Pet Vet - Australian Adventures (USA)
-     alternative to 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It) [11]
+   w61 w61 w61 x46 w61 w61 x41 w61 w60 w60 .   x46 w57 w60 x41 w60 | Paws & Claws - Pet Vet - Australian Adventures (USA)
    .   .   .   .   .   .   .   .   a60 a60 a60 x46 x42 a60 x41 x38 | Real Stories - Veterinaire - Mission Australie (France) [b]
      alternative to 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Paws & Claws - Pet Vet - Australian Adventures (USA) [9-10,14]
 == paws & claws - pet vet 2
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 x46 w61 w61 x41 w61 .   .   .   .   .   .   .   .   | Paws & Claws - Pet Vet 2 (USA)
@@ -11292,8 +11127,8 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == pingu no waku waku carnival!
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Pingu no Waku Waku Carnival! (Japan)
 == pinkalicious - it's party time!
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   .   x46 .   .   x41 .   | Pinkalicious - It's Party Time! (USA)
+   .   .   .   .   .   .   .   .   a21 a21 a21 .   a21 a21 .   a21 | 2-Pack - Pinkalicious - It's Party Time! & Silverlicious - Sweet Adventure (USA)
+   w61 w61 w61 x46 w61 w61 x41 w61 w57 w57 w57 x46 w57 w57 x41 w57 | Pinkalicious - It's Party Time! (USA)
 == pinky street - kirakira music hour
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Pinky Street - Kirakira Music Hour (Japan)
@@ -12523,12 +12358,13 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Quest Trio, The (Europe)
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Quest Trio, The (Germany)
 == quest trio, the - jewels, cards and tiles
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
+   g   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a24 a24 .   .   .   a24 .   a24 | Jewel Quest - Solitaire - Solitaire with a Twist! (Europe)
    .   .   .   .   .   .   .   .   .   .   .   x46 x42 .   x41 .   | Quest Trio, The (Europe)
-   .   .   .   .   .   .   .   .   .   .   .   .   x42 .   x41 .   | Quest Trio, The (Germany)
+   .   .   .   .   .   .   .   .   .   .   .   w13 x42 .   x41 .   | Quest Trio, The (Germany)
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   x46 x42 .   x41 .   | Quest Trio, The - Jewels, Cards and Tiles (Europe) (En,Fr,Nl)
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   .   x46 x42 .   x41 .   | Quest Trio, The - Jewels, Cards and Tiles (Europe) (Fr,Nl)
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   .   x46 .   .   x41 .   | Quest Trio, The - Jewels, Cards and Tiles (USA)
+   w61 w61 w61 x46 w61 w61 x41 w61 w14 w14 .   x46 w14 w14 x41 w14 | Quest Trio, The - Jewels, Cards and Tiles (USA)
 == questions pour un champion - le jeu officiel - edition speciale 20 ans
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Questions pour un Champion - Le Jeu Officiel - Edition Speciale 20 Ans (France)
 == quick yoga training - learn in minutes a day
@@ -12753,281 +12589,6 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 w61 w61 x41 w61 w54 a60 a54 x46 w57 w54 x41 w54 | Resident Evil - Deadly Silence (USA)
 == restaurant tycoon
    w61 w61 w61 w61 x42 w61 x41 w61 w57 w57 w57 w57 x42 w57 x41 w57 | Restaurant Tycoon (Europe) (En,Fr,De,Es,It,Nl)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   gd  gd  gd  gd  g   gd  .   gd  |
-   .   .   .   .   .   .   .   .   a21 a21 a21 .   a21 a21 .   a21 | 2 Game Pack - My Amusement Park + Digging for Dinosaurs (USA)
-     alternative to Digging For Dinosaurs (USA) [9-11,13-14,16]
-   .   .   .   .   .   .   .   .   a25 a25 a21 a21 .   a25 .   a25 | 2 Games in 1 - Jewel Master - Cradle of Egypt + Mahjongg - Ancient Egypt (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Cradle of Rome (USA) (En,Fr,De,Es,It,Nl) [9-10,14,16]
-     alternative to Jewel Master - Cradle of Rome (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-   .   .   .   .   .   .   .   .   a4  a4  a4  a25 .   a4  .   a4  | 2 in 1 - Best Of Bibi Und Tina - Die Grosse Schnitzeljagd + Das Grosse Unwetter (Germany)
-     alternative to Bibi & Tina - Das Grosse Unwetter (Germany) [9-12,14,16]
-   .   .   .   .   .   .   .   .   a21 a21 a21 a21 .   a21 .   a21 | 2 in 1 - Best of Bibi Blocksberg - Neustadt im Hex-Chaos + Das Gestohlene Hexbuch (Germany)
-     alternative to Bibi Blocksberg - Das Gestohlene Hexbuch (Germany) [9-12,14,16]
-   .   .   .   .   .   .   .   .   a21 a21 a21 a21 .   a21 .   a21 | 2 in 1 - Mahjong + Mahjong Around the World (Europe) (En,Fr,De,Es,It)
-     alternative to Mahjong (Europe) (En,Fr,De,Es,It) [9-12,14,16]
-   .   .   .   .   .   .   .   .   a21 a21 a21 a21 .   a21 .   a21 | 2 in 1 - My Little Baby + My Boyfriend (Europe) (En,Fr,De,Es,It,Sv,No,Da)
-     alternative to I Love Babies (USA) [9-10,14,16]
-     alternative to My Boyfriend (Europe) (En,Fr,De,Es,It) [11-12]
-   .   .   .   .   .   .   .   .   a7  a7  a21 .   .   a7  .   a7  | 2 in 1 - My Pet Hotel + My Vet Practice - In the Country (Europe) (En,Fr,De)
-     alternative to My Vet Practice - In the Country (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Pawly Pets - My Pet Hotel (Europe) (En,Fr) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a6  a6  a6  a6  .   a6  .   a6  | 2 in 1 - My Pet Hotel 2 + My Vet Practice - In the Country (Europe) (Fr,De)
-     alternative to 2 in 1 - My Pet Hotel + My Vet Practice - In the Country (Europe) (En,Fr,De) [12]
-     alternative to My Pet Hotel 2 (Europe) (En,It) [11]
-     alternative to Paws & Claws - Pet Resort (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a25 a25 a21 a4  .   a25 .   a25 | 2 in 1 - My Pet School + Best Friends - My Horse (Europe) (En,Fr,De)
-     alternative to 3 in 1 - Animals (Europe) (En,Fr,De) [9-12,14,16]
-   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   .   .   | 2 in 1 - My Riding Stables + My Western Horse (Europe) (En,Fr,De)
-     alternative to 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It) [12]
-   .   .   .   .   .   .   .   .   a7  a7  a21 a21 .   a7  .   a7  | 2 in 1 - My Vet Practice + My Pet Hotel 2 (Europe) (En,Fr,De,Es,It)
-     alternative to 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Paws & Claws - Pet Resort (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a21 a21 a21 .   a21 a21 .   a21 | 2-Pack - Pinkalicious - It's Party Time! & Silverlicious - Sweet Adventure (USA)
-     alternative to Pinkalicious - It's Party Time! (USA) [9-11,13-14,16]
-   .   .   .   .   .   .   .   .   a7  a7  a21 a21 .   a7  .   a7  | 3 Game Pack! - Cradle of Rome + Cradle of Athena + Cradle of Egypt (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Cradle of Rome (USA) (En,Fr,De,Es,It,Nl) [9-10,14,16]
-     alternative to Jewel Master - Cradle of Athena (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-   .   .   .   .   .   .   .   .   a7  a7  a21 a21 .   a7  .   a7  | 3 Game Pack! - Cradle of Rome + Cradle of Athena + Cradle of Egypt (Europe) (En,Fr,De,Es,It,Nl) (Rev 1)
-     alternative to Cradle of Rome (USA) (En,Fr,De,Es,It,Nl) [9-10,14,16]
-     alternative to Jewel Master - Cradle of Athena (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-   .   .   .   .   .   .   .   .   a25 a25 a21 a6  .   a25 .   a25 | 3 in 1 - Horses (Europe) (En,Fr,De)
-     alternative to 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It) [9-12,14,16]
-   .   .   .   .   .   .   .   .   a6  a6  a6  a4  .   a6  .   a6  | 3 in 1 - My Horse + My Vet Practice + My Vet Practice in the Country (Europe) (Fr,De,It)
-     alternative to 2 in 1 - My Pet Hotel + My Vet Practice - In the Country (Europe) (En,Fr,De) [12]
-     alternative to My Vet Practice - In the Country (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Paws & Claws - Pet Vet 2 (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | 3 in 1 - My Riding Stables + My Pet School + My Western Horse (Europe) (Fr,De,It)
-     alternative to 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a6  a6  a6  a6  .   a6  .   a6  | 3 in 1 - My Riding Stables - Life with Horses + My Pet Hotel 2 & + My Pet School (Europe) (Fr,De,It)
-     alternative to 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It) [9-12,14,16]
-   .   .   .   .   .   .   .   .   a25 a25 .   .   .   a25 .   a25 | 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It)
-     alternative to Paws & Claws - Pet Vet (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   .   .   .   a1  .   .   .   .   | Atlantic Quest (Europe) (Fr,De)
-     alternative to Atlantic Quest + Galactic Quest (Europe) (En,Fr,De,Nl) [12]
-   .   .   .   .   .   .   .   .   a21 a21 a21 .   .   .   .   a21 | Atlantic Quest + Galactic Quest (Europe) (En,Fr,De,Nl)
-     alternative to Jewel Link - Atlantic Quest (Europe) [9-11,16]
-   .   .   .   .   .   .   .   .   a7  a7  a21 a21 .   a7  .   a7  | Ben 10 - Triple Pack (Europe) (En,Fr,De,Es,It)
-     alternative to Ben 10 - Alien Force (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Ben 10 - Alien Force (USA) (En,Fr,De,Es,It) (Rev 1) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a21 a21 a7  a7  a21 a21 .   a21 | Ben 10 - Triple Pack (USA) (En,Fr,De,Es,It)
-     alternative to Ben 10 - Alien Force (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Ben 10 - Alien Force (USA) (En,Fr,De,Es,It) (Rev 1) [9-10,13-14,16]
-   .   .   .   .   .   .   .   .   a25 a25 a21 a21 .   a25 .   a25 | Combo Pack - Madagascar 3 - Europe's Most Wanted + Croods, The - Prehistoric Party! (Europe) (En,Fr,De,Es,It)
-     alternative to Croods, The - Prehistoric Party! (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Croods, The - Prehistoric Party! (USA) (En,Fr,Es) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a7  a4  a21 a21 .   a7  .   a7  | Cooking Mama World - Combo Pack - Volume 1 (Europe) (En,Fr,De,Es,It)
-     alternative to Cooking Mama 2 (Japan) [10]
-     alternative to Cooking Mama 2 - Dinner with Friends (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Cooking Mama 2 - Dinner with Friends (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a7  a4  a21 a21 .   a7  .   a7  | Cooking Mama World - Combo Pack - Volume 2 (Europe) (En,Fr,De,Es,It)
-     alternative to Cooking Mama 3 (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Cooking Mama 3 (Japan) [10]
-     alternative to Cooking Mama 3 - Shop & Chop (USA) [9,14,16]
-   .   .   .   .   .   .   .   .   a21 a21 a25 .   a21 a21 .   a21 | Disney Two Pack - Frozen Olaf's Quest + Big Hero 6 - Battle in the Bay (USA)
-     alternative to Disney Big Hero 6 - Battle in the Bay (Europe) (En,Fr,De,Es,It,Nl) [11]
-     alternative to Disney Big Hero 6 - Battle in the Bay (USA) [9-10,13-14,16]
-   .   .   .   .   .   .   .   .   a7  a7  a21 a21 .   a7  .   a7  | Double Pack - Cradle of Rome + Cradle of Egypt (Europe) (En,Fr,Es,It)
-     alternative to Cradle of Rome (USA) (En,Fr,De,Es,It,Nl) [9-10,14,16]
-     alternative to Jewel Master - Cradle of Egypt (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-   .   .   .   .   .   .   .   .   a7  a7  a21 a21 .   a7  .   a7  | Drawn to Life - Collection (Europe) (En,Fr,De,Es,It)
-     alternative to Drawn to Life (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Drawn to Life (USA) (En,Fr) [9,14,16]
-     alternative to Drawn to Life - Kamisama no Marionette (Japan) [10]
-   .   .   .   .   .   .   .   .   a21 a21 a7  a7  a21 a21 .   a21 | Drawn to Life - Collection (USA) (En,Fr,Es)
-     alternative to Drawn to Life (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Drawn to Life (USA) (En,Fr) [9,13-14,16]
-     alternative to Drawn to Life - Kamisama no Marionette (Japan) [10]
-   .   .   .   .   .   .   .   .   a21 a21 a25 .   a21 a21 .   a21 | DreamWorks 2-in-1 Party Pack (USA) (En,Fr)
-     alternative to Madagascar Kartz (Europe) (En,Fr,De,Es,It,Nl,Sv) [11]
-     alternative to Madagascar Kartz (USA) (En,Fr) [9-10,13-14,16]
-   .   .   .   .   .   .   .   .   a3  a3  a3  a24 .   a3  .   a3  | Englisch Macht Spass - Eine Reise nach London! (Germany)
-     alternative to 2 in 1 - Music for Kids + Englisch Macht Spass - Eine Reise nach London! (Europe) (En,De) (NDSi Enhanced) [9-12,14,16]
-   .   .   .   .   .   .   .   .   a21 a21 a25 .   a21 a21 .   a21 | I Spy - Game Pack (USA)
-     alternative to I Spy - Fun House (Europe) (En,Fr,De,It,Nl) [11]
-     alternative to I Spy - Fun House (USA) [9-10,13-14,16]
-   .   .   .   .   .   .   .   .   a22 a22 a22 .   .   a2  .   a22 | Jewel Link Double Pack (Europe)
-     alternative to Jewel Link - Atlantic Quest (Europe) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a21 a21 a7  a7  a21 a21 .   a21 | Jewel Master Collection (USA) (En,Fr,Es)
-     alternative to Jewel Master - Cradle of Athena (Europe) (En,Fr,De,Es,It,Nl) [11-12]
-     alternative to Jewel Master - Cradle of Athena (USA) (En,Fr,Es) (Rev 1) [9-10,13-14,16]
-   .   .   .   .   .   .   .   .   a4  a4  a4  a25 .   a4  .   a4  | Jewel Match & 4 Elements (Germany) (Fr,De)
-     alternative to 4 Elements (Europe) [11]
-     alternative to 4 Elements (Europe) (Fr,De) [12]
-     alternative to Gem Quest - 4 Elements (USA) (En,Fr) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a24 a24 .   .   .   a24 .   a24 | Jewel Quest - Solitaire - Solitaire with a Twist! (Europe)
-     alternative to Quest Trio, The - Jewels, Cards and Tiles (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a21 a21 a7  .   a21 a21 .   a21 | Kids Learn & Play - Pets & Vets Bundle (USA)
-     alternative to My Pet Hotel 2 (Europe) (En,It) [11]
-     alternative to Paws & Claws - Pet Resort (USA) [9-10,13-14,16]
-   .   .   .   .   .   .   .   .   a7  a7  .   .   .   a7  .   a7  | LEGO Star Wars - The Complete Saga (Europe) (En,Fr,De,Es,It,Da)
-     alternative to LEGO Star Wars - The Complete Saga (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   .   .   a7  .   .   .   .   .   | LEGO Star Wars - The Complete Saga (USA)
-     alternative to LEGO Star Wars - The Complete Saga (Europe) (En,Fr,De,Es,It,Da) [11]
-   .   .   .   .   .   .   .   .   a23 a23 .   a23 .   a23 .   .   | Lernerfolg Grundschule - Englisch - Klasse 1-4 (Spain) (Es,Ru) (Proto)
-     alternative to Successfully Learning English - Year 2+3 (Europe) (En,Fr,De,Es,It,Tr) [9-10,12,14]
-   .   .   .   .   .   .   .   .   a21 a4  a25 .   a21 a21 .   a21 | Mama's Combo Pack - Volume 1 (USA)
-     alternative to Camping Mama + Papa (Japan) [10]
-     alternative to Camping Mama - Outdoor Adventures (USA) [9,13-14,16]
-     alternative to Cooking Mama (Europe) (En,Fr,It) [11]
-   .   .   .   .   .   .   .   .   a21 a4  a7  .   a21 a21 .   a21 | Mama's Combo Pack - Volume 2 (USA)
-     alternative to Cooking Mama 2 (Japan) [10]
-     alternative to Cooking Mama 2 - Dinner with Friends (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Cooking Mama 2 - Dinner with Friends (USA) [9,13-14,16]
-   .   .   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   | Meine Tierarztpraxis in Australien (Germany)
-     alternative to 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It) [12]
-   .   .   .   .   .   .   .   .   .   .   .   a24 .   .   .   .   | Meine Tierpension (Germany) (En,De)
-     alternative to 2 in 1 - My Pet Hotel + My Vet Practice - In the Country (Europe) (En,Fr,De) [12]
-   .   .   .   .   .   .   .   .   a24 a24 .   .   .   a24 .   a24 | Nickelodeon Dora and Friends' - Fantastic Flight (Europe) (En,Fr,Es,Nl)
-     alternative to Nickelodeon Team Umizoomi and Dora's Fantastic Flight (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   | Nickelodeon Team Umizoomi and Dora's Fantastic Flight (USA)
-     alternative to Nickelodeon Dora and Friends' - Fantastic Flight (Europe) (En,Fr,Es,Nl) [11]
-   .   .   .   .   .   .   .   .   .   .   a24 .   .   .   .   .   | Paws & Claws - Pet Vet - Australian Adventures (USA)
-     alternative to 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It) [11]
-   .   .   .   .   .   .   .   .   a7  a7  a21 .   .   a7  .   a7  | Quest Trio, The (Europe)
-     alternative to Jewel Quest - Expeditions (Europe) (En,Fr,Nl) [11]
-     alternative to Jewel Quest - Expeditions (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | Quest Trio, The (Germany)
-     alternative to Jewel Quest - Expeditions (Europe) (En,Fr,Nl) [11]
-     alternative to Jewel Quest - Expeditions (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a7  a7  a21 .   .   a7  .   a7  | Quest Trio, The - Jewels, Cards and Tiles (Europe) (En,Fr,Nl)
-     alternative to Jewel Quest - Expeditions (Europe) (En,Fr,Nl) [11]
-     alternative to Jewel Quest - Expeditions (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | Quest Trio, The - Jewels, Cards and Tiles (Europe) (Fr,Nl)
-     alternative to Jewel Quest - Expeditions (Europe) (En,Fr,Nl) [11]
-     alternative to Jewel Quest - Expeditions (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   .   .   a7  .   .   .   .   .   | Quest Trio, The - Jewels, Cards and Tiles (USA)
-     alternative to Jewel Quest - Expeditions (Europe) (En,Fr,Nl) [11]
-   .   .   .   .   .   .   .   .   a21 a21 a21 a21 .   a21 .   a21 | Successfully Learning English (Europe) (En,Fr,De,Es,It,Tr)
-     alternative to Successfully Learning English - Year 2+3 (Europe) (En,Fr,De,Es,It,Tr) [9-12,14,16]
-   .   .   .   .   .   .   .   .   a4  a4  a4  a25 .   .   .   a4  | Um die Welt in 80 Tagen & Fishdom (Germany) (Fr,De)
-     alternative to Around the World in 80 Days (Europe) (En,Fr,De) [12]
-     alternative to Around the World in 80 Days (Europe) (En,Fr,Nl) (Rev 1) [9-11,16]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   g   g   g   g   g   g   .   g   |
-   .   .   .   .   .   .   .   .   w10 w10 w9  w9  .   w10 .   w10 | 2 in 1 - Music for Kids + Englisch Macht Spass - Eine Reise nach London! (Europe) (En,De) (NDSi Enhanced)
-   .   .   .   .   .   .   .   .   .   .   .   w18 .   .   .   .   | 2 in 1 - My Pet Hotel + My Vet Practice - In the Country (Europe) (En,Fr,De)
-   .   .   .   .   .   .   .   .   w12 w12 w12 w11 .   w12 .   w12 | 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w12 w12 w12 .   .   w12 .   w12 | 2 in 1 - My Riding Stables + My Western Horse (Europe) (En,Fr,De)
-   .   .   .   .   .   .   .   .   w12 w12 w12 w11 .   w12 .   w12 | 3 in 1 - Animals (Europe) (En,Fr,De)
-   .   .   .   .   .   .   .   .   .   .   .   w11 .   .   .   .   | 3 in 1 - My Riding Stables + My Pet School + My Western Horse (Europe) (Fr,De,It)
-   .   .   .   .   .   .   .   .   .   .   w19 w19 .   .   .   .   | 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w54 .   .   .   .   .   | 4 Elements (Europe)
-   .   .   .   .   .   .   .   .   .   .   .   w57 .   .   .   .   | 4 Elements (Europe) (Fr,De)
-   .   .   .   .   .   .   .   .   .   .   .   w57 .   .   .   .   | Around the World in 80 Days (Europe) (En,Fr,De)
-   .   .   .   .   .   .   .   .   w52 w52 w52 .   .   .   .   w52 | Around the World in 80 Days (Europe) (En,Fr,Nl) (Rev 1)
-   .   .   .   .   .   .   .   .   .   .   .   w5  .   .   .   .   | Atlantic Quest + Galactic Quest (Europe) (En,Fr,De,Nl)
-   .   .   .   .   .   .   .   .   .   .   w7  w7  .   .   .   .   | Ben 10 - Alien Force (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w7  w7  .   .   w52 w7  .   w7  | Ben 10 - Alien Force (USA) (En,Fr,De,Es,It) (Rev 1)
-   .   .   .   .   .   .   .   .   .   .   w7  w7  .   .   .   .   | Ben 10 - Alien Force - Vilgax Attacks (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w7  w7  .   .   w57 w7  .   w7  | Ben 10 - Alien Force - Vilgax Attacks (USA) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w7  w7  .   .   .   .   | Ben 10 - Protector of Earth (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w7  w7  .   .   w57 w7  .   w7  | Ben 10 - Protector of Earth (USA)
-   .   .   .   .   .   .   .   .   w57 w57 w57 w57 .   w57 .   w57 | Bibi & Tina - Das Grosse Unwetter (Germany)
-   .   .   .   .   .   .   .   .   w57 w57 w57 w57 .   w57 .   w57 | Bibi & Tina - Die Grosse Schnitzeljagd (Europe) (En,Fr,De)
-   .   .   .   .   .   .   .   .   w57 w57 w57 w57 .   w57 .   w57 | Bibi Blocksberg - Das Gestohlene Hexbuch (Germany)
-   .   .   .   .   .   .   .   .   w57 w57 w57 w57 .   w57 .   w57 | Bibi Blocksberg - Neustadt im Hex-Chaos (Germany)
-   .   .   .   .   .   .   .   .   .   w60 .   .   .   .   .   .   | Camping Mama + Papa (Japan)
-   .   .   .   .   .   .   .   .   w54 .   .   .   w57 w54 .   w54 | Camping Mama - Outdoor Adventures (USA)
-   .   .   .   .   .   .   .   .   .   .   w54 .   .   .   .   .   | Cooking Mama (Europe) (En,Fr,It)
-   .   .   .   .   .   .   .   .   .   w60 .   .   .   .   .   .   | Cooking Mama (Japan)
-   .   .   .   .   .   .   .   .   w54 .   .   .   w57 w54 .   w54 | Cooking Mama (USA)
-   .   .   .   .   .   .   .   .   .   w60 .   .   .   .   .   .   | Cooking Mama 2 (Japan)
-   .   .   .   .   .   .   .   .   .   .   w7  w57 .   .   .   .   | Cooking Mama 2 - Dinner with Friends (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w7  .   .   .   w57 w7  .   w7  | Cooking Mama 2 - Dinner with Friends (USA)
-   .   .   .   .   .   .   .   .   .   .   w54 w57 .   .   .   .   | Cooking Mama 3 (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   w60 .   .   .   .   .   .   | Cooking Mama 3 (Japan)
-   .   .   .   .   .   .   .   .   w54 .   .   .   .   w54 .   w54 | Cooking Mama 3 - Shop & Chop (USA)
-   .   .   .   .   .   .   .   .   .   .   w7  w57 .   .   .   .   | Cooking Mama World - Hobbies & Fun (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w54 .   .   .   .   .   | Cooking Mama World - Outdoor Adventures (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   .   w54 .   w54 | Cradle of Rome (USA) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   .   w60 .   .   .   .   .   .   | Craft Mama (Japan)
-   .   .   .   .   .   .   .   .   w7  .   .   .   w57 w7  .   w7  | Crafting Mama (USA)
-   .   .   .   .   .   .   .   .   .   .   w54 w54 .   .   .   .   | Croods, The - Prehistoric Party! (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   .   w54 .   w54 | Croods, The - Prehistoric Party! (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   w57 w57 w57 .   w57 w57 .   w57 | Digging For Dinosaurs (USA)
-   .   .   .   .   .   .   .   .   .   .   w54 .   .   .   .   .   | Disney Big Hero 6 - Battle in the Bay (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   w57 w54 .   w54 | Disney Big Hero 6 - Battle in the Bay (USA)
-   .   .   .   .   .   .   .   .   .   .   w54 .   .   .   .   .   | Disney Frozen - Olaf's Quest (Europe) (En,Fr,De,It,Nl)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   w57 w54 .   w54 | Disney Frozen - Olaf's Quest (USA)
-   .   .   .   .   .   .   .   .   .   .   w7  w7  .   .   .   .   | Drawn to Life (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w7  .   .   .   w57 w7  .   w7  | Drawn to Life (USA) (En,Fr)
-   .   .   .   .   .   .   .   .   .   w60 .   .   .   .   .   .   | Drawn to Life - Kamisama no Marionette (Japan)
-   .   .   .   .   .   .   .   .   .   .   w7  w7  .   .   .   .   | Drawn to Life - The Next Chapter (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   w7  w7  .   .   w52 w7  .   w7  | Drawn to Life - The Next Chapter (USA) (En,Fr) (Rev 1)
-   .   .   .   .   .   .   .   .   .   .   .   w57 .   .   .   .   | Fishdom (Europe) (Fr,De)
-   .   .   .   .   .   .   .   .   w60 w60 w60 .   .   w8  .   w60 | Fishdom (USA) (En,Fr)
-   .   .   .   .   .   .   .   .   .   .   w54 w52 .   .   .   .   | Gardening Mama (Europe) (En,Fr,De,Es,It) (Rev 1)
-   .   .   .   .   .   .   .   .   .   w60 .   .   .   .   .   .   | Gardening Mama (Japan)
-   .   .   .   .   .   .   .   .   w54 .   .   .   .   w54 .   w54 | Gardening Mama (USA)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   .   w54 .   w54 | Gem Quest - 4 Elements (USA) (En,Fr)
-   .   .   .   .   .   .   .   .   w12 w12 .   w11 .   w12 .   w12 | Horse & Foal - My Riding Stables (Europe) (En,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w12 .   .   .   .   .   | Horse & Foal - My Riding Stables (Europe) (En,Fr,De)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   .   w54 .   w54 | I Love Babies (USA)
-   .   .   .   .   .   .   .   .   .   .   w54 .   .   .   .   .   | I Spy - Fun House (Europe) (En,Fr,De,It,Nl)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   w57 w54 .   w54 | I Spy - Fun House (USA)
-   .   .   .   .   .   .   .   .   w57 w57 w57 .   w57 w57 .   w57 | I Spy - Universe (USA)
-   .   .   .   .   .   .   .   .   w22 w22 w22 .   .   w51 .   w22 | Jewel Link - Atlantic Quest (Europe)
-   .   .   .   .   .   .   .   .   w22 w22 w22 .   .   w57 .   w22 | Jewel Link - Galactic Quest (Europe)
-   .   .   .   .   .   .   .   .   .   .   w7  w7  .   .   .   .   | Jewel Master - Cradle of Athena (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   w7  w7  .   .   w52 w7  .   w7  | Jewel Master - Cradle of Athena (USA) (En,Fr,Es) (Rev 1)
-   .   .   .   .   .   .   .   .   .   .   w7  w7  .   .   .   .   | Jewel Master - Cradle of Egypt (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   .   .   w54 w54 .   .   .   .   | Jewel Master - Cradle of Rome (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   w7  w7  .   .   w57 w7  .   w7  | Jewel Master - Egypt (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w54 w57 .   .   .   .   | Jewel Match (Europe) (En,Fr,De)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   .   w54 .   w54 | Jewel Match (USA) (En,Fr)
-   .   .   .   .   .   .   .   .   .   .   .   w13 .   .   .   .   | Jewel Quest - Expeditions (Europe) (En,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   | Jewel Quest - Expeditions (Europe) (En,Fr,Nl)
-   .   .   .   .   .   .   .   .   w14 w14 .   .   w14 w14 .   w14 | Jewel Quest - Expeditions (USA)
-   .   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   | Jewel Quest - Solitaire - Solitaire with a Twist! (Europe)
-   .   .   .   .   .   .   .   .   w10 w10 .   .   .   w10 .   w10 | Kids Learn Music - A+ Edition (USA) (NDSi Enhanced)
-   .   .   .   .   .   .   .   .   .   .   w15 w15 .   .   .   .   | LEGO Star Wars - The Complete Saga (Europe) (En,Fr,De,Es,It,Da)
-   .   .   .   .   .   .   .   .   w17 w16 .   .   w17 w17 .   w17 | LEGO Star Wars - The Complete Saga (USA)
-   .   .   .   .   .   .   .   .   .   .   w15 w15 .   .   .   .   | LEGO Star Wars II - The Original Trilogy (Europe) (En,Fr,De,Es,It,Da)
-   .   .   .   .   .   .   .   .   .   w16 .   .   .   .   .   .   | LEGO Star Wars II - The Original Trilogy (Japan)
-   .   .   .   .   .   .   .   .   w17 .   .   .   w17 w17 .   w17 | LEGO Star Wars II - The Original Trilogy (USA) (Rev 1)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   .   w54 .   w54 | Let's Ride - Friends Forever (USA)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   .   w54 .   w54 | Madagascar 3 (USA) (En,Fr,Es)
-   .   .   .   .   .   .   .   .   .   .   w54 w54 .   .   .   .   | Madagascar 3 - Europe's Most Wanted (Europe) (En,Fr,De,Es,It,Nl,Ru)
-   .   .   .   .   .   .   .   .   .   .   w54 .   .   .   .   .   | Madagascar Kartz (Europe) (En,Fr,De,Es,It,Nl,Sv)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   w57 w54 .   w54 | Madagascar Kartz (USA) (En,Fr)
-   .   .   .   .   .   .   .   .   .   .   .   w13 .   .   .   .   | Mah Jong Quest - Expeditions (Europe) (En,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   | Mah Jong Quest - Expeditions (Europe) (En,Fr,Nl)
-   .   .   .   .   .   .   .   .   w14 w14 .   .   w14 w14 .   w14 | Mah Jong Quest - Expeditions (USA)
-   .   .   .   .   .   .   .   .   w54 w54 w54 w60 .   w54 .   w54 | Mahjong (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w60 w60 w57 w57 .   w60 .   w60 | Mahjong - Eine Reise um die Welt (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w54 w48 .   .   .   .   | Mahjong Mysteries - Ancient Egypt (Europe) (En,Fr,Es,It) (Rev 1)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   .   w54 .   w54 | Mahjongg Mysteries - Ancient Egypt (USA)
-   .   .   .   .   .   .   .   .   .   .   w9  w9  .   .   .   .   | Music for Kids (Europe) (En,De) (NDSi Enhanced)
-   .   .   .   .   .   .   .   .   w57 w57 w57 .   w57 w57 .   w57 | My Amusement Park (USA)
-   .   .   .   .   .   .   .   .   w54 w54 w54 w60 .   w54 .   w54 | My Boyfriend (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w54 w51 .   .   .   .   | My Little Baby (Europe) (En,Fr,De,Es)
-   .   .   .   .   .   .   .   .   .   .   w7  .   .   .   .   .   | My Pet Hotel 2 (Europe) (En,It)
-   .   .   .   .   .   .   .   .   .   .   .   w6  .   .   .   .   | My Pet Hotel 2 (Europe) (Fr,Es)
-   .   .   .   .   .   .   .   .   w12 w12 w12 w11 .   w12 .   w12 | My Pet School (Europe) (En,Fr,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w7  w18 .   .   .   .   | My Vet Practice - In the Country (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w55 .   .   .   .   .   | Nickelodeon Dora and Friends' - Fantastic Flight (Europe) (En,Fr,Es,Nl)
-   .   .   .   .   .   .   .   .   .   .   w54 .   .   .   .   .   | Nickelodeon Team - Umizoomi (Europe)
-   .   .   .   .   .   .   .   .   w20 w20 .   .   w20 w20 .   w20 | Nickelodeon Team - Umizoomi (USA)
-   .   .   .   .   .   .   .   .   w20 w20 .   .   w20 w20 .   w20 | Nickelodeon Team Umizoomi and Dora's Fantastic Flight (USA)
-   .   .   .   .   .   .   .   .   w54 w54 w54 .   .   w54 .   w54 | Pawly Pets - My Pet Hotel (Europe) (En,Fr)
-   .   .   .   .   .   .   .   .   .   .   .   w19 .   .   .   .   | Pawly Pets - My Vet Practice (Europe) (En,Es,It)
-   .   .   .   .   .   .   .   .   .   .   w19 .   .   .   .   .   | Pawly Pets - My Vet Practice (Europe) (En,Fr,De)
-   .   .   .   .   .   .   .   .   w7  w7  .   .   w57 w7  .   w7  | Paws & Claws - Pet Resort (USA)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   .   w54 .   w54 | Paws & Claws - Pet Vet (USA)
-   .   .   .   .   .   .   .   .   w60 w60 .   .   .   w60 .   w60 | Paws & Claws - Pet Vet - Australian Adventures (USA)
-   .   .   .   .   .   .   .   .   w7  w7  .   .   w57 w7  .   w7  | Paws & Claws - Pet Vet 2 (USA)
-   .   .   .   .   .   .   .   .   w57 w57 w57 .   w57 w57 .   w57 | Pinkalicious - It's Party Time! (USA)
-   .   .   .   .   .   .   .   .   .   .   .   w13 .   .   .   .   | Quest Trio, The (Germany)
-   .   .   .   .   .   .   .   .   w14 w14 .   .   w14 w14 .   w14 | Quest Trio, The - Jewels, Cards and Tiles (USA)
-   .   .   .   .   .   .   .   .   .   .   w54 w60 .   .   .   .   | Real Stories - Best Friends - Mon Poulain, Mon Cheval (Europe) (En,Fr,De,It,Sv,No,Da)
-   .   .   .   .   .   .   .   .   .   .   w54 .   .   .   .   .   | Shrek's Carnival Craze - Party Games (Europe) (En,Fr,De,Es,It,Nl)
-   .   .   .   .   .   .   .   .   w54 w54 .   .   w57 w54 .   w54 | Shrek's Carnival Craze - Party Games (USA) (En,Fr)
-   .   .   .   .   .   .   .   .   w57 w57 w57 .   w57 w57 .   w57 | Silverlicious (USA)
-   .   .   .   .   .   .   .   .   w23 w23 w57 w23 .   w23 .   w57 | Successfully Learning English - Year 2+3 (Europe) (En,Fr,De,Es,It,Tr)
-   .   .   .   .   .   .   .   .   w23 w23 w57 w23 .   w23 .   w57 | Successfully Learning English - Year 4+5 (Europe) (En,Fr,De,Es,It,Tr)
-   .   .   .   .   .   .   .   .   w48 w48 w19 w19 .   w48 .   w48 | Tim Stockdale's Riding Star (Europe) (En,Fr,De,Es,It,Sv,No,Da) (Rev 1)
-   .   .   .   .   .   .   .   .   .   .   .   .   .   w8  .   .   | Um die Welt in 80 Tagen & Fishdom (Germany) (Fr,De)
 == retro arcade toppers
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Retro Arcade Toppers (Europe)
 == retro atari classics
@@ -13766,10 +13327,8 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 x42 w61 x41 w61 a54 a54 w54 x46 x42 a54 x41 a54 | Shrek the Third (Europe)
    w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Shrek the Third (USA)
 == shrek's carnival craze - party games
-   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 .   w57 x42 a54 x41 a54 | Shrek's Carnival Craze - Party Games (Europe) (En,Fr,De,Es,It,Nl)
-     alternative to Shrek's Carnival Craze - Party Games (USA) (En,Fr) [9-10,14,16]
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   a54 x46 .   .   x41 .   | Shrek's Carnival Craze - Party Games (USA) (En,Fr)
-     alternative to Shrek's Carnival Craze - Party Games (Europe) (En,Fr,De,Es,It,Nl) [11]
+   w61 w61 w61 w61 x42 w61 x41 w61 a54 a54 w54 w57 x42 a54 x41 a54 | Shrek's Carnival Craze - Party Games (Europe) (En,Fr,De,Es,It,Nl)
+   w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Shrek's Carnival Craze - Party Games (USA) (En,Fr)
 == shugo chara! - 3-tsu no tamago to koisuru joker
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Shugo Chara! - 3-tsu no Tamago to Koisuru Joker (Japan)
 == shugo chara! - amu no nijiiro chara change
@@ -13807,8 +13366,7 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == silly bandz
    w61 w61 w61 w61 w61 w61 x41 w61 w57 w57 w57 w57 w57 w57 x41 w57 | Silly Bandz (USA) (En,Fr,Es)
 == silverlicious
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w61 w61 w61 x46 w61 w61 x41 w61 .   .   .   x46 .   .   x41 .   | Silverlicious (USA)
+   w61 w61 w61 x46 w61 w61 x41 w61 w57 w57 w57 x46 w57 w57 x41 w57 | Silverlicious (USA)
 == simanimals
    w61 w61 w61 w61 x42 w61 x41 w61 a54 a60 w54 w54 x42 a54 x41 a54 | SimAnimals (Europe) (En,Fr,De,Es,It,Nl,Pt,Sv,No,Da)
    w61 w61 w61 x46 x42 w61 x41 w61 a54 w60 a54 x46 x42 a54 x41 a54 | SimAnimals (Japan) (En,Ja)
@@ -14561,11 +14119,11 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Successfully Learning English (Europe) (En,Fr,De,Es,It,Tr)
 == successfully learning english - year 2+3
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Successfully Learning English - Year 2+3 (Europe) (En,Fr,De,Es,It,Tr)
+   .   .   .   .   .   .   .   .   a23 a23 .   a23 .   a23 .   .   | Lernerfolg Grundschule - Englisch - Klasse 1-4 (Spain) (Es,Ru) (Proto)
+   .   .   .   .   .   .   .   .   a21 a21 a21 a21 .   a21 .   a21 | Successfully Learning English (Europe) (En,Fr,De,Es,It,Tr)
+   w61 w61 w61 w61 x42 w61 x41 w61 w23 w23 w57 w23 x42 w23 x41 w57 | Successfully Learning English - Year 2+3 (Europe) (En,Fr,De,Es,It,Tr)
 == successfully learning english - year 4+5
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Successfully Learning English - Year 4+5 (Europe) (En,Fr,De,Es,It,Tr)
+   w61 w61 w61 w61 x42 w61 x41 w61 w23 w23 w57 w23 x42 w23 x41 w57 | Successfully Learning English - Year 4+5 (Europe) (En,Fr,De,Es,It,Tr)
 == successfully learning mathematics
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Successfully Learning Mathematics (Europe) (En,Fr,De,Es,It,Ru)
@@ -15267,8 +14825,7 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Tigre, El - The Adventures of Manny Rivera (USA)
 == tim stockdale's riding star
    .   .   .   .   .   .   .   .   a48 a48 a48 a48 x42 a48 x41 a48 | Riding Star 3 (Europe) (En,Fr,De,Es,It)
-     alternative to Tim Stockdale's Riding Star (Europe) (En,Fr,De,Es,It,Sv,No,Da) (Rev 1) [9-12,14,16]
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Tim Stockdale's Riding Star (Europe) (En,Fr,De,Es,It,Sv,No,Da) (Rev 1)
+   w61 w61 w61 w61 x42 w61 x41 w61 w48 w48 w19 w19 x42 w48 x41 w48 | Tim Stockdale's Riding Star (Europe) (En,Fr,De,Es,It,Sv,No,Da) (Rev 1)
 == time ace
    w61 w61 w61 x46 w61 w61 x41 w61 w57 w57 w57 x46 w57 w57 x41 w57 | Time Ace (USA)
 == time hollow
@@ -15951,8 +15508,8 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 x45 w61 x42 w61 x41 w61 a60 a60 x45 w60 x42 a60 x41 a60 | Ultimate Spider-Man (Spain)
    w61 w61 w61 x46 w61 w61 x41 w61 w54 a60 a54 x46 w57 w54 x41 w54 | Ultimate Spider-Man (USA)
 == um die welt in 80 tagen & fishdom
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 .   x41 .   | Um die Welt in 80 Tagen & Fishdom (Germany) (Fr,De)
+   g   g   g   g   g   g   g   g   .   .   .   .   g   g   g   .   |
+   w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   x42 w8  x41 .   | Um die Welt in 80 Tagen & Fishdom (Germany) (Fr,De)
 == umezawa yukari no yasashii igo
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Umezawa Yukari no Yasashii Igo (Japan)
 == umihara kawase shun - second edition kanzen ban

@@ -245,14 +245,23 @@ rule r48: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w46 w46 w46 x33 x29 x27 x28 w46 .   .   .   .   .   .   .   .   | Astro Flash (Japan)
 == astro warrior
-   g   g   g   g   g   g   g   g   .   .   g   g   .   g   g   .   |
-   w46 w46 w46 x33 w46 x27 x28 w46 .   .   a11 x33 .   x27 x28 .   | Astro Warrior (Japan, USA, Brazil) (En)
-     alternative to Astro Warrior & Pit Pot (Europe) [11]
+   g   g   g   g   g   g   g   g   g   gd  .   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   .   | Astro Warrior & Pit Pot (Brazil) (En) (2011 Master System Evolution)
+   .   .   .   .   .   .   .   .   .   a12 .   .   .   .   .   .   | Astro Warrior & Pit Pot (Europe)
+   w46 w46 w46 x33 w46 x27 x28 w46 w7  w9  .   x33 w43 x27 x28 w7  | Astro Warrior (Japan, USA, Brazil) (En)
+   .   .   .   .   .   .   .   .   .   a3  .   .   a1  .   .   .   | Hang On & Astro Warrior (USA)
 == astro warrior & pit pot
-   gd  gd  gd  gd  gd  gd  gd  gd  g   g   g   gd  gd  gd  gd  g   |
-   w46 w46 w46 x33 x29 x27 x28 w46 .   .   .   x33 x29 x27 x28 .   | Astro Warrior & Pit Pot (Brazil) (En) (2011 Master System Evolution)
-   w46 w46 w46 x33 x29 x27 x28 w46 .   .   .   x33 x29 x27 x28 .   | Astro Warrior & Pit Pot (Europe)
+   gd  gd  gd  gd  gd  gd  gd  gd  gd  g   gd  gd  gd  gd  gd  gd  |
+   w46 w46 w46 x33 x29 x27 x28 w46 a9  .   a9  x33 x29 x27 x28 a9  | Astro Warrior & Pit Pot (Brazil) (En) (2011 Master System Evolution)
+     alternative to Astro Warrior & Pit Pot (Europe) [9,11]
+   w46 w46 w46 x33 x29 x27 x28 w46 w7  .   w9  x33 x29 x27 x28 w7  | Astro Warrior & Pit Pot (Europe)
    w46 w46 w46 x33 x29 x27 x28 x17 w43 w43 w43 x33 x29 x27 x28 x17 | Astro Warrior & Pit Pot (Europe) (Sample)
+   .   .   .   .   .   .   .   .   .   .   a11 .   .   .   .   .   | Astro Warrior (Japan, USA, Brazil) (En)
+     alternative to Astro Warrior & Pit Pot (Europe) [11]
+   .   .   .   .   .   .   .   .   a2  .   a2  .   .   .   .   a2  | Fushigi no Oshiro Pit Pot (Japan)
+     alternative to Astro Warrior & Pit Pot (Europe) [9,11]
+   .   .   .   .   .   .   .   .   a9  .   a9  .   .   .   .   a9  | Hang On & Astro Warrior (USA)
+     alternative to Astro Warrior & Pit Pot (Europe) [9,11]
 == aventuras da tv colosso, as
    w46 w46 x32 x33 x29 x27 x28 w46 w43 w43 x32 x33 x29 x27 x28 w43 | Aventuras da TV Colosso, As (Brazil)
 == ayrton senna's super monaco gp ii
@@ -694,26 +703,26 @@ rule r48: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Haja no Fuuin (Japan)
 == hang on
-   w46 w46 w46 x33 x29 w46 x28 w46 a11 a45 .   x33 x29 a11 x28 a11 | Hang On (Europe)
-     alternative to Hang On & Astro Warrior (USA) [14]
-     alternative to Hang On & Safari Hunt (USA) [9,16]
-     alternative to Hang On (Japan) [10]
+   .   .   .   .   .   .   .   .   .   .   a12 .   .   .   .   .   | Hang On & Safari Hunt (USA)
+   .   .   .   .   .   .   .   .   .   .   a10 .   .   .   .   .   | Hang On & Safari Hunt (USA) (Beta)
+   w46 w46 w46 x33 x29 w46 x28 w46 .   a45 w9  x33 x29 .   x28 .   | Hang On (Europe)
    w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Hang On (Europe) (Beta)
      alternative to Hang On & Astro Warrior (USA) [14]
      alternative to Hang On & Safari Hunt (USA) [9]
-     alternative to Hang On (Europe) [11]
-     alternative to Hang On (Japan) [10]
-   w46 w46 w46 x33 x29 w46 x28 w46 a45 .   a45 x33 x29 a45 x28 a45 | Hang On (Japan)
+   w46 w46 w46 x33 x29 w46 x28 w46 a45 w8  a45 x33 x29 a45 x28 a45 | Hang On (Japan)
      alternative to Hang On & Astro Warrior (USA) [14]
      alternative to Hang On & Safari Hunt (USA) [9,16]
-     alternative to Hang On (Europe) [11]
 == hang on & astro warrior
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w46 w46 w46 x33 w46 w46 x28 w46 .   .   .   x33 .   .   x28 .   | Hang On & Astro Warrior (USA)
+   g   g   g   g   g   g   g   g   .   .   .   g   .   g   g   .   |
+   w46 w46 w46 x33 w46 w46 x28 w46 .   .   .   x33 .   w6  x28 .   | Hang On & Astro Warrior (USA)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a10 .   .   | Hang On & Safari Hunt (USA) (Beta)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a11 .   .   | Hang On (Europe)
 == hang on & safari hunt
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   g   |
-   w46 w46 w46 x33 w46 w46 x28 w46 .   .   .   x33 .   .   x28 .   | Hang On & Safari Hunt (USA)
-   w46 w46 w46 x33 w46 w46 x28 x24 .   .   .   x33 .   .   x28 x24 | Hang On & Safari Hunt (USA) (Beta)
+   g   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   |
+   w46 w46 w46 x33 w46 w46 x28 w46 w9  w8  .   x33 w10 w6  x28 w9  | Hang On & Safari Hunt (USA)
+   w46 w46 w46 x33 w46 w46 x28 x24 a10 a10 .   x33 a10 .   x28 x24 | Hang On & Safari Hunt (USA) (Beta)
+   .   .   .   .   .   .   .   .   a11 .   .   .   .   .   .   a11 | Hang On (Europe)
+   .   .   .   .   .   .   .   .   a7  a8  .   .   .   a6  .   a7  | Marksman Shooting & Trap Shooting & Safari Hunt (Europe)
 == heavyweight champ
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Heavyweight Champ (Europe, Brazil) (En)
@@ -845,11 +854,12 @@ rule r48: Superset parent selection REF0119: Group after good dump/production/re
 == marble madness
    w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Marble Madness (Europe)
 == marksman shooting & trap shooting
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w46 w46 w46 x33 w46 w46 x28 w46 .   .   .   x33 .   .   x28 .   | Marksman Shooting & Trap Shooting (USA, Brazil) (En)
+   g   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   |
+   w46 w46 w46 x33 w46 w46 x28 w46 w5  w5  .   x33 w5  w5  x28 w5  | Marksman Shooting & Trap Shooting (USA, Brazil) (En)
 == marksman shooting & trap shooting & safari hunt
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   x33 x29 .   x28 .   | Marksman Shooting & Trap Shooting & Safari Hunt (Europe)
+   g   g   g   g   g   g   g   g   .   .   g   g   g   .   g   .   |
+   w46 w46 w46 x33 x29 w46 x28 w46 .   .   w10 x33 x29 .   x28 .   | Marksman Shooting & Trap Shooting & Safari Hunt (Europe)
+   .   .   .   .   .   .   .   .   .   .   a4  .   .   .   .   .   | Marksman Shooting & Trap Shooting (USA, Brazil) (En)
 == master of darkness
    w46 w46 w46 x33 x29 w46 x28 w46 w36 w36 w36 x33 x29 w36 x28 w43 | Master of Darkness (Europe, Brazil) (En)
    .   .   .   .   .   .   .   .   a36 a36 a36 x33 x29 a36 x28 x24 | Vampire (Europe) (Beta)
@@ -1005,11 +1015,9 @@ rule r48: Superset parent selection REF0119: Group after good dump/production/re
    w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Pigu-Wang 7 Hap - Jaemiiss-neun Game Mo-eumjip (Korea) (Unl)
 == pit pot
    .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
-   .   .   .   .   .   .   .   .   a2  .   a2  x33 x29 w36 x28 a2  | Fushigi no Oshiro Pit Pot (Japan)
-     alternative to Astro Warrior & Pit Pot (Europe) [9,11,16]
+   .   .   .   .   .   .   .   .   .   w36 .   x33 x29 w36 x28 .   | Fushigi no Oshiro Pit Pot (Japan)
    .   .   .   .   .   .   .   .   a36 a36 a36 x33 x29 a36 x28 x24 | Fushigi no Oshiro Pit Pot (Japan) (Beta)
      alternative to Astro Warrior & Pit Pot (Europe) [9,11]
-     alternative to Fushigi no Oshiro Pit Pot (Japan) [10]
 == pit-fighter
    w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 a41 x33 x29 a41 x28 a41 | Pit-Fighter (Brazil) (En)
    w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w41 | Pit-Fighter (Europe)
@@ -1089,44 +1097,6 @@ rule r48: Superset parent selection REF0119: Group after good dump/production/re
    w46 w46 w46 x33 x29 w46 x28 w46 w43 w43 w43 x33 x29 w43 x28 w43 | Renegade (Europe, Brazil) (En)
 == rescue mission
    w46 w46 w46 x33 w46 w46 x28 w46 w43 w43 w43 x33 w43 w43 x28 w43 | Rescue Mission (USA, Europe, Brazil) (En)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   gd  gd  gd  .   g   g   .   gd  |
-   .   .   .   .   .   .   .   .   a9  a9  a9  .   .   .   .   a9  | Astro Warrior & Pit Pot (Brazil) (En) (2011 Master System Evolution)
-     alternative to Astro Warrior & Pit Pot (Europe) [9,11,16]
-     alternative to Astro Warrior (Japan, USA, Brazil) (En) [10]
-   .   .   .   .   .   .   .   .   .   a12 .   .   .   .   .   .   | Astro Warrior & Pit Pot (Europe)
-     alternative to Astro Warrior (Japan, USA, Brazil) (En) [10]
-   .   .   .   .   .   .   .   .   .   .   a11 .   .   .   .   .   | Astro Warrior (Japan, USA, Brazil) (En)
-     alternative to Astro Warrior & Pit Pot (Europe) [11]
-   .   .   .   .   .   .   .   .   a2  .   a2  .   .   .   .   a2  | Fushigi no Oshiro Pit Pot (Japan)
-     alternative to Astro Warrior & Pit Pot (Europe) [9,11,16]
-   .   .   .   .   .   .   .   .   a9  a3  a9  .   a1  .   .   a9  | Hang On & Astro Warrior (USA)
-     alternative to Astro Warrior & Pit Pot (Europe) [9,11,16]
-     alternative to Astro Warrior (Japan, USA, Brazil) (En) [10,13]
-   .   .   .   .   .   .   .   .   .   .   a12 .   .   .   .   .   | Hang On & Safari Hunt (USA)
-     alternative to Hang On (Europe) [11]
-   .   .   .   .   .   .   .   .   a10 a10 a10 .   a10 a10 .   .   | Hang On & Safari Hunt (USA) (Beta)
-     alternative to Hang On & Astro Warrior (USA) [14]
-     alternative to Hang On & Safari Hunt (USA) [9-10,13]
-     alternative to Hang On (Europe) [11]
-   .   .   .   .   .   .   .   .   a11 .   .   .   .   a11 .   a11 | Hang On (Europe)
-     alternative to Hang On & Astro Warrior (USA) [14]
-     alternative to Hang On & Safari Hunt (USA) [9,16]
-   .   .   .   .   .   .   .   .   a7  a8  .   .   .   a6  .   a7  | Marksman Shooting & Trap Shooting & Safari Hunt (Europe)
-     alternative to Hang On & Safari Hunt (USA) [9-10,14,16]
-   .   .   .   .   .   .   .   .   .   .   a4  .   .   .   .   .   | Marksman Shooting & Trap Shooting (USA, Brazil) (En)
-     alternative to Marksman Shooting & Trap Shooting & Safari Hunt (Europe) [11]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   g   g   g   .   g   g   .   g   |
-   .   .   .   .   .   .   .   .   w7  .   w9  .   .   .   .   w7  | Astro Warrior & Pit Pot (Europe)
-   .   .   .   .   .   .   .   .   w7  w9  .   .   w43 .   .   w7  | Astro Warrior (Japan, USA, Brazil) (En)
-   .   .   .   .   .   .   .   .   .   w36 .   .   .   .   .   .   | Fushigi no Oshiro Pit Pot (Japan)
-   .   .   .   .   .   .   .   .   .   .   .   .   .   w6  .   .   | Hang On & Astro Warrior (USA)
-   .   .   .   .   .   .   .   .   w9  w8  .   .   w10 w6  .   w9  | Hang On & Safari Hunt (USA)
-   .   .   .   .   .   .   .   .   .   .   w9  .   .   .   .   .   | Hang On (Europe)
-   .   .   .   .   .   .   .   .   .   w8  .   .   .   .   .   .   | Hang On (Japan)
-   .   .   .   .   .   .   .   .   .   .   w10 .   .   .   .   .   | Marksman Shooting & Trap Shooting & Safari Hunt (Europe)
-   .   .   .   .   .   .   .   .   w5  w5  .   .   w5  w5  .   w5  | Marksman Shooting & Trap Shooting (USA, Brazil) (En)
 == road fighter
    w46 w46 w46 x33 x29 w46 x28 x25 w43 w43 w43 x33 x29 w43 x28 x25 | Road Fighter (Korea) (En) (Unl)
 == road rash

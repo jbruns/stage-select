@@ -1666,16 +1666,12 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == battle formation
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | Battle Formation (Japan)
 == battle hunter
-   w53 w53 w53 x38 w53 w53 x32 w53 .   a52 a47 x38 w50 .   x32 .   | Battle Hunter (USA)
-     alternative to Hunter, The (Europe) [11]
+   w53 w53 w53 x38 w53 w53 x32 w53 w47 a52 a47 x38 w50 w47 x32 w47 | Battle Hunter (USA)
      alternative to SuperLite 3in1 Series - Board Game-shuu (Japan) [10]
-   .   .   .   .   .   .   .   .   a47 a52 .   x38 x33 a47 x32 a47 | Hunter, The (Europe)
-     alternative to Battle Hunter (USA) [9,14,16]
+   .   .   .   .   .   .   .   .   a47 a52 w47 x38 x33 a47 x32 a47 | Hunter, The (Europe)
      alternative to SuperLite 3in1 Series - Board Game-shuu (Japan) [10]
-   .   .   .   .   .   .   .   .   a52 a1  a52 x38 x33 a52 x32 a52 | SuperLite 1500 Series - Battle Sugoroku the Hunter - A.R.0062 (Japan)
-     alternative to Battle Hunter (USA) [9,14,16]
-     alternative to Hunter, The (Europe) [11]
-     alternative to SuperLite 3in1 Series - Board Game-shuu (Japan) [10]
+   .   .   .   .   .   .   .   .   a52 .   a52 x38 x33 a52 x32 a52 | SuperLite 1500 Series - Battle Sugoroku the Hunter - A.R.0062 (Japan)
+   .   .   .   .   .   .   .   .   a7  .   .   .   .   a7  .   a7  | SuperLite 3in1 Series - Board Game-shuu (Japan)
 == battle konchuuden
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | Battle Konchuuden (Japan)
 == battle master
@@ -1857,14 +1853,12 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w53 w53 w53 x38 x33 w53 x32 x26 w50 w50 w50 x38 x33 w50 x32 x26 | Biohazard 3 - Last Escape (Japan) (Demo)
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | Biohazard 3 - Last Escape (Japan) (Rev 1)
 == bishi bashi special
-   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | Bishi Bashi Special (Europe)
-   w53 w53 w53 x38 x33 w53 x32 w53 a5  .   a5  x38 x33 a5  x32 a5  | Bishi Bashi Special (Japan)
-     alternative to Bishi Bashi Special (Europe) [9,11,14,16]
+   w53 w53 w53 x38 x33 w53 x32 w53 w5  a5  w5  x38 x33 w5  x32 w5  | Bishi Bashi Special (Europe)
+   w53 w53 w53 x38 x33 w53 x32 w53 a5  w5  a5  x38 x33 a5  x32 a5  | Bishi Bashi Special (Japan)
+   .   .   .   .   .   .   .   .   a2  .   a2  .   .   a2  .   a2  | Bishi Bashi Special 2 (Japan)
 == bishi bashi special 2
-   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
-   w53 w53 w53 x38 x33 w53 x32 w53 a2  .   a2  x38 x33 a2  x32 a2  | Bishi Bashi Special 2 (Japan)
-     alternative to Bishi Bashi Special (Europe) [9,11,14,16]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   w53 w53 w53 x38 x33 w53 x32 w53 .   w50 .   x38 x33 .   x32 .   | Bishi Bashi Special 2 (Japan)
 == bishi bashi special 3 - step champ
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | Bishi Bashi Special 3 - Step Champ (Japan)
 == bishoujo hanafuda kikou - michinoku hitou koi monogatari
@@ -3772,10 +3766,9 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == cross tantei monogatari 1 - zenpen
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | Cross Tantei Monogatari 1 - Zenpen (Japan)
 == crossroad crisis
-   w53 w53 w53 x38 w53 w53 x32 w53 .   a52 .   x38 w50 .   x32 .   | Crossroad Crisis (USA)
-     alternative to SuperLite 1500 Series - Chitty Chitty Chicken (Japan) [10]
-   .   .   .   .   .   .   .   .   a52 .   a52 x38 x33 a52 x32 a52 | SuperLite 1500 Series - Chitty Chitty Chicken (Japan)
-     alternative to Crossroad Crisis (USA) [9,11,14,16]
+   w53 w53 w53 x38 w53 w53 x32 w53 w52 a52 w52 x38 w50 w52 x32 w52 | Crossroad Crisis (USA)
+   .   .   .   .   .   .   .   .   a52 w6  a52 x38 x33 a52 x32 a52 | SuperLite 1500 Series - Chitty Chitty Chicken (Japan)
+   .   .   .   .   .   .   .   .   .   .   a7  .   .   .   .   .   | SuperLite 3in1 Series - Board Game-shuu (Japan)
 == crow, the - city of angels
    w53 w53 w53 x38 x33 w53 x32 w53 a47 a52 w47 x38 x33 a47 x32 a47 | Crow, The - City of Angels (Europe)
    w53 w53 w53 x38 x33 w53 x32 w53 a47 a52 a47 x38 x33 a47 x32 a47 | Crow, The - City of Angels (Germany)
@@ -7455,15 +7448,12 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w53 w53 w53 x38 w53 w53 x32 w53 w47 a47 a47 x38 w50 w47 x32 w47 | Final Doom (USA)
 == final fantasy
    w53 w53 w53 x38 x33 w53 x32 w53 a39 a39 a39 x38 x33 a39 x32 a39 | Final Fantasy (Japan)
-     alternative to Final Fantasy (Japan) (Premium Package) [10]
      alternative to Final Fantasy Origins (USA) (Rev 1) [9,14,16]
-     alternative to Final Fantasy Origins - Final Fantasy (Europe) [11]
-   w53 w53 w53 x38 x33 w53 x32 w53 a52 .   a52 x38 x33 a52 x32 a52 | Final Fantasy (Japan) (Premium Package)
+   w53 w53 w53 x38 x33 w53 x32 w53 a52 w52 a52 x38 x33 a52 x32 a52 | Final Fantasy (Japan) (Premium Package)
      alternative to Final Fantasy Origins (USA) (Rev 1) [9,14,16]
-     alternative to Final Fantasy Origins - Final Fantasy (Europe) [11]
-   .   .   .   .   .   .   .   .   a8  a52 .   x38 x33 a8  x32 a8  | Final Fantasy Origins - Final Fantasy (Europe)
-     alternative to Final Fantasy (Japan) (Premium Package) [10]
-     alternative to Final Fantasy Origins (USA) (Rev 1) [9,14,16]
+   .   .   .   .   .   .   .   .   .   a3  a9  .   .   .   .   .   | Final Fantasy Origins (USA)
+   .   .   .   .   .   .   .   .   .   a3  a9  .   .   .   .   .   | Final Fantasy Origins (USA) (Rev 1)
+   .   .   .   .   .   .   .   .   .   a52 w52 x38 x33 .   x32 .   | Final Fantasy Origins - Final Fantasy (Europe)
 == final fantasy anthology - european edition - final fantasy iv
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | Final Fantasy Anthology - European Edition - Final Fantasy IV (Europe, Australia)
@@ -7495,15 +7485,10 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w53 w53 w53 x38 x33 w53 x32 x15 w50 w50 w50 x38 x33 w50 x32 x15 | Final Fantasy Extra Collection (Japan)
 == final fantasy ii
    w53 w53 w53 x38 x33 w53 x32 w53 a39 a39 a39 x38 x33 a39 x32 a39 | Final Fantasy II (Japan)
-     alternative to Final Fantasy II (Japan) (Premium Package) [10]
      alternative to Final Fantasy Origins (USA) (Rev 1) [9,14,16]
-     alternative to Final Fantasy Origins - Final Fantasy II (Europe) [11]
-   w53 w53 w53 x38 x33 w53 x32 w53 a52 .   a52 x38 x33 a52 x32 a52 | Final Fantasy II (Japan) (Premium Package)
+   w53 w53 w53 x38 x33 w53 x32 w53 a52 w52 a52 x38 x33 a52 x32 a52 | Final Fantasy II (Japan) (Premium Package)
      alternative to Final Fantasy Origins (USA) (Rev 1) [9,14,16]
-     alternative to Final Fantasy Origins - Final Fantasy II (Europe) [11]
-   .   .   .   .   .   .   .   .   a8  a52 .   x38 x33 a8  x32 a8  | Final Fantasy Origins - Final Fantasy II (Europe)
-     alternative to Final Fantasy II (Japan) (Premium Package) [10]
-     alternative to Final Fantasy Origins (USA) (Rev 1) [9,14,16]
+   .   .   .   .   .   .   .   .   .   a52 w52 x38 x33 .   x32 .   | Final Fantasy Origins - Final Fantasy II (Europe)
 == final fantasy iv
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | Final Fantasy IV (Japan)
@@ -7629,9 +7614,11 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
      alternative to Final Fantasy IX (Europe) (Disc 4) [11]
      alternative to Final Fantasy IX (Japan, Asia) (Disc 4) [10]
 == final fantasy origins
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w53 w53 w53 x38 w53 w53 x32 w53 .   .   .   x38 .   .   x32 .   | Final Fantasy Origins (USA)
-   w53 w53 w53 x38 w53 w53 x32 w53 .   .   .   x38 .   .   x32 .   | Final Fantasy Origins (USA) (Rev 1)
+   g   g   g   g   g   g   g   g   g   .   .   g   g   g   g   g   |
+   w53 w53 w53 x38 w53 w53 x32 w53 a10 .   .   x38 a10 a10 x32 a10 | Final Fantasy Origins (USA)
+   w53 w53 w53 x38 w53 w53 x32 w53 w10 .   .   x38 w10 w10 x32 w10 | Final Fantasy Origins (USA) (Rev 1)
+   .   .   .   .   .   .   .   .   a8  .   .   .   .   a8  .   a8  | Final Fantasy Origins - Final Fantasy (Europe)
+   .   .   .   .   .   .   .   .   a8  .   .   .   .   a8  .   a8  | Final Fantasy Origins - Final Fantasy II (Europe)
 == final fantasy origins - final fantasy
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | Final Fantasy Origins - Final Fantasy (Europe)
@@ -8782,8 +8769,8 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | Gourmet Action Game - Manpuku!! Nabe Kazoku (Japan)
    w53 w53 w53 x38 x33 w53 x32 x18 w50 w50 w50 x38 x33 w50 x32 x18 | Gourmet Action Game - Manpuku!! Nabe Kazoku (Japan) (Demo)
 == gp challenge
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w53 w53 w53 w53 x33 w53 x32 w53 .   .   .   .   x33 .   x32 .   | GP Challenge (Europe) (En,Fr,De,It)
+   .   .   .   .   .   .   .   .   a7  a7  a7  a7  .   a7  .   a7  | Family Games Compendium (Europe) (En,Fr,De,It) (Disc 3)
+   w53 w53 w53 w53 x33 w53 x32 w53 w50 w50 w50 w50 x33 w50 x32 w50 | GP Challenge (Europe) (En,Fr,De,It)
 == grab des pharao, das
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 w53 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | Grab des Pharao, Das (Germany)
@@ -10661,8 +10648,7 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == karat ps1-you pro action replay cdx3
    w53 w53 w53 x38 x33 w53 x32 x12 w50 w50 w50 x38 x33 w50 x32 x12 | Karat PS1-you Pro Action Replay CDX3 (Japan) (Unl) (v4.2)
 == kart challenge
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w53 w53 w53 w53 x33 w53 x32 w53 .   .   .   .   x33 .   x32 .   | Kart Challenge (Europe) (En,Fr,De,It)
+   w53 w53 w53 w53 x33 w53 x32 w53 w50 w50 w50 w50 x33 w50 x32 w50 | Kart Challenge (Europe) (En,Fr,De,It)
 == kart race - kimete wa drift!
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | Kart Race - Kimete wa Drift! (Japan)
 == kartia - the word of fate
@@ -11822,18 +11808,18 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w53 w53 w53 w53 x33 w53 x32 w53 a47 a52 w47 w50 x33 a47 x32 a47 | Loaded (Europe) (En,Fr,De)
    w53 w53 w53 x38 w53 w53 x32 w53 w47 a52 a47 x38 w50 w47 x32 w47 | Loaded (USA) (En,Fr)
 == lode runner
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w53 w53 w53 x38 w53 w53 x32 w53 .   .   .   x38 .   .   x32 .   | Lode Runner (USA)
+   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
+   w53 w53 w53 x38 w53 w53 x32 w53 w4  .   w4  x38 w4  w4  x32 w4  | Lode Runner (USA)
+   .   .   .   .   .   .   .   .   a8  .   a8  .   .   a8  .   a8  | Lode Runner - The Legend Returns (Japan)
+   .   .   .   .   .   .   .   .   a8  .   a8  .   .   a8  .   a8  | Lode Runner Extra (Japan)
 == lode runner - the legend returns
-   w53 w53 w53 x38 x33 w53 x32 w53 a8  a41 a8  x38 x33 a8  x32 a8  | Lode Runner - The Legend Returns (Japan)
-     alternative to Lode Runner (USA) [9,11,14,16]
-     alternative to SuperLite 1500 Series - Lode Runner - The Legend Returns (Japan) [10]
-   .   .   .   .   .   .   .   .   a41 .   a41 x38 x33 a41 x32 a41 | SuperLite 1500 Series - Lode Runner - The Legend Returns (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 .   a41 .   x38 x33 .   x32 .   | Lode Runner - The Legend Returns (Japan)
+   .   .   .   .   .   .   .   .   a41 w41 a41 x38 x33 a41 x32 a41 | SuperLite 1500 Series - Lode Runner - The Legend Returns (Japan)
      alternative to Lode Runner (USA) [9,11,14,16]
 == lode runner extra
-   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
-   w53 w53 w53 x38 x33 w53 x32 w53 a8  .   a8  x38 x33 a8  x32 a8  | Lode Runner Extra (Japan)
-     alternative to Lode Runner (USA) [9,11,14,16]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   a3  .   .   .   .   .   .   | Lode Runner (USA)
+   w53 w53 w53 x38 x33 w53 x32 w53 .   w50 .   x38 x33 .   x32 .   | Lode Runner Extra (Japan)
 == logic mahjong souryuu - yonin uchi, sannin uchi
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | Logic Mahjong Souryuu - Yonin Uchi, Sannin Uchi (Japan)
 == logic pro adventure
@@ -17069,100 +17055,6 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
      alternative to Resident Evil 3 - Nemesis (Europe) (Demo) [11]
 == restaurant dream
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | Restaurant Dream (Japan)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   g   g   g   g   g   g   .   g   |
-   .   .   .   .   .   .   .   .   .   a5  .   .   .   .   .   .   | Bishi Bashi Special (Europe)
-     alternative to Bishi Bashi Special (Japan) [10]
-   .   .   .   .   .   .   .   .   a5  .   a5  .   .   a5  .   a5  | Bishi Bashi Special (Japan)
-     alternative to Bishi Bashi Special (Europe) [9,11,14,16]
-   .   .   .   .   .   .   .   .   a2  .   a2  .   .   a2  .   a2  | Bishi Bashi Special 2 (Japan)
-     alternative to Bishi Bashi Special (Europe) [9,11,14,16]
-   .   .   .   .   .   .   .   .   a7  a7  a7  a7  .   a7  .   a7  | Family Games Compendium (Europe) (En,Fr,De,It) (Disc 3)
-     alternative to GP Challenge (Europe) (En,Fr,De,It) [9-12,14,16]
-   .   .   .   .   .   .   .   .   a10 a3  a9  .   a10 a10 .   a10 | Final Fantasy Origins (USA)
-     alternative to Final Fantasy (Japan) (Premium Package) [10]
-     alternative to Final Fantasy Origins (USA) (Rev 1) [9,13-14,16]
-     alternative to Final Fantasy Origins - Final Fantasy (Europe) [11]
-   .   .   .   .   .   .   .   .   .   a3  a9  .   .   .   .   .   | Final Fantasy Origins (USA) (Rev 1)
-     alternative to Final Fantasy (Japan) (Premium Package) [10]
-     alternative to Final Fantasy Origins - Final Fantasy (Europe) [11]
-   .   .   .   .   .   .   .   .   a8  .   .   .   .   a8  .   a8  | Final Fantasy Origins - Final Fantasy (Europe)
-     alternative to Final Fantasy Origins (USA) (Rev 1) [9,14,16]
-   .   .   .   .   .   .   .   .   a8  .   .   .   .   a8  .   a8  | Final Fantasy Origins - Final Fantasy II (Europe)
-     alternative to Final Fantasy Origins (USA) (Rev 1) [9,14,16]
-   .   .   .   .   .   .   .   .   .   a3  .   .   .   .   .   .   | Lode Runner (USA)
-     alternative to Lode Runner Extra (Japan) [10]
-   .   .   .   .   .   .   .   .   a8  .   a8  .   .   a8  .   a8  | Lode Runner - The Legend Returns (Japan)
-     alternative to Lode Runner (USA) [9,11,14,16]
-   .   .   .   .   .   .   .   .   a8  .   a8  .   .   a8  .   a8  | Lode Runner Extra (Japan)
-     alternative to Lode Runner (USA) [9,11,14,16]
-   .   .   .   .   .   .   .   .   .   a1  .   .   .   .   .   .   | SuperLite 1500 Series - Battle Sugoroku the Hunter - A.R.0062 (Japan)
-     alternative to SuperLite 3in1 Series - Board Game-shuu (Japan) [10]
-   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Arcade Classic-shuu (Japan)
-     alternative to SuperLite 1500 Series - Crazy Balloon 2000 (Japan) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a7  .   a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Board Game-shuu (Japan)
-     alternative to Battle Hunter (USA) [9,14,16]
-     alternative to Crossroad Crisis (USA) [11]
-   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Card Game-shuu (Japan)
-     alternative to SuperLite 1500 Series - Angolmois 99 (Japan) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Crossword-shuu (Japan)
-     alternative to SuperLite 1500 Series - Crossword (Japan) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - NumCro-shuu (Japan)
-     alternative to SuperLite 1500 Series - NumCro (Japan) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a7  a6  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Oekaki Puzzle-shuu (Japan)
-     alternative to SuperLite 1500 Series - Oekaki Puzzle (Japan) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Quiz-shuu (Japan)
-     alternative to SuperLite 1500 Series - Quiz Master - Blue (Japan) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Suudoku-shuu (Japan)
-     alternative to SuperLite 1500 Series - Suudoku (Japan) [9-11,14,16]
-   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Tsuri-shuu (Japan)
-     alternative to SuperLite 1500 Series - Fishing Club - Boat no Tsuri-hen (Japan) [9-11,14,16]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   g   g   g   g   g   g   .   g   |
-   .   .   .   .   .   .   .   .   w47 .   .   .   .   w47 .   w47 | Battle Hunter (USA)
-   .   .   .   .   .   .   .   .   w5  .   w5  .   .   w5  .   w5  | Bishi Bashi Special (Europe)
-   .   .   .   .   .   .   .   .   .   w5  .   .   .   .   .   .   | Bishi Bashi Special (Japan)
-   .   .   .   .   .   .   .   .   .   w50 .   .   .   .   .   .   | Bishi Bashi Special 2 (Japan)
-   .   .   .   .   .   .   .   .   w52 .   w52 .   .   w52 .   w52 | Crossroad Crisis (USA)
-   .   .   .   .   .   .   .   .   .   w52 .   .   .   .   .   .   | Final Fantasy (Japan) (Premium Package)
-   .   .   .   .   .   .   .   .   .   w52 .   .   .   .   .   .   | Final Fantasy II (Japan) (Premium Package)
-   .   .   .   .   .   .   .   .   w10 .   .   .   w10 w10 .   w10 | Final Fantasy Origins (USA) (Rev 1)
-   .   .   .   .   .   .   .   .   .   .   w52 .   .   .   .   .   | Final Fantasy Origins - Final Fantasy (Europe)
-   .   .   .   .   .   .   .   .   .   .   w52 .   .   .   .   .   | Final Fantasy Origins - Final Fantasy II (Europe)
-   .   .   .   .   .   .   .   .   w50 w50 w50 w50 .   w50 .   w50 | GP Challenge (Europe) (En,Fr,De,It)
-   .   .   .   .   .   .   .   .   .   .   w47 .   .   .   .   .   | Hunter, The (Europe)
-   .   .   .   .   .   .   .   .   w50 w50 w50 w50 .   w50 .   w50 | Kart Challenge (Europe) (En,Fr,De,It)
-   .   .   .   .   .   .   .   .   w4  .   w4  .   w4  w4  .   w4  | Lode Runner (USA)
-   .   .   .   .   .   .   .   .   .   w50 .   .   .   .   .   .   | Lode Runner Extra (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 w50 .   w50 .   w50 | Sports Superbike (Europe) (En,Fr,De,It)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Angolmois 99 (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Card II (Japan)
-   .   .   .   .   .   .   .   .   .   w6  .   .   .   .   .   .   | SuperLite 1500 Series - Chitty Chitty Chicken (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Crazy Balloon 2000 (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Crossword (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Crossword 2 (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Crossword 3 (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Fishing Club - Boat no Tsuri-hen (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Fishing Club - Bouhatei no Tsuri-hen (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Fishing Club - Hama no Tsuri-hen (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Hanafuda II (Japan)
-   .   .   .   .   .   .   .   .   .   w41 .   .   .   .   .   .   | SuperLite 1500 Series - Lode Runner - The Legend Returns (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - NumCro (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - NumCro 2 (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - NumCro 3 (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Oekaki Puzzle (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Oekaki Puzzle 2 (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Oekaki Puzzle 3 (Japan)
-   .   .   .   .   .   .   .   .   w50 w6  w50 .   .   w50 .   w50 | SuperLite 1500 Series - Pangaea (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Qix 2000 (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Quiz Master - Blue (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Quiz Master - Red (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Quiz Master - Yellow (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Space Chaser 2000 (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Suudoku (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Suudoku 2 (Japan)
-   .   .   .   .   .   .   .   .   w50 w50 w50 .   .   w50 .   w50 | SuperLite 1500 Series - Suudoku 3 (Japan)
-   .   .   .   .   .   .   .   .   .   w6  .   .   .   .   .   .   | SuperLite 3in1 Series - Board Game-shuu (Japan)
 == retro force
    w53 w53 w53 w53 x33 w53 x32 w53 w50 w50 w50 w50 x33 w50 x32 w50 | Retro Force (Europe) (En,Fr,De,Es,It)
 == retrouve la magie disney sur playstation
@@ -19192,8 +19084,7 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w53 w53 w53 w53 x33 w53 x32 w53 a52 a52 a52 w45 x33 a52 x32 a52 | Sports Car GT (Germany) (EDC)
    w53 w53 w53 x38 w53 w53 x32 w53 w47 w47 a47 x38 w50 w47 x32 w47 | Sports Car GT (USA)
 == sports superbike
-   g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
-   w53 w53 w53 w53 x33 w53 x32 w53 .   .   .   .   x33 .   x32 .   | Sports Superbike (Europe) (En,Fr,De,It)
+   w53 w53 w53 w53 x33 w53 x32 w53 w50 w50 w50 w50 x33 w50 x32 w50 | Sports Superbike (Europe) (En,Fr,De,It)
 == sports superbike 2
    w53 w53 w53 x38 x33 w53 x32 w53 a47 a47 w47 x38 x33 a47 x32 a47 | Sports Superbike 2 (Europe)
    w53 w53 w53 x38 w53 w53 x32 w53 w47 w47 a47 x38 w50 w47 x32 w47 | Sports Superbike 2 (USA)
@@ -19998,8 +19889,8 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - Advanced V.G. 2 (Japan)
 == superlite 1500 series - angolmois 99
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Angolmois 99 (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Angolmois 99 (Japan)
+   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Card Game-shuu (Japan)
 == superlite 1500 series - ano ko doko no ko - endless season
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Ano Ko Doko no Ko - Endless Season (Japan)
 == superlite 1500 series - asteroids
@@ -20019,8 +19910,7 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - Burn Out (Japan)
 == superlite 1500 series - card ii
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Card II (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Card II (Japan)
 == superlite 1500 series - carnage heart
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - Carnage Heart (Japan)
@@ -20037,17 +19927,15 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - Chitty Chitty Chicken (Japan)
 == superlite 1500 series - crazy balloon 2000
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Crazy Balloon 2000 (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Crazy Balloon 2000 (Japan)
+   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Arcade Classic-shuu (Japan)
 == superlite 1500 series - crossword
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Crossword (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Crossword (Japan)
+   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Crossword-shuu (Japan)
 == superlite 1500 series - crossword 2
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Crossword 2 (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Crossword 2 (Japan)
 == superlite 1500 series - crossword 3
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Crossword 3 (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Crossword 3 (Japan)
 == superlite 1500 series - cyber daisenryaku - shutsugeki! haruka-tai
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - Cyber Daisenryaku - Shutsugeki! Haruka-tai (Japan)
@@ -20076,14 +19964,12 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - Farland Story - Yottsu no Fuuin (Japan)
 == superlite 1500 series - fishing club - boat no tsuri-hen
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Fishing Club - Boat no Tsuri-hen (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Fishing Club - Boat no Tsuri-hen (Japan)
+   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Tsuri-shuu (Japan)
 == superlite 1500 series - fishing club - bouhatei no tsuri-hen
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Fishing Club - Bouhatei no Tsuri-hen (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Fishing Club - Bouhatei no Tsuri-hen (Japan)
 == superlite 1500 series - fishing club - hama no tsuri-hen
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Fishing Club - Hama no Tsuri-hen (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Fishing Club - Hama no Tsuri-hen (Japan)
 == superlite 1500 series - flamberge no seirei
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - Flamberge no Seirei (Japan)
@@ -20091,8 +19977,7 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - Game de Seishun (Japan)
 == superlite 1500 series - hanafuda ii
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Hanafuda II (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Hanafuda II (Japan)
 == superlite 1500 series - hooockey!!
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - Hooockey!! (Japan)
@@ -20150,25 +20035,21 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - Nobunaga Hiroku - Geten no Yume (Japan)
 == superlite 1500 series - numcro
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - NumCro (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - NumCro (Japan)
+   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - NumCro-shuu (Japan)
 == superlite 1500 series - numcro 2
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - NumCro 2 (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - NumCro 2 (Japan)
 == superlite 1500 series - numcro 3
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - NumCro 3 (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - NumCro 3 (Japan)
 == superlite 1500 series - numcro 4
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - NumCro 4 (Japan)
 == superlite 1500 series - oekaki puzzle
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Oekaki Puzzle (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Oekaki Puzzle (Japan)
+   .   .   .   .   .   .   .   .   a7  a6  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Oekaki Puzzle-shuu (Japan)
 == superlite 1500 series - oekaki puzzle 2
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Oekaki Puzzle 2 (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Oekaki Puzzle 2 (Japan)
 == superlite 1500 series - oekaki puzzle 3
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Oekaki Puzzle 3 (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Oekaki Puzzle 3 (Japan)
 == superlite 1500 series - oekaki puzzle 4
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Oekaki Puzzle 4 (Japan)
 == superlite 1500 series - oekaki puzzle 5
@@ -20180,8 +20061,7 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - Pachi-Slot Hisshouhou! Sammy Revolution (Japan)
 == superlite 1500 series - pangaea
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Pangaea (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w6  w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Pangaea (Japan)
 == superlite 1500 series - pao leeming kanshuu - fuusui nyuumon
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - Pao Leeming Kanshuu - Fuusui Nyuumon (Japan)
@@ -20192,17 +20072,14 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - Prismaticallization (Japan)
 == superlite 1500 series - qix 2000
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Qix 2000 (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Qix 2000 (Japan)
 == superlite 1500 series - quiz master - blue
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Quiz Master - Blue (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Quiz Master - Blue (Japan)
+   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Quiz-shuu (Japan)
 == superlite 1500 series - quiz master - red
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Quiz Master - Red (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Quiz Master - Red (Japan)
 == superlite 1500 series - quiz master - yellow
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Quiz Master - Yellow (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Quiz Master - Yellow (Japan)
 == superlite 1500 series - reversi ii
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Reversi II (Japan)
 == superlite 1500 series - ring of sias
@@ -20227,8 +20104,7 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == superlite 1500 series - slither link
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Slither Link (Japan)
 == superlite 1500 series - space chaser 2000
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Space Chaser 2000 (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Space Chaser 2000 (Japan)
 == superlite 1500 series - starsweep
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   .   .   .   .   .   | SuperLite 1500 Series - StarSweep (Japan)
@@ -20238,14 +20114,12 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == superlite 1500 series - super casino special
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Super Casino Special (Japan)
 == superlite 1500 series - suudoku
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Suudoku (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Suudoku (Japan)
+   .   .   .   .   .   .   .   .   a7  a7  a7  .   .   a7  .   a7  | SuperLite 3in1 Series - Suudoku-shuu (Japan)
 == superlite 1500 series - suudoku 2
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Suudoku 2 (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Suudoku 2 (Japan)
 == superlite 1500 series - suudoku 3
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 1500 Series - Suudoku 3 (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Suudoku 3 (Japan)
 == superlite 1500 series - suudoku 4
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | SuperLite 1500 Series - Suudoku 4 (Japan)
 == superlite 1500 series - suudoku 5
@@ -20285,8 +20159,9 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 3in1 Series - Arcade Classic-shuu (Japan)
 == superlite 3in1 series - board game-shuu
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
-   w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 3in1 Series - Board Game-shuu (Japan)
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   a1  .   .   .   .   .   .   | SuperLite 1500 Series - Battle Sugoroku the Hunter - A.R.0062 (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 .   w6  .   x38 x33 .   x32 .   | SuperLite 3in1 Series - Board Game-shuu (Japan)
 == superlite 3in1 series - card game-shuu
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 3in1 Series - Card Game-shuu (Japan)

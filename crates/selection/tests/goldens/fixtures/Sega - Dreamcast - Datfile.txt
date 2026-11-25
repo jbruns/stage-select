@@ -1868,17 +1868,18 @@ rule r47: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w34 w34 w34 x23 x18 w34 x17 w34 .   .   .   .   .   .   .   .   | Pro Yakyuu Team de Asobou Net! (Japan) (Rev A)
 == pro yakyuu team de asobou!
-   .   .   .   .   .   .   .   .   .   .   .   x23 x18 .   x17 .   | Pro Yakyuu Team de Asobou Net! (Japan) (Rev A)
+   .   .   .   .   .   .   .   .   w24 w24 w24 x23 x18 w24 x17 w24 | Pro Yakyuu Team de Asobou Net! (Japan) (Rev A)
    w34 w34 w34 x23 x18 w34 x17 w34 a24 a24 a24 x23 x18 a24 x17 a24 | Pro Yakyuu Team de Asobou! (Japan)
-     alternative to Pro Yakyuu Team de Asobou Net! (Japan) (Rev A) [9-11,14,16]
-   w34 w34 w34 x23 x18 w34 x17 x8  .   .   .   x23 x18 .   x17 x8  | Pro Yakyuu Team de Asobou! (Japan) (Demo)
-   w34 w34 w34 x23 x18 w34 x17 x8  .   .   .   x23 x18 .   x17 x8  | Pro Yakyuu Team de Asobou! (Japan) (Tokubetsuban)
+     alternative to Pro Yakyuu Team de Asobou Net! (Japan) (Rev A) [9-11,14]
+   w34 w34 w34 x23 x18 w34 x17 x8  w32 w32 w32 x23 x18 w32 x17 x8  | Pro Yakyuu Team de Asobou! (Japan) (Demo)
+   w34 w34 w34 x23 x18 w34 x17 x8  w24 w24 w24 x23 x18 w24 x17 x8  | Pro Yakyuu Team de Asobou! (Japan) (Tokubetsuban)
+   .   .   .   .   .   .   .   .   a1  a1  a1  .   .   a1  .   a1  | Pro Yakyuu Team o Tsukurou! & Asobou! (Japan)
+     alternative to Pro Yakyuu Team de Asobou Net! (Japan) (Rev A) [9-11,14]
 == pro yakyuu team o tamesou!
    w34 w34 w34 x23 x18 w34 x17 x8  w32 w32 w32 x23 x18 w32 x17 x8  | Pro Yakyuu Team o Tamesou! (Japan) (Famitsu Tokubetsuban)
 == pro yakyuu team o tsukurou!
    w34 w34 w34 x23 x18 w34 x17 w34 a27 a27 a27 x23 x18 a27 x17 a27 | Pro Yakyuu Team o Tsukurou! (Japan) (Rev B)
-     alternative to Pro Yakyuu Team o Tsukurou! (Japan) (Rev E) [9-11,14,16]
-   w34 w34 w34 x23 x18 w34 x17 w34 .   .   .   x23 x18 .   x17 .   | Pro Yakyuu Team o Tsukurou! (Japan) (Rev E)
+   w34 w34 w34 x23 x18 w34 x17 w34 w27 w27 w27 x23 x18 w27 x17 w27 | Pro Yakyuu Team o Tsukurou! (Japan) (Rev E)
 == pro yakyuu team o tsukurou! & asobou!
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
    w34 w34 w34 x23 x18 w34 x17 w34 .   .   .   x23 x18 .   x17 .   | Pro Yakyuu Team o Tsukurou! & Asobou! (Japan)
@@ -2076,16 +2077,6 @@ rule r47: Superset parent selection REF0119: Group after good dump/production/re
    w34 w34 w34 w34 x18 w34 x17 w34 a26 a26 a26 w33 x18 a26 x17 a26 | Resident Evil 3 - Nemesis (Europe) (Fr,Es)
    w34 w34 w34 w34 x18 w34 x17 w34 a33 a33 a33 a33 x18 a33 x17 a33 | Resident Evil 3 - Nemesis (Germany)
    w34 w34 w34 x23 w34 w34 x17 w34 w30 a33 a30 x23 w32 w30 x17 w30 | Resident Evil 3 - Nemesis (USA)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   g   g   g   .   .   g   .   g   |
-   .   .   .   .   .   .   .   .   a1  a1  a1  .   .   a1  .   a1  | Pro Yakyuu Team o Tsukurou! & Asobou! (Japan)
-     alternative to Pro Yakyuu Team de Asobou Net! (Japan) (Rev A) [9-11,14,16]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   g   g   g   .   .   g   .   g   |
-   .   .   .   .   .   .   .   .   w24 w24 w24 .   .   w24 .   w24 | Pro Yakyuu Team de Asobou Net! (Japan) (Rev A)
-   .   .   .   .   .   .   .   .   w32 w32 w32 .   .   w32 .   .   | Pro Yakyuu Team de Asobou! (Japan) (Demo)
-   .   .   .   .   .   .   .   .   w24 w24 w24 .   .   w24 .   .   | Pro Yakyuu Team de Asobou! (Japan) (Tokubetsuban)
-   .   .   .   .   .   .   .   .   w27 w27 w27 .   .   w27 .   w27 | Pro Yakyuu Team o Tsukurou! (Japan) (Rev E)
 == revive... - sosei
    w34 w34 w34 x23 x18 w34 x17 w34 w32 w32 w32 x23 x18 w32 x17 w32 | Revive... - Sosei (Japan)
 == rez

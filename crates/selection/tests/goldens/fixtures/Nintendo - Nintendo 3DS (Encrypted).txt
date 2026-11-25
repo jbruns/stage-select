@@ -1069,29 +1069,22 @@ rule r28: Superset parent selection REF0076: Group after choosing superset title
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w27 w27 x16 x17 x13 w27 x12 w27 .   .   .   .   .   .   .   .   | Fire Emblem Echoes - Tto Hanaui Yeongungwang (Korea)
 == fire emblem fates - birthright
-   w27 w27 w27 w27 x13 w27 x12 w27 a23 a26 .   .   x13 a23 x12 a23 | Fire Emblem Fates - Birthright (Europe) (En,Fr,De,Es,It)
-     alternative to Fire Emblem Fates - Birthright (USA) [9,14,16]
-     alternative to Fire Emblem If - Byakuya Oukoku (Japan) [10]
-   w27 w27 w27 x17 w27 w27 x12 w27 .   a26 a23 x17 .   .   x12 .   | Fire Emblem Fates - Birthright (USA)
-     alternative to Fire Emblem Fates - Birthright (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Fire Emblem If - Byakuya Oukoku (Japan) [10]
-   .   .   .   .   .   .   .   .   a26 .   a26 x17 x13 a26 x12 a26 | Fire Emblem If - Byakuya Oukoku (Japan)
-     alternative to Fire Emblem Fates - Birthright (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Fire Emblem Fates - Birthright (USA) [9,14,16]
+   w27 w27 w27 w27 x13 w27 x12 w27 a23 a26 w2  w25 x13 a23 x12 a23 | Fire Emblem Fates - Birthright (Europe) (En,Fr,De,Es,It)
+   w27 w27 w27 x17 w27 w27 x12 w27 w2  a26 a23 x17 w25 w2  x12 w2  | Fire Emblem Fates - Birthright (USA)
+   .   .   .   .   .   .   .   .   a2  .   a3  a3  .   a2  .   a2  | Fire Emblem Fates - Limited Edition (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a3  .   a2  .   a3  a3  .   a3  | Fire Emblem Fates - Special Edition (USA)
+   .   .   .   .   .   .   .   .   a1  .   .   .   .   a1  .   a1  | Fire Emblem If (Korea)
+   .   .   .   .   .   .   .   .   a26 w1  a26 x17 x13 a26 x12 a26 | Fire Emblem If - Byakuya Oukoku (Japan)
    .   .   .   .   .   .   .   .   a26 a23 a26 x17 x13 a26 x12 a26 | Fire Emblem If - Byakuya Oukoku (Taiwan) (Ja)
-     alternative to Fire Emblem Fates - Birthright (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Fire Emblem Fates - Birthright (USA) [9,14,16]
-     alternative to Fire Emblem If - Byakuya Oukoku (Japan) [10]
+   .   .   .   .   .   .   .   .   a1  .   a1  .   .   a1  .   a1  | Fire Emblem If - Special Edition (Japan)
 == fire emblem fates - conquest
-   w27 w27 w27 w27 x13 w27 x12 w27 a23 a26 .   .   x13 a23 x12 a23 | Fire Emblem Fates - Conquest (Europe) (En,Fr,De,Es,It)
-     alternative to Fire Emblem Fates - Conquest (USA) [9,14,16]
-     alternative to Fire Emblem If - Anya Oukoku (Japan) [10]
-   w27 w27 w27 x17 w27 w27 x12 w27 .   a26 a23 x17 .   .   x12 .   | Fire Emblem Fates - Conquest (USA)
-     alternative to Fire Emblem Fates - Conquest (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Fire Emblem If - Anya Oukoku (Japan) [10]
-   .   .   .   .   .   .   .   .   a26 .   a26 x17 x13 a26 x12 a26 | Fire Emblem If - Anya Oukoku (Japan)
-     alternative to Fire Emblem Fates - Conquest (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Fire Emblem Fates - Conquest (USA) [9,14,16]
+   w27 w27 w27 w27 x13 w27 x12 w27 a23 a26 w2  w25 x13 a23 x12 a23 | Fire Emblem Fates - Conquest (Europe) (En,Fr,De,Es,It)
+   w27 w27 w27 x17 w27 w27 x12 w27 w2  a26 a23 x17 w25 w2  x12 w2  | Fire Emblem Fates - Conquest (USA)
+   .   .   .   .   .   .   .   .   .   a1  .   .   .   .   .   .   | Fire Emblem Fates - Limited Edition (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   a1  .   .   .   .   .   .   | Fire Emblem Fates - Special Edition (USA)
+   .   .   .   .   .   .   .   .   .   a1  .   .   .   .   .   .   | Fire Emblem If (Korea)
+   .   .   .   .   .   .   .   .   a26 w1  a26 x17 x13 a26 x12 a26 | Fire Emblem If - Anya Oukoku (Japan)
+   .   .   .   .   .   .   .   .   .   a3  .   .   .   .   .   .   | Fire Emblem If - Special Edition (Japan)
 == fire emblem fates - limited edition
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
    w27 w27 w27 w27 x13 w27 x12 w27 .   .   .   .   x13 .   x12 .   | Fire Emblem Fates - Limited Edition (Europe) (En,Fr,De,Es,It)
@@ -3446,31 +3439,6 @@ rule r28: Superset parent selection REF0076: Group after choosing superset title
    w27 w27 w27 w27 x13 w27 x12 w27 a23 a26 w23 w25 x13 a23 x12 a23 | Resident Evil - The Mercenaries 3D (Europe) (En,Fr,De,Es,It)
    w27 w27 w27 x17 w27 w27 x12 w27 a21 a21 a21 x17 a21 a21 x12 a21 | Resident Evil - The Mercenaries 3D (USA) (En,Fr)
    w27 w27 w27 x17 w27 w27 x12 w27 w23 a26 a23 x17 w21 w23 x12 w23 | Resident Evil - The Mercenaries 3D (USA) (En,Fr) (Rev 1)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   g   g   g   g   g   g   .   g   |
-   .   .   .   .   .   .   .   .   a2  a1  a3  a3  .   a2  .   a2  | Fire Emblem Fates - Limited Edition (Europe) (En,Fr,De,Es,It)
-     alternative to Fire Emblem Fates - Birthright (Europe) (En,Fr,De,Es,It) [11-12]
-     alternative to Fire Emblem Fates - Birthright (USA) [9,14,16]
-     alternative to Fire Emblem If - Anya Oukoku (Japan) [10]
-   .   .   .   .   .   .   .   .   a3  a1  a2  .   a3  a3  .   a3  | Fire Emblem Fates - Special Edition (USA)
-     alternative to Fire Emblem Fates - Birthright (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Fire Emblem Fates - Birthright (USA) [9,13-14,16]
-     alternative to Fire Emblem If - Anya Oukoku (Japan) [10]
-   .   .   .   .   .   .   .   .   a1  a1  .   .   .   a1  .   a1  | Fire Emblem If (Korea)
-     alternative to Fire Emblem Fates - Birthright (USA) [9,14,16]
-     alternative to Fire Emblem If - Anya Oukoku (Japan) [10]
-   .   .   .   .   .   .   .   .   a1  a3  a1  .   .   a1  .   a1  | Fire Emblem If - Special Edition (Japan)
-     alternative to Fire Emblem Fates - Birthright (Europe) (En,Fr,De,Es,It) [11]
-     alternative to Fire Emblem Fates - Birthright (USA) [9,14,16]
-     alternative to Fire Emblem If - Anya Oukoku (Japan) [10]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   g   g   g   g   g   g   .   g   |
-   .   .   .   .   .   .   .   .   .   .   w2  w25 .   .   .   .   | Fire Emblem Fates - Birthright (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w2  .   .   .   w25 w2  .   w2  | Fire Emblem Fates - Birthright (USA)
-   .   .   .   .   .   .   .   .   .   .   w2  w25 .   .   .   .   | Fire Emblem Fates - Conquest (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   w2  .   .   .   w25 w2  .   w2  | Fire Emblem Fates - Conquest (USA)
-   .   .   .   .   .   .   .   .   .   w1  .   .   .   .   .   .   | Fire Emblem If - Anya Oukoku (Japan)
-   .   .   .   .   .   .   .   .   .   w1  .   .   .   .   .   .   | Fire Emblem If - Byakuya Oukoku (Japan)
 == return to popolocrois - a story of seasons fairytale
    .   .   .   .   .   .   .   .   a26 w26 a26 x17 x13 a26 x12 a26 | Popolocrois - Bokujou Monogatari (Japan)
    w27 w27 w27 x17 w27 w27 x12 w27 w26 a26 w26 x17 w25 w26 x12 w26 | Return to PopoloCrois - A Story of Seasons Fairytale (USA)

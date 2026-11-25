@@ -303,8 +303,9 @@ rule r42: Parent selection: No other release competed
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w42 w42 w42 x27 x22 x19 x21 w42 .   .   .   .   .   .   .   .   | Atsumete Asobu Kuma no Pooh-san - Mori no Takaramono (Japan)
 == atv racing
-   g   g   g   g   g   g   g   g   .   .   .   g   g   g   g   g   |
-   w42 w42 w42 x27 x22 x19 x21 x16 .   .   .   x27 x22 x19 x21 x16 | ATV Racing (Europe) (Unl)
+   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   .   .   .   | ATV Racing & Karate Joe (Europe) (Unl)
+   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   .   .   .   | ATV Racing & Karate Joe (Europe) (Unl) (Alt)
+   w42 w42 w42 x27 x22 x19 x21 x16 w39 w39 w39 x27 x22 x19 x21 x16 | ATV Racing (Europe) (Unl)
 == atv racing & karate joe
    g   g   g   g   g   g   g   g   .   .   .   g   g   g   g   g   |
    w42 w42 w42 x27 x22 x19 x21 x16 .   .   .   x27 x22 x19 x21 x16 | ATV Racing & Karate Joe (Europe) (Unl)
@@ -1432,8 +1433,8 @@ rule r42: Parent selection: No other release competed
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w42 w42 x26 x27 w42 w42 x21 x16 w39 w39 x26 x27 w39 w39 x21 x16 | Fugazim (World) (Pt) (GB Compatible) (Aftermarket) (Unl)
 == full time soccer
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w42 w42 w42 x27 x22 w42 x21 x16 .   .   .   x27 x22 .   x21 x16 | Full Time Soccer (Europe) (Unl)
+   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   a2  .   .   | Full Time Soccer & Hang Time Basketball (Europe) (Unl)
+   w42 w42 w42 x27 x22 w42 x21 x16 w39 w39 w39 x27 x22 w39 x21 x16 | Full Time Soccer (Europe) (Unl)
 == full time soccer & hang time basketball
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
    w42 w42 w42 x27 x22 w42 x21 x16 .   .   .   x27 x22 .   x21 x16 | Full Time Soccer & Hang Time Basketball (Europe) (Unl)
@@ -1742,8 +1743,7 @@ rule r42: Parent selection: No other release competed
 == hands of time
    w42 w42 w42 w42 w42 w42 x21 w42 w39 w39 w39 w39 w39 w39 x21 w39 | Hands of Time (USA, Europe) (En,Fr,De,Es,It,Nl)
 == hang time basketball
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w42 w42 w42 x27 x22 w42 x21 x16 .   .   .   x27 x22 .   x21 x16 | Hang Time Basketball (Europe) (Unl)
+   w42 w42 w42 x27 x22 w42 x21 x16 w39 w39 w39 x27 x22 w39 x21 x16 | Hang Time Basketball (Europe) (Unl)
 == harbour attack
    w42 w42 w42 x27 w42 w42 x21 x16 w39 w39 w39 x27 w39 w39 x21 x16 | Harbour Attack (World) (Aftermarket) (Unl)
 == harley-davidson motor cycles - race across america
@@ -2018,8 +2018,8 @@ rule r42: Parent selection: No other release competed
    w42 w42 w42 w42 x22 w42 x21 w42 a37 a37 w37 w37 x22 a37 x21 a37 | Jungle Book, The - Mowgli's Wild Adventure (Europe) (En,Fr,De,Es,It)
    w42 w42 w42 w42 w42 w42 x21 w42 w37 w37 a37 a37 w39 w37 x21 w37 | Jungle Book, The - Mowgli's Wild Adventure (USA) (En,Fr,De,Es,It)
 == jurassic boy 2
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w42 w42 w42 x27 x22 w42 x21 x16 .   .   .   x27 x22 .   x21 x16 | Jurassic Boy 2 (Taiwan) (En) (Rev 1) (Sachen) (Unl)
+   w42 w42 w42 x27 x22 w42 x21 x16 w39 w39 w39 x27 x22 w39 x21 x16 | Jurassic Boy 2 (Taiwan) (En) (Rev 1) (Sachen) (Unl)
+   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   a2  .   .   | Jurassic Boy 2 + Thunder Blast Man (Taiwan) (En) (1B-002, 1B-003, Sachen) (Unl)
 == jurassic boy 2 + thunder blast man
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
    w42 w42 w42 x27 x22 w42 x21 x16 .   .   .   x27 x22 .   x21 x16 | Jurassic Boy 2 + Thunder Blast Man (Taiwan) (En) (1B-002, 1B-003, Sachen) (Unl)
@@ -2055,8 +2055,8 @@ rule r42: Parent selection: No other release competed
 == karamuchou wa oosawagi! - polinkies to okashina nakama-tachi
    w42 w42 w42 x27 x22 w42 x21 w42 w39 w39 w39 x27 x22 w39 x21 w39 | Karamuchou wa Oosawagi! - Polinkies to Okashina Nakama-tachi (Japan) (SGB Enhanced) (GB Compatible)
 == karate joe
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w42 w42 w42 x27 x22 w42 x21 x16 .   .   .   x27 x22 .   x21 x16 | Karate Joe (Europe) (Unl)
+   w42 w42 w42 x27 x22 w42 x21 x16 w39 w39 w39 x27 x22 w39 x21 x16 | Karate Joe (Europe) (Unl)
+   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   a2  .   .   | Space Invasion & Karate Joe (Europe) (Unl)
 == kaseki sousei reborn ii - monster digger
    w42 w42 w42 x27 x22 w42 x21 w42 w39 w39 w39 x27 x22 w39 x21 w39 | Kaseki Sousei Reborn II - Monster Digger (Japan) (SGB Enhanced) (GB Compatible)
 == katakis 3d
@@ -2618,11 +2618,11 @@ rule r42: Parent selection: No other release competed
 == mickey's speedway usa
    w42 w42 w42 w42 w42 w42 x21 w42 w39 w39 w39 w39 w39 w39 x21 w39 | Mickey's Speedway USA (USA, Europe) (En,Fr,De,Es)
 == micro machines 1 and 2 - twin turbo
-   g   g   g   g   g   g   g   g   .   .   .   g   .   .   g   .   |
-   w42 w42 w42 x27 w42 w42 x21 w42 .   .   .   x27 .   .   x21 .   | Micro Machines 1 and 2 - Twin Turbo (USA, Europe)
+   w42 w42 w42 x27 w42 w42 x21 w42 w1  w1  w1  x27 w1  w1  x21 w1  | Micro Machines 1 and 2 - Twin Turbo (USA, Europe)
+   .   .   .   .   .   .   .   .   a41 a41 a41 .   .   a41 .   .   | Micro Machines 2 - Turbo Tournament (Europe) (Proto)
 == micro machines 2 - turbo tournament
-   w42 w42 w42 x27 x22 w42 x21 x11 a41 a41 a41 x27 x22 a41 x21 x11 | Micro Machines 2 - Turbo Tournament (Europe) (Proto)
-     alternative to Micro Machines 1 and 2 - Twin Turbo (USA, Europe) [9-11,14]
+   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
+   w42 w42 w42 x27 x22 w42 x21 x11 .   .   .   x27 x22 .   x21 x11 | Micro Machines 2 - Turbo Tournament (Europe) (Proto)
 == micro machines v3
    w42 w42 w42 x27 w42 w42 x21 w42 w39 w39 w39 x27 w39 w39 x21 w39 | Micro Machines V3 (USA, Europe)
 == micro maniacs
@@ -3009,8 +3009,8 @@ rule r42: Parent selection: No other release competed
    w42 w42 w42 x27 w42 w42 x21 x16 w36 w36 w36 x27 w36 w36 x21 x16 | Pact, The (World) (Aftermarket) (Unl)
    w42 w42 w42 x27 w42 w42 x21 x16 a36 a36 a36 x27 a36 a36 x21 x16 | Pact, The (World) (GB Showdown) (Aftermarket) (Unl)
 == painter
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w42 w42 w42 x27 x22 w42 x21 x16 .   .   .   x27 x22 .   x21 x16 | Painter (Europe) (Unl)
+   w42 w42 w42 x27 x22 w42 x21 x16 w39 w39 w39 x27 x22 w39 x21 x16 | Painter (Europe) (Unl)
+   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   a2  .   .   | Space Invasion & Painter (Europe) (Unl)
 == panik!16
    w42 w42 w42 x27 w42 w42 x21 x16 w39 w39 w39 x27 w39 w39 x21 x16 | Panik!16 (World) (Aftermarket) (Unl)
 == paperboy
@@ -3146,8 +3146,8 @@ rule r42: Parent selection: No other release competed
    .   .   .   .   .   .   .   .   a40 a40 a40 x27 w39 a40 x21 x13 | Pocket GT (USA) (Proto)
    w42 w42 w42 x27 x22 w42 x21 w42 w40 a40 w40 x27 x22 w40 x21 w40 | Pocket Racing (Europe)
 == pocket smash out
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w42 w42 w42 x27 x22 w42 x21 x16 .   .   .   x27 x22 .   x21 x16 | Pocket Smash Out (Europe) (Unl)
+   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   a2  .   .   | Pocket Smash Out & Race Time (Europe) (Unl)
+   w42 w42 w42 x27 x22 w42 x21 x16 w39 w39 w39 x27 x22 w39 x21 x16 | Pocket Smash Out (Europe) (Unl)
 == pocket smash out & race time
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
    w42 w42 w42 x27 x22 w42 x21 x16 .   .   .   x27 x22 .   x21 x16 | Pocket Smash Out & Race Time (Europe) (Unl)
@@ -3457,8 +3457,7 @@ rule r42: Parent selection: No other release competed
    w42 w42 w42 x27 x22 w42 x21 w42 a37 w37 a37 x27 x22 a37 x21 a37 | R-Type DX (Japan) (En) (GB Compatible)
    w42 w42 w42 x27 w42 w42 x21 w42 w37 a37 w37 x27 w39 w37 x21 w37 | R-Type DX (USA, Europe) (GB Compatible)
 == race time
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w42 w42 w42 x27 x22 w42 x21 x16 .   .   .   x27 x22 .   x21 x16 | Race Time (Europe) (Unl)
+   w42 w42 w42 x27 x22 w42 x21 x16 w39 w39 w39 x27 x22 w39 x21 x16 | Race Time (Europe) (Unl)
 == racin' ratz
    w42 w42 w42 x27 w42 w42 x21 w42 w39 w39 w39 x27 w39 w39 x21 w39 | Racin' Ratz (USA)
 == radikal bikers
@@ -3555,37 +3554,6 @@ rule r42: Parent selection: No other release competed
    .   .   .   .   .   .   .   .   a40 w40 a40 x27 x22 a40 x21 a40 | Biohazard Gaiden (Japan)
    w42 w42 w42 w42 x22 w42 x21 w42 a37 a40 w37 w39 x22 a37 x21 a37 | Resident Evil Gaiden (Europe) (En,Fr,De,Es,It)
    w42 w42 w42 x27 w42 w42 x21 w42 w37 a40 a37 x27 w39 w37 x21 w37 | Resident Evil Gaiden (USA)
-== retool_compilations_discards
-   .   .   .   .   .   .   .   .   g   g   g   .   .   g   .   .   |
-   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   .   .   .   | ATV Racing & Karate Joe (Europe) (Unl)
-     alternative to ATV Racing (Europe) (Unl) [9-11]
-   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   .   .   .   | ATV Racing & Karate Joe (Europe) (Unl) (Alt)
-     alternative to ATV Racing (Europe) (Unl) [9-11]
-   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   a2  .   .   | Full Time Soccer & Hang Time Basketball (Europe) (Unl)
-     alternative to Full Time Soccer (Europe) (Unl) [9-11,14]
-   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   a2  .   .   | Jurassic Boy 2 + Thunder Blast Man (Taiwan) (En) (1B-002, 1B-003, Sachen) (Unl)
-     alternative to Jurassic Boy 2 (Taiwan) (En) (Rev 1) (Sachen) (Unl) [9-11,14]
-   .   .   .   .   .   .   .   .   a41 a41 a41 .   .   a41 .   .   | Micro Machines 2 - Turbo Tournament (Europe) (Proto)
-     alternative to Micro Machines 1 and 2 - Twin Turbo (USA, Europe) [9-11,14]
-   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   a2  .   .   | Pocket Smash Out & Race Time (Europe) (Unl)
-     alternative to Pocket Smash Out (Europe) (Unl) [9-11,14]
-   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   a2  .   .   | Space Invasion & Karate Joe (Europe) (Unl)
-     alternative to Karate Joe (Europe) (Unl) [9-11,14]
-   .   .   .   .   .   .   .   .   a2  a2  a2  .   .   a2  .   .   | Space Invasion & Painter (Europe) (Unl)
-     alternative to Painter (Europe) (Unl) [9-11,14]
-== retool_compilations_winners
-   .   .   .   .   .   .   .   .   g   g   g   .   g   g   .   g   |
-   .   .   .   .   .   .   .   .   w39 w39 w39 .   .   .   .   .   | ATV Racing (Europe) (Unl)
-   .   .   .   .   .   .   .   .   w39 w39 w39 .   .   w39 .   .   | Full Time Soccer (Europe) (Unl)
-   .   .   .   .   .   .   .   .   w39 w39 w39 .   .   w39 .   .   | Hang Time Basketball (Europe) (Unl)
-   .   .   .   .   .   .   .   .   w39 w39 w39 .   .   w39 .   .   | Jurassic Boy 2 (Taiwan) (En) (Rev 1) (Sachen) (Unl)
-   .   .   .   .   .   .   .   .   w39 w39 w39 .   .   w39 .   .   | Karate Joe (Europe) (Unl)
-   .   .   .   .   .   .   .   .   w1  w1  w1  .   w1  w1  .   w1  | Micro Machines 1 and 2 - Twin Turbo (USA, Europe)
-   .   .   .   .   .   .   .   .   w39 w39 w39 .   .   w39 .   .   | Painter (Europe) (Unl)
-   .   .   .   .   .   .   .   .   w39 w39 w39 .   .   w39 .   .   | Pocket Smash Out (Europe) (Unl)
-   .   .   .   .   .   .   .   .   w39 w39 w39 .   .   w39 .   .   | Race Time (Europe) (Unl)
-   .   .   .   .   .   .   .   .   w39 w39 w39 .   .   w39 .   .   | Space Invasion (Europe) (Unl)
-   .   .   .   .   .   .   .   .   w40 w40 w39 .   .   w40 .   .   | Thunder Blast Man (Europe) (Sachen) (Unl)
 == retro quiz tower
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w42 w42 w42 x27 w42 w42 x21 x16 a33 a33 a33 x27 a33 a33 x21 x16 | Retro Quiz Tower (World) (GB Compatible) (Aftermarket) (Unl)
@@ -4032,8 +4000,7 @@ rule r42: Parent selection: No other release competed
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w42 w42 w42 x27 x22 w42 x21 w42 .   .   .   .   .   .   .   .   | Space Invaders X (Japan) (En) (GB Compatible)
 == space invasion
-   g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
-   w42 w42 w42 x27 x22 w42 x21 x16 .   .   .   x27 x22 .   x21 x16 | Space Invasion (Europe) (Unl)
+   w42 w42 w42 x27 x22 w42 x21 x16 w39 w39 w39 x27 x22 w39 x21 x16 | Space Invasion (Europe) (Unl)
 == space invasion & karate joe
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   g   |
    w42 w42 w42 x27 x22 w42 x21 x16 .   .   .   x27 x22 .   x21 x16 | Space Invasion & Karate Joe (Europe) (Unl)
@@ -4348,8 +4315,7 @@ rule r42: Parent selection: No other release competed
    w42 w42 w42 w42 x22 w42 x21 w42 .   .   .   .   .   .   .   .   | Three Lions (United Kingdom) (En,Fr,De,Es,It,Nl,Sv) (GB Compatible)
 == thunder blast man
    .   .   .   .   .   .   .   .   a40 a40 x26 x27 x22 a40 x21 x16 | Rocman X Gold + 4 in 1 (Taiwan) (1B-002, 4B-003, Sachen) (Unl)
-     alternative to Thunder Blast Man (Europe) (Sachen) (Unl) [9-10,14]
-   w42 w42 w42 x27 x22 w42 x21 x16 .   .   .   x27 x22 .   x21 x16 | Thunder Blast Man (Europe) (Sachen) (Unl)
+   w42 w42 w42 x27 x22 w42 x21 x16 w40 w40 w39 x27 x22 w40 x21 x16 | Thunder Blast Man (Europe) (Sachen) (Unl)
 == thunderbirds
    w42 w42 w42 x27 x22 w42 x21 w42 a38 a38 a38 x27 x22 a38 x21 a38 | Thunderbirds (Europe)
    w42 w42 w42 w42 x22 w42 x21 w42 w38 w38 w38 w39 x22 w38 x21 w38 | Thunderbirds (Europe) (En,Fr,De,Es,It)

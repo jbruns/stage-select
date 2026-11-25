@@ -19,15 +19,16 @@ use crate::Error;
 const CHOOSING: [&str; 4] = [
     "Parent selection",
     "Superset parent selection",
-    "Compilation parent selection",
+    COMPILATION_PARENT_SELECTION,
     "Compilations",
 ];
+const COMPILATION_PARENT_SELECTION: &str = "Compilation parent selection";
 const INCLUDES: &str = "Includes";
 /// The snapshot after Retool's fail-safe string comparison (`choose_highest_string`).
 const FAIL_SAFE: &str = "REF0059";
 /// Actions that break a tie: the fail-safe string comparison, and the compilation tie-breakers.
 const TIE_BREAKERS: [&str; 5] = ["REF0057", "REF0058", "REF0075", "REF0093", "REF0105"];
-/// Retool's synthetic groups for compilation winners and the releases they replace.
+/// Retool's synthetic groups for compilation winners and the releases they replace, which a Selection never shows.
 const COMPILATION_GROUPS: &str = "retool_compilations";
 /// The list the engine files titles outside the Source Set's Coverage under.
 const COVERAGE_REMOVES: &str = "coverage_removes";
@@ -135,9 +136,7 @@ impl Resolved {
     /// Whether this step can explain a release of `group`. Compilation steps have no group, and compilation
     /// groups gather releases from every group.
     fn concerns(&self, group: &str) -> bool {
-        self.step.group == group
-            || self.step.group.is_empty()
-            || group.starts_with(COMPILATION_GROUPS)
+        self.step.group == group || self.step.group.is_empty() || is_compilation_group(group)
     }
 
     /// The candidates this snapshot removed, if it is a snapshot.
@@ -245,11 +244,48 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
         by_release: &by_release,
     };
 
-    let mut rows: BTreeMap<String, SelectionGroup> = BTreeMap::new();
-    for (group, parents, clones) in &finals {
+    // Retool's compilation step moves every title in contention with a compilation into synthetic groups, which its
+    // DAT output never shows. A Selection shows each in its own Game Group instead: a parent in a group that also
+    // keeps it, else in the group the trace last placed it in; a clone in its parent's group; and a title the trace
+    // never placed in a group named after it. Rules still come from the synthetic group, so the compilation step
+    // explains them, and each game shows once in a group.
+    let home = homes(&steps);
+    let mut kept_in: HashMap<&str, &str> = HashMap::new();
+    for (group, parents, _) in finals.iter().filter(|f| !is_compilation_group(&f.0)) {
         for parent in parents {
+            kept_in.entry(parent).or_insert(group);
+        }
+    }
+    let placed = |title: &str| kept_in.get(title).or_else(|| home.get(title)).copied();
+    let own_group = |title: &str| {
+        placed(title)
+            .or_else(|| dat_names.get(title).map(String::as_str))
+            .unwrap_or(title)
+            .to_owned()
+    };
+    // Retool also lists a standalone release that lost to a compilation as a clone in its own group; it shows in its
+    // winner's group.
+    let compilation_clones: BTreeSet<(&str, &str)> = finals
+        .iter()
+        .filter(|(group, _, _)| is_compilation_group(group))
+        .flat_map(|(_, _, clones)| clones.iter().map(|(c, p)| (c.as_str(), p.as_str())))
+        .collect();
+
+    let mut rows: BTreeMap<String, SelectionGroup> = BTreeMap::new();
+    let (compilation_groups, own_groups): (Vec<_>, Vec<_>) =
+        finals.iter().partition(|f| is_compilation_group(&f.0));
+    for (group, parents, clones) in compilation_groups.into_iter().chain(own_groups) {
+        let compilation = is_compilation_group(group);
+        for parent in parents {
+            let at = match compilation {
+                true => own_group(parent),
+                false => group.clone(),
+            };
+            let row = row(&mut rows, &at);
+            if row.kept.iter().any(|k| k.title == *parent) {
+                continue;
+            }
             let (rule, unresolved) = explain.winner(group, parent);
-            let row = row(&mut rows, group);
             row.unresolved |= unresolved;
             row.kept.push(KeptGame {
                 title: parent.clone(),
@@ -258,11 +294,25 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
             });
         }
         for (clone, parent) in clones {
-            let rule = explain.alternative(group, clone);
-            row(&mut rows, group).clones.push(CloneGame {
+            if !compilation && compilation_clones.contains(&(clone.as_str(), parent.as_str())) {
+                continue;
+            }
+            let at = match compilation {
+                true => placed(parent).map_or_else(|| own_group(clone), str::to_owned),
+                false => group.clone(),
+            };
+            let row = row(&mut rows, &at);
+            if row
+                .clones
+                .iter()
+                .any(|c| c.title == *clone && c.clone_of == *parent)
+            {
+                continue;
+            }
+            row.clones.push(CloneGame {
                 title: clone.clone(),
                 clone_of: parent.clone(),
-                rule,
+                rule: explain.alternative(group, clone),
             });
         }
     }
@@ -272,7 +322,11 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
         } else {
             explain.exclusion(title, reason)
         };
-        row(&mut rows, group).left_out.push(LeftOutGame {
+        let at = match is_compilation_group(group) {
+            true => own_group(title),
+            false => group.clone(),
+        };
+        row(&mut rows, &at).left_out.push(LeftOutGame {
             title: title.clone(),
             rule,
             reason: reason.clone(),
@@ -320,6 +374,34 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
             titles_without_metadata: missing,
         },
     })
+}
+
+fn is_compilation_group(group: &str) -> bool {
+    group.starts_with(COMPILATION_GROUPS)
+}
+
+/// Each title's own group: the group of the last step that names it in a snapshot of one group, outside Retool's
+/// compilation groups. A compilation parent selection step is left out, as it names a pair of compilations under the
+/// group of the first.
+fn homes(steps: &[Resolved]) -> HashMap<&str, &str> {
+    let mut home = HashMap::new();
+    for resolved in steps {
+        let group = resolved.step.group.as_str();
+        if group.is_empty()
+            || is_compilation_group(group)
+            || resolved.step.stage == COMPILATION_PARENT_SELECTION
+        {
+            continue;
+        }
+        for name in resolved
+            .before
+            .iter()
+            .chain(resolved.after.iter().flatten())
+        {
+            home.insert(name.as_str(), group);
+        }
+    }
+    home
 }
 
 fn row<'r>(rows: &'r mut BTreeMap<String, SelectionGroup>, name: &str) -> &'r mut SelectionGroup {
@@ -618,6 +700,189 @@ mod tests {
             derived.groups[0].clones[0].rule.reference.as_deref(),
             Some("REF0072")
         );
+    }
+
+    const COMPILATION: &str = "2 in 1 - A + B (USA)";
+    const B_US: &str = "B (USA)";
+
+    fn group(name: &str, parents: &[&str], clones: &[(&str, &str)]) -> serde_json::Value {
+        let clones: serde_json::Map<_, _> = clones
+            .iter()
+            .map(|(c, p)| (c.to_string(), serde_json::json!(p)))
+            .collect();
+        serde_json::json!({"schema":1,"type":"group","group":name,"parents":parents,"clones":clones})
+    }
+
+    fn names(derived: &Derived) -> Vec<&str> {
+        derived.groups.iter().map(|g| g.group.as_str()).collect()
+    }
+
+    #[test]
+    fn a_standalone_compilation_winner_returns_to_its_own_group() {
+        let steps = [
+            step(
+                "Parent selection",
+                "a",
+                "All regions",
+                "REF0014",
+                Some(&[A_US, A_EU]),
+                Some(&[A_US]),
+                &[],
+            ),
+            step(
+                "Compilations",
+                "",
+                "a",
+                "REF0072",
+                Some(&[A_US, COMPILATION]),
+                Some(&[A_US]),
+                &[],
+            ),
+        ];
+        let groups = [
+            group("a", &[], &[(A_EU, A_US)]),
+            group("retool_compilations_discards", &[], &[]),
+            group("retool_compilations_winners", &[A_US], &[]),
+        ];
+        let derived = derive(&trace(&steps, &groups)).unwrap();
+        assert_eq!(names(&derived), ["a"]);
+        let row = &derived.groups[0];
+        assert_eq!(row.kept[0].title, A_US);
+        assert_eq!(row.kept[0].rule.stage, "Compilations");
+        assert_eq!(row.clones[0].title, A_EU);
+        assert_eq!((derived.summary.groups, derived.summary.kept), (1, 1));
+    }
+
+    #[test]
+    fn a_compilation_winner_also_kept_in_a_group_shows_once_there() {
+        let steps = [step(
+            "Compilations",
+            "",
+            "a",
+            "REF0072",
+            Some(&[COMPILATION, B_US]),
+            Some(&[COMPILATION]),
+            &[],
+        )];
+        let groups = [
+            group("2 in 1 - a + b", &[COMPILATION], &[]),
+            group("retool_compilations_discards", &[], &[(B_US, COMPILATION)]),
+            group("retool_compilations_winners", &[COMPILATION], &[]),
+        ];
+        let derived = derive(&trace(&steps, &groups)).unwrap();
+        assert_eq!(names(&derived), ["2 in 1 - a + b"]);
+        let row = &derived.groups[0];
+        assert_eq!(row.kept.len(), 1);
+        assert_eq!(row.clones[0].title, B_US);
+        assert_eq!(derived.summary.kept, 1);
+    }
+
+    #[test]
+    fn a_winning_compilation_forms_its_own_group_with_the_releases_it_beat_as_clones() {
+        let virtual_a = format!(":V: A (USA) • {COMPILATION}");
+        let steps = [
+            step(
+                "Parent selection",
+                "a",
+                "All regions",
+                "REF0074",
+                None,
+                Some(&[A_US]),
+                &[],
+            ),
+            step(
+                "Parent selection",
+                "b",
+                "All regions",
+                "REF0074",
+                None,
+                Some(&[B_US]),
+                &[],
+            ),
+            step(
+                "Compilations",
+                "2 in 1 - a + b",
+                "a",
+                "REF0067",
+                None,
+                Some(&[&virtual_a]),
+                &[],
+            ),
+            step(
+                "Compilations",
+                "",
+                "a",
+                "REF0072",
+                Some(&[A_US, B_US, COMPILATION]),
+                Some(&[COMPILATION]),
+                &[],
+            ),
+        ];
+        let groups = [
+            group("a", &[], &[(A_US, COMPILATION)]),
+            group("b", &[], &[(B_US, COMPILATION)]),
+            group(
+                "retool_compilations_discards",
+                &[],
+                &[(A_US, COMPILATION), (B_US, COMPILATION)],
+            ),
+            group("retool_compilations_winners", &[COMPILATION], &[]),
+        ];
+        let derived = derive(&trace(&steps, &groups)).unwrap();
+        assert_eq!(names(&derived), ["2 in 1 - a + b"]);
+        let row = &derived.groups[0];
+        assert_eq!(row.kept[0].title, COMPILATION);
+        let clones: Vec<_> = row
+            .clones
+            .iter()
+            .map(|c| {
+                (
+                    c.title.as_str(),
+                    c.clone_of.as_str(),
+                    c.rule.reference.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            clones,
+            [
+                (A_US, COMPILATION, Some("REF0072")),
+                (B_US, COMPILATION, Some("REF0072"))
+            ]
+        );
+        assert_eq!((derived.summary.groups, derived.summary.clones), (1, 2));
+    }
+
+    #[test]
+    fn a_left_out_title_under_a_compilation_group_returns_to_its_own_group() {
+        let steps = [step(
+            "Parent selection",
+            "b",
+            "All regions",
+            "REF0074",
+            None,
+            Some(&[B_US]),
+            &[],
+        )];
+        let mut lines = trace(&steps, &[group("retool_compilations_winners", &[], &[])]);
+        lines.push('\n');
+        lines.push_str(&serde_json::json!({"schema":1,"type":"excluded","title":B_US,"group":"retool_compilations_winners","list":"post_filter_removes","reason":"Post filter"}).to_string());
+        let derived = derive(&lines).unwrap();
+        assert_eq!(names(&derived), ["b"]);
+        assert_eq!(derived.groups[0].left_out[0].title, B_US);
+    }
+
+    #[test]
+    fn a_winner_with_no_group_in_the_trace_gets_a_group_named_after_it() {
+        let groups = [group("retool_compilations_winners", &[COMPILATION], &[])];
+        let mut lines = vec![
+            serde_json::json!({"schema":1,"type":"dat_names","names":{COMPILATION: "2 in 1 (USA)"}})
+                .to_string(),
+        ];
+        lines.push(trace(&[], &groups));
+        let derived = derive(&lines.join("\n")).unwrap();
+        assert_eq!(names(&derived), ["2 in 1 (USA)"]);
+        assert_eq!(derived.groups[0].kept[0].title, "2 in 1 (USA)");
     }
 
     #[test]
