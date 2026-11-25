@@ -1038,6 +1038,7 @@ mod tests {
             reason: (finding == Finding::Unreadable).then(|| "permission denied".into()),
             disks: vec![],
             parent_sha1: None,
+            complete_in: None,
         }
     }
 
@@ -1786,6 +1787,7 @@ mod tests {
             roms: refs[..1].to_vec(),
             disks: refs,
             parent_sha1: None,
+            complete_in: None,
             named_rom: None,
             evidence: Some(Evidence {
                 level,
@@ -1812,6 +1814,7 @@ mod tests {
             )),
             disks: vec![],
             parent_sha1: Some("81a4".into()),
+            complete_in: None,
         }
     }
 

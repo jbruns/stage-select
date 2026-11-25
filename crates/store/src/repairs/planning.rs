@@ -167,6 +167,10 @@ const SPARE_COPY: &str = "left as it is: a repair sets a copy of a ROM aside onl
      is set aside only once every file this repair reads from it, or writes with a copy of what it holds, is written \
      and verified";
 
+/// Why a repair sets aside, by default, a file holding only copies of ROMs whole files hold that stay as they are.
+const DUPLICATE: &str = "set aside by default: every ROM it holds is also in a correctly named file that stays as \
+     it is, and nothing in this repair reads it. You can restore it from the kept files";
+
 /// What becomes of each disc of a placed release a repair releases (ADR 0023): every CHD of it is set aside, never
 /// split from the rest, and nothing of it is extracted or deleted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3270,6 +3274,16 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             whole.any_where(&sums, |_| true) || written.any_where(&sums, |at| at == Scope::Source)
         })
     };
+    // Only by files that are there now and stay as they are, never by this repair's writes, which can fail.
+    let covered_whole = |game: &str, rom: &str| {
+        (dat_roms.get(&(game.to_owned(), rom.to_owned())))
+            .is_some_and(|r| whole.any_where(&Sums::of(r), |_| true))
+    };
+    // Every file an applied item reads.
+    let read: HashSet<String> = (proposed.iter())
+        .filter(|p| p.item.chosen != RepairChoice::Leave)
+        .flat_map(|p| read_from(i, p).0)
+        .collect();
     let mut aside = Vec::new();
     for (path, file) in &usable {
         if referenced.contains(path) || file.unreadable || file.entries.is_empty() {
@@ -3307,14 +3321,22 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         }
         let key = format!("file:{path}");
         // A file holding a copy of a ROM is kept aside only once the Operator chooses it, as what makes it spare may be
-        // another item's write, which can fail; one holding nothing a Game needs is kept aside by default.
+        // another item's write, which can fail, unless whole files that stay as they are hold every ROM it holds and
+        // nothing reads it, such as a duplicate of a Game under an older name. One holding nothing a Game needs
+        // is kept aside by default.
         let copies = (file.entries.iter())
             .any(|e| matches!(e.finding, Finding::Matched | Finding::Misnamed));
+        let duplicate = copies
+            && !read.contains(*path)
+            && (file.entries.iter())
+                .filter(|e| matches!(e.finding, Finding::Matched | Finding::Misnamed))
+                .all(|e| e.roms.iter().all(|r| covered_whole(&r.game, &r.name)));
         let nodump = left_for_nodump(i.dat, &holders, &layout_index, [file], IfChosen::KeepAside);
-        let (default, note) = match (nodump, copies) {
-            (Some(why), _) => (RepairChoice::Leave, Some(why)),
-            (None, true) => (RepairChoice::Leave, Some(SPARE_COPY.to_owned())),
-            (None, false) => (RepairChoice::KeepAside, None),
+        let (default, note) = match (nodump, copies, duplicate) {
+            (Some(why), _, _) => (RepairChoice::Leave, Some(why)),
+            (None, true, true) => (RepairChoice::KeepAside, Some(DUPLICATE.to_owned())),
+            (None, true, false) => (RepairChoice::Leave, Some(SPARE_COPY.to_owned())),
+            (None, false, _) => (RepairChoice::KeepAside, None),
         };
         let chosen = i.choices.get(&key).copied().unwrap_or(default);
         // A file holding one ROM no DAT knows can be added as an Addition, from where it is kept.
@@ -3348,11 +3370,12 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             }
             (_, None) => None,
         };
-        let summary = match copies {
-            true => {
+        let summary = match (copies, duplicate) {
+            (true, true) => format!("{path} holds only copies of ROMs other files hold"),
+            (true, false) => {
                 format!("{path} holds only copies of ROMs another file holds or this repair writes")
             }
-            false => format!("{path} holds nothing a game needs"),
+            (false, _) => format!("{path} holds nothing a game needs"),
         };
         aside.push(Proposed {
             item: RepairItem {
@@ -3389,7 +3412,8 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
     proposed.extend(aside);
 
     // What the Operator chose to keep aside is kept aside even when it is the last copy of a ROM, which the item then
-    // says: it can be restored from the Kept Files. Nothing a Repair keeps aside by default holds a ROM.
+    // says: it can be restored from the Kept Files. Nothing a Repair keeps aside by default holds a ROM that no file
+    // that stays holds.
     let preserved = Preserved::of(i, &proposed, &dat_roms, &held, &scopes);
     let last: Vec<(usize, Vec<String>)> = proposed
         .iter()
@@ -4165,6 +4189,7 @@ mod tests {
             reason: None,
             disks: Vec::new(),
             parent_sha1: None,
+            complete_in: None,
         }
     }
 

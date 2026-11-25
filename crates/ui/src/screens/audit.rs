@@ -888,6 +888,18 @@ fn entry_detail(row: &EntryItem) -> AnyView {
                     }
                 })}
             {game_status}
+            {entry
+                .complete_in
+                .clone()
+                .map(|c| {
+                    view! {
+                        <dt>"Duplicate"</dt>
+                        <dd>
+                            "Your game " {c.game} " is already complete in "
+                            <code class="path">{c.path}</code> ", so this is a copy."
+                        </dd>
+                    }
+                })}
             {disk_text(&entry)
                 .map(|disk| {
                     view! {

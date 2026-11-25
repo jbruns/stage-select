@@ -258,6 +258,7 @@ pub fn synthetic(entries: usize) -> AuditEntries {
                         .then(|| "synthetic read error".to_string()),
                     disks: vec![],
                     parent_sha1: None,
+                    complete_in: None,
                 },
             }
         })

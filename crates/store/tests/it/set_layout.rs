@@ -1746,23 +1746,35 @@ fn a_default_plan_in_any_layout_only_repacks_and_never_leaves_a_rom_payload_only
         let plan = env.plan();
 
         let items = &plan.content.items;
+        // A file of copies is set aside by default only when files that stay as they are hold every ROM it holds,
+        // never this repair's writes (ADR 0026's 2026-11-25 amendment).
+        let duplicate = |item: &str| {
+            (items.iter()).any(|i| {
+                i.key == item
+                    && i.kind == RepairKind::KeepAside
+                    && i.summary
+                        .ends_with("holds only copies of ROMs other files hold")
+            })
+        };
         assert!(
-            (items.iter())
-                .all(|i| i.kind != RepairKind::KeepAside || i.chosen == RepairChoice::Leave),
+            (items.iter()).all(|i| i.kind != RepairKind::KeepAside
+                || i.chosen == RepairChoice::Leave
+                || duplicate(&i.key)),
             "{at}: {items:#?}"
         );
-        // A file is kept aside only as the original of what its item writes.
+        // A file is kept aside only as the original of what its item writes, or as such a duplicate.
         let steps = &plan.content.steps;
         let writes = |item: &str| {
-            steps.iter().any(|s| {
-                s.item == item
-                    && matches!(
-                        s.step,
-                        RepairStep::Build { .. }
-                            | RepairStep::Rename { .. }
-                            | RepairStep::Fill { .. }
-                    )
-            })
+            duplicate(item)
+                || steps.iter().any(|s| {
+                    s.item == item
+                        && matches!(
+                            s.step,
+                            RepairStep::Build { .. }
+                                | RepairStep::Rename { .. }
+                                | RepairStep::Fill { .. }
+                        )
+                })
         };
         assert!(
             (steps.iter()).all(|s| !matches!(s.step, RepairStep::Keep { .. }) || writes(&s.item)),

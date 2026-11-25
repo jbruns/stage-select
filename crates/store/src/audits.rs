@@ -16,9 +16,10 @@ use super::{Error, Result, Store, now};
 use stage_select_api::{AuditSummary, EntryRow, GameRow, SourceSetSummary};
 use stage_select_engine::payload::Checksums;
 use stage_select_engine::{
-    ALGORITHMS, AuditEvidence, DatRevision, Entry, Evidence, EvidenceLevel, FileStamp, Finding,
-    Game, GameStatus, GameWarning, Header, HeaderRule, NamedHeaderRule, ONE_WORKER_EACH, Options,
-    PayloadRead, PayloadReads, Placed, Progress, Report, Reuse, RomRef, SCHEMA, Summary, Workers,
+    ALGORITHMS, AuditEvidence, CompleteIn, DatRevision, Entry, Evidence, EvidenceLevel, FileStamp,
+    Finding, Game, GameStatus, GameWarning, Header, HeaderRule, NamedHeaderRule, ONE_WORKER_EACH,
+    Options, PayloadRead, PayloadReads, Placed, Progress, Report, Reuse, RomRef, SCHEMA, Summary,
+    Workers,
 };
 
 /// An Audit the store has recorded, with the report generated from its rows.
@@ -309,10 +310,10 @@ fn warning_columns(prefix: &str) -> String {
         .join(", ")
 }
 
-pub(super) const ENTRY_COLUMNS: &str = "path, member, finding, roms, named_game, named_rom, evidence_level, algorithms, reason, read_at, reused, header_bytes, disks, parent_sha1";
+pub(super) const ENTRY_COLUMNS: &str = "path, member, finding, roms, named_game, named_rom, evidence_level, algorithms, reason, read_at, reused, header_bytes, disks, parent_sha1, complete_in_game, complete_in_path";
 
 /// The `seq` column's index, when selected after [`ENTRY_COLUMNS`].
-const ENTRY_SEQ: usize = 14;
+const ENTRY_SEQ: usize = 16;
 
 const GAME_COLUMNS: &str = "name, status, missing_roms, claimed_roms, warnings, available_elsewhere, dependencies, \
                             not_dumped, bad_dumps, optional_roms, disks";
@@ -559,8 +560,8 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
     let mut entry = tx.prepare(
         "INSERT INTO audit_entries (audit_id, seq, path, member, finding, roms, named_game, named_rom,
                                     evidence_level, algorithms, reason, read_at, reused, header_bytes,
-                                    disks, parent_sha1)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                                    disks, parent_sha1, complete_in_game, complete_in_path)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
     )?;
     for (seq, e) in report.entries.iter().enumerate() {
         let roms = serde_json::to_string(&e.roms).map_err(corrupt)?;
@@ -588,6 +589,8 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
                 .map(|h| h.bytes as i64),
             disks,
             e.parent_sha1,
+            e.complete_in.as_ref().map(|c| &c.game),
+            e.complete_in.as_ref().map(|c| &c.path),
         ])?;
     }
     let mut game = tx.prepare(
@@ -774,6 +777,10 @@ pub(super) fn entry_from_row(row: &Row) -> Result<Entry> {
         reason: row.get(8)?,
         disks: serde_json::from_str(&row.get::<_, String>(12)?).map_err(corrupt)?,
         parent_sha1: row.get(13)?,
+        complete_in: match (row.get(14)?, row.get(15)?) {
+            (Some(game), Some(path)) => Some(CompleteIn { game, path }),
+            _ => None,
+        },
     })
 }
 
