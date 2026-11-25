@@ -303,7 +303,7 @@ impl Store {
         if !self.roots().root(&root).is_some_and(|r| r.writable) {
             return Err(Error::Conflict(format!(
                 "plan {plan}'s deletion of the folder is waiting: root {root} is not writable now. Nothing was \
-                 deleted; make it writable in your roots, and the service finishes the deletion when it next starts"
+                 deleted; make it a library root again in your roots, and the service finishes the deletion when it next starts"
             )));
         }
         if removing.is_none() {

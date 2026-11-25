@@ -532,7 +532,7 @@ pub(super) fn open_folder(
 }
 
 /// Opens the Library Folder `rel` in the Root `root` as [`open_folder`] does, for a change: refused unless the
-/// Root is configured `writable = true` now.
+/// Root is writable now.
 pub(super) fn open_writable_folder(
     roots: &crate::roots::Roots,
     root: &str,
@@ -540,7 +540,7 @@ pub(super) fn open_writable_folder(
 ) -> std::result::Result<FolderDir, String> {
     if !roots.root(root).is_some_and(|r| r.writable) {
         return Err(format!(
-            "root {root} is not writable now; make it writable in your roots. Nothing \
+            "root {root} is not writable now; make it a library root in your roots. Nothing \
              in the folder was changed"
         ));
     }
@@ -723,7 +723,7 @@ fn overlaps(a: &Path, b: &Path) -> bool {
     a.starts_with(b) || b.starts_with(a)
 }
 
-/// Checks that `rel` in the Root `root_name` may be a Library Folder: a writable Root that is not an Ingest Folder, a
+/// Checks that `rel` in the Root `root_name` may be a Library Folder: a `library` Root, a
 /// relative path, not a registered Library Folder's, and overlapping no folder Stage Select reads or writes nor the
 /// destination of a move under way. Returns it normalized.
 pub(super) fn check_library_path(
@@ -735,16 +735,11 @@ pub(super) fn check_library_path(
     let root = roots
         .root(root_name)
         .ok_or_else(|| Error::Refused(format!("no root named {} is registered", root_name)))?;
-    if !root.writable {
+    if root.kind != crate::roots::RootKind::Library {
         return Err(Error::Refused(format!(
-            "root {} is read-only; a library folder needs a root with writable = true",
-            root_name
-        )));
-    }
-    if root.is_ingest() {
-        return Err(Error::Refused(format!(
-            "root {} is an ingest folder; a library folder needs another writable root",
-            root_name
+            "root {root_name} is {}, and a play library folder goes only in a library root; register it in a \
+             library root, or register this folder as a root of kind library",
+            crate::roots::a_root_of(root.kind)
         )));
     }
     let beneath = resolve_beneath(root, rel, "a library folder's path")?;

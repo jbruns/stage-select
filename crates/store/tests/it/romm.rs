@@ -381,7 +381,7 @@ mod scans {
                 &store,
                 &[
                     RootSpec::new("sets", &sets),
-                    RootSpec::new("play", play).writable(),
+                    RootSpec::new("play", play).library(),
                 ],
             );
             let dat = match header {

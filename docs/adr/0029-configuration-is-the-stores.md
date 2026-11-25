@@ -4,7 +4,8 @@ Date: 2026-11-20
 
 ## Status
 
-Accepted. Amends ADR 0008 and ADR 0022.
+Accepted. Amends ADR 0008 and ADR 0022. Amended by #351: a Root's kind says what it holds, and fixes whether it is
+writable (see "Amendment: Root kinds").
 
 ## Context
 
@@ -25,12 +26,13 @@ a deployed file the way this project's own deployment does.
   are removed.
 - **Roots are registered in the workbench**, and changes take effect without a restart. Each change records who made it.
   - A Root's name is fixed once it's registered, because records refer to it.
-  - Its kind is `general`, `ingest` or `additions`, with at most one `additions` Root. It replaces the Root that's
-    special because it's named `additions`.
-  - Registering a Root checks that its path exists, and that it can be written when it's declared writable.
-  - A Root can be unregistered only when nothing is registered in it.
-  - Its path or its writability can't be changed while a Job runs on it or while an approved, unapplied plan writes to
-    it. Making it less writable voids the approved plans that write where it no longer may.
+  - Its kind is `sources`, `library`, `ingest` or `additions`, with at most one `additions` Root. It replaces the Root
+    that's special because it's named `additions`. The kind fixes whether the Root is writable: a `sources` Root is
+    read-only but for the Source Sets each switch lets Stage Select change; every other kind is writable.
+  - Registering a Root checks that its path exists, and that it can be written when its kind is writable.
+  - A Root can be unregistered only when nothing is registered in it, and its kind changes only then.
+  - Its path or its kind can't be changed while a Job runs on it, nor its path while an approved, unapplied plan
+    writes to it.
 - **The container's mounts are the trust boundary** (ADR 0006). The workbench can register any folder the container
   can see. Mounting read-only what Stage Select must never write is how the Operator bounds it.
 - **Every Ceiling and the 7z archive limits are workbench settings.** A Ceiling comes from the Operator's value, then the
@@ -52,6 +54,19 @@ a deployed file the way this project's own deployment does.
 
 - A first run has no Roots, so the workbench leads the Operator through registering one, then Source Sets and Library
   Folders.
-- ADR 0008: an Ingest Folder is a Root of kind `ingest` registered as writable in the workbench, not declared in
+- ADR 0008: an Ingest Folder is a Root of kind `ingest`, writable, registered in the workbench, not declared in
   `stage-select.toml`.
 - ADR 0022: a Ceiling's sources lose the configuration file; the workbench value is first.
+
+## Amendment: Root kinds
+
+The kind `general` held Source Sets when read-only and Library Folders when writable, a double meaning the Operator
+couldn't see when registering a Root: a writable Root meant for Source Sets refused them. It is split into `sources` and
+`library`, and the kind alone decides writability; there is no separate writable setting. Migration 0007 maps each
+`general` Root to `sources` if it was read-only, or `library` if writable. A Root's `writable_paths` change only through
+each Source Set's switch.
+
+This breaks ADR 0030's additive promise for the Root API and CLI, once, as an exception the Operator decided as its only
+client: `general` is refused like any unknown kind, and the register and edit request bodies lose `writable` and
+`writable_paths`, which responses keep as derived fields. The CLI loses `--writable`, `--read-only`, `--writable-path`
+and `--no-writable-paths`. The release notes list the change.

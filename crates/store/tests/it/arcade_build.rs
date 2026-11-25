@@ -164,14 +164,15 @@ impl Env {
         crate::register(
             &store,
             &[
-                RootSpec::new("sets", tmp.path().join("sets")).writing(&["mame"]),
-                RootSpec::new("play", tmp.path().join("play")).writable(),
+                RootSpec::new("sets", tmp.path().join("sets")),
+                RootSpec::new("play", tmp.path().join("play")).library(),
             ],
         );
         let (revision, _) = store
             .import_dat_bytes(xml.as_bytes(), "mame.xml", None)
             .unwrap();
         store.add_source_set("sets", "mame", &revision.dat).unwrap();
+        crate::let_change(&store, "mame");
         store
             .save_profile(
                 "Mine",

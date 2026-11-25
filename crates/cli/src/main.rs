@@ -444,7 +444,7 @@ enum RootCommand {
     /// List your roots: each one's path, kind, where Stage Select may write to it, and your ceilings for it.
     List,
     /// Register a folder as a root. Refused unless the folder exists, or you give `--create`, and unless Stage Select
-    /// can write to it when you make the root writable. There can be only one root of kind `additions`.
+    /// can write to it when its kind is a writable one. There can be only one root of kind `additions`.
     Register {
         /// Its name, fixed once registered: what you register in the root refers to it by name.
         name: String,
@@ -456,9 +456,9 @@ enum RootCommand {
         #[command(flatten)]
         options: RootOptions,
     },
-    /// Change a root's path, kind, writability or ceilings; its name can't change. What you leave out keeps its
-    /// value. A path or writability change waits for the jobs running on the root. Making the root less writable
-    /// voids the approved plans that write where it no longer may, and lists them.
+    /// Change a root's path, kind or ceilings; its name can't change. What you leave out keeps its value. A path
+    /// change waits for the jobs running on the root and the approved plans that write there; a kind change waits
+    /// until nothing is registered in the root.
     Edit {
         name: String,
         /// The folder's new absolute path.
@@ -477,27 +477,12 @@ enum RootCommand {
 /// What `root register` and `root edit` set.
 #[derive(clap::Args)]
 struct RootOptions {
-    /// `general` for source sets or play library folders, `ingest` for an ingest folder, or `additions` for the
-    /// additions sets. An ingest or additions root is writable.
-    #[arg(long, value_parser = |s: &str| s.parse::<RootKind>())]
+    /// What the root holds, which also says whether Stage Select may write to it: `sources` for source sets,
+    /// read-only but for the source sets you let Stage Select change (`set edit` switches one); `library` for play
+    /// library folders, writable; `ingest` for an ingest folder, writable; or `additions` for the additions sets,
+    /// writable. A new root is `sources` unless you say otherwise.
+    #[arg(long, value_name = "sources|library|ingest|additions", value_parser = |s: &str| s.parse::<RootKind>())]
     kind: Option<RootKind>,
-    /// Let Stage Select write anywhere in the root: builds into its play library folders.
-    #[arg(long, conflicts_with = "read_only")]
-    writable: bool,
-    /// Let Stage Select write nowhere in the root but the source sets in it you let it change.
-    #[arg(long)]
-    read_only: bool,
-    /// In a read-only root, a source set's path, relative to the root, that Stage Select may change: repairs and
-    /// single copy placing. Repeat it for each; any you give replace those the root had. `set edit` switches one.
-    #[arg(
-        long = "writable-path",
-        value_name = "PATH",
-        conflicts_with = "no_writable_paths"
-    )]
-    writable_paths: Vec<String>,
-    /// Remove every writable path.
-    #[arg(long)]
-    no_writable_paths: bool,
     /// Payload readers across every job reading the root, or `default` for the calibration's or the CPU count.
     #[arg(long, value_name = "N|default", value_parser = parse_ceiling)]
     readers: Option<CeilingArg>,
@@ -514,18 +499,6 @@ impl RootOptions {
     fn apply(self, mut spec: RootSpec) -> RootSpec {
         if let Some(kind) = self.kind {
             spec = spec.of_kind(kind);
-        }
-        if self.writable {
-            spec.writable = true;
-        }
-        if self.read_only {
-            spec.writable = false;
-        }
-        if self.no_writable_paths {
-            spec.writable_paths.clear();
-        }
-        if !self.writable_paths.is_empty() {
-            spec.writable_paths = self.writable_paths;
         }
         for (ceiling, given) in [
             (&mut spec.readers, self.readers),

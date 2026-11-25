@@ -67,9 +67,14 @@ fn sentence(text: &str) -> String {
     }
 }
 
-/// Whether a Source Set may be registered in `root`: only a read-only general Root holds them.
+/// Whether a Source Set may be registered in `root`: only a `sources` Root holds them.
 pub fn holds_source_sets(root: &Root) -> bool {
-    root.kind == RootKind::General && !root.writable
+    root.kind == RootKind::Sources
+}
+
+/// Whether a Library Folder may be registered in `root`: only a `library` Root holds them.
+pub fn holds_library_folders(root: &Root) -> bool {
+    root.kind == RootKind::Library
 }
 
 /// The Roots the form offers for a Source Set, in the order given: the first is its default.
@@ -98,17 +103,33 @@ mod tests {
     }
 
     #[test]
-    fn a_source_set_is_offered_only_the_read_only_general_roots_and_defaults_to_the_first() {
+    fn a_source_set_is_offered_only_the_sources_roots_and_defaults_to_the_first() {
         let roots = vec![
-            root("play", RootKind::General, true),
+            root("play", RootKind::Library, true),
             root("in", RootKind::Ingest, true),
             root("additions", RootKind::Additions, true),
-            root("games", RootKind::General, false),
-            root("more", RootKind::General, false),
+            root("games", RootKind::Sources, false),
+            root("more", RootKind::Sources, false),
         ];
         let offered: Vec<String> = set_roots(roots).into_iter().map(|r| r.name).collect();
         assert_eq!(offered, ["games", "more"]);
-        assert!(set_roots(vec![root("play", RootKind::General, true)]).is_empty());
+        assert!(set_roots(vec![root("play", RootKind::Library, true)]).is_empty());
+    }
+
+    #[test]
+    fn a_library_folder_goes_only_in_a_library_root() {
+        let kinds = [
+            (RootKind::Sources, false),
+            (RootKind::Library, true),
+            (RootKind::Ingest, true),
+            (RootKind::Additions, true),
+        ];
+        let holding: Vec<RootKind> = kinds
+            .into_iter()
+            .filter(|&(kind, writable)| holds_library_folders(&root("r", kind, writable)))
+            .map(|(kind, _)| kind)
+            .collect();
+        assert_eq!(holding, [RootKind::Library]);
     }
 
     fn dat(provider: &str, name: &str) -> Dat {

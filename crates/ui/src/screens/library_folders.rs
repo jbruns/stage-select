@@ -749,7 +749,7 @@ pub fn Libraries() -> impl IntoView {
     }
 }
 
-/// A new library folder: of a source set, or of one of its selections, with a profile and a writable root you pick and
+/// A new library folder: of a source set, or of one of its selections, with a profile and a library root you pick and
 /// the path the template proposes. Once made, its first build plan is made.
 #[component]
 pub fn NewLibraryFolder() -> impl IntoView {
@@ -797,7 +797,7 @@ pub fn LibraryFolderForm(source_set: Option<String>, selection: Option<i64>) -> 
             .and_then(Result::ok)
             .unwrap_or_default()
             .into_iter()
-            .filter(|r| r.writable && r.kind != stage_select_api::roots::RootKind::Ingest)
+            .filter(crate::registration::holds_library_folders)
             .collect::<Vec<_>>()
     };
     let existing = LocalResource::new(|| api::get::<Vec<LibraryFolder>>("/libraries"));
@@ -854,7 +854,7 @@ pub fn LibraryFolderForm(source_set: Option<String>, selection: Option<i64>) -> 
         }
     };
 
-    // The root your library folders are already in, else the first writable one.
+    // The root your library folders are already in, else the first library root.
     Effect::new(move || {
         let Some(Ok(folders)) = existing.get() else {
             return;
@@ -934,8 +934,8 @@ pub fn LibraryFolderForm(source_set: Option<String>, selection: Option<i64>) -> 
         {move || match roots.get() {
             Some(Ok(_)) if writable().is_empty() => view! {
                 <p class="note">
-                    "None of your roots is writable. To build into your front end's folders, register a writable \
-                    root for them in "<A href="/settings/roots">"roots"</A>"."
+                    "None of your roots is of kind play library. To build into your front end's folders, register a \
+                    play library root for them in "<A href="/settings/roots">"roots"</A>"."
                 </p>
             }
             .into_any(),

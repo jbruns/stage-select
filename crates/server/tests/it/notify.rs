@@ -202,7 +202,7 @@ impl Env {
         let store = stage_select_store::Store::open(&self.tmp.path().join("store")).unwrap();
         for root in [
             RootSpec::new("sets", self.tmp.path().join("roots/sets")),
-            RootSpec::new("play", self.tmp.path().join("roots/play")).writable(),
+            RootSpec::new("play", self.tmp.path().join("roots/play")).library(),
         ] {
             if store.roots().root(&root.name).is_none() {
                 std::fs::create_dir_all(&root.path).unwrap();

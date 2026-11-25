@@ -89,7 +89,7 @@ impl Env {
         crate::register(
             &store,
             &[
-                RootSpec::new("sets", tmp.path().join("roots/sets")).writing(&["Alpha"]),
+                RootSpec::new("sets", tmp.path().join("roots/sets")),
                 RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
             ],
         );
@@ -122,6 +122,7 @@ impl Env {
         store
             .add_source_set("sets", SET, "No-Intro/Test - System")
             .unwrap();
+        crate::let_change(&store, SET);
         store.register_ingest_folder("in").unwrap();
         Env { tmp, store }
     }

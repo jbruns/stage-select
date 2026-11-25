@@ -66,8 +66,8 @@ impl Env {
         crate::register(
             &store,
             &[
-                RootSpec::new("sets", tmp.path().join("roots/sets")).writing(&["Alpha"]),
-                RootSpec::new("play", tmp.path().join("roots/play")).writable(),
+                RootSpec::new("sets", tmp.path().join("roots/sets")),
+                RootSpec::new("play", tmp.path().join("roots/play")).library(),
                 RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
             ],
         );
@@ -101,6 +101,7 @@ impl Env {
         store
             .add_source_set("sets", SET, "No-Intro/Test - System")
             .unwrap();
+        crate::let_change(&store, SET);
         store
             .save_profile(
                 PROFILE,
@@ -702,7 +703,7 @@ fn a_running_audit_of_placed_games_holds_their_library_folders_root() {
 
     let moved = env.store.edit_root(
         "play",
-        &RootSpec::new("play", env.tmp.path().join("dats")).writable(),
+        &RootSpec::new("play", env.tmp.path().join("dats")).library(),
         "Operator",
     );
     assert!(
@@ -734,7 +735,7 @@ fn an_approved_repair_of_a_placed_game_holds_its_library_folders_root() {
 
     let moved = env.store.edit_root(
         "play",
-        &RootSpec::new("play", &elsewhere).writable(),
+        &RootSpec::new("play", &elsewhere).library(),
         "Operator",
     );
     assert!(
@@ -747,20 +748,14 @@ fn an_approved_repair_of_a_placed_game_holds_its_library_folders_root() {
         "{held:?}"
     );
 
-    let edited = env
+    let remade = env
         .store
-        .edit_root("play", &RootSpec::new("play", &play), "Operator")
-        .unwrap();
-    assert_eq!(
-        edited.voided,
-        [stage_select_api::roots::VoidedPlan {
-            kind: stage_select_api::roots::VoidedPlanKind::Repair,
-            plan: plan.id,
-            job,
-            writes_to: "play library folder play/atari".into(),
-        }]
+        .edit_root("play", &RootSpec::new("play", &play), "Operator");
+    assert!(
+        matches!(&remade, Err(Error::Conflict(why)) if why.contains(&format!("repair plan {}", plan.id))),
+        "{remade:?}"
     );
-    assert_eq!(env.store.job(job).unwrap().state, JobState::Failed);
+    assert_eq!(env.store.job(job).unwrap().state, JobState::Queued);
     assert!(
         env.library().join("pong.zip").is_file(),
         "nothing was changed"
@@ -2877,8 +2872,11 @@ fn a_stopped_deletion_of_the_folder_deletes_nothing_once_its_root_is_read_only()
     );
 
     let (env, unfinished) = restart_deleting(env, |db| {
-        db.execute("UPDATE roots SET writable = 0 WHERE name = 'play'", [])
-            .unwrap();
+        db.execute(
+            "UPDATE roots SET writable = 0, kind = 'sources' WHERE name = 'play'",
+            [],
+        )
+        .unwrap();
     });
     assert!(
         matches!(unfinished.as_slice(), [(p, why)] if *p == plan.id && why.contains("not writable")),
@@ -2971,22 +2969,19 @@ fn a_deletion_of_the_folder_ended_before_its_build_started_lets_you_plan_again()
                 env.store.run_build_job(job.id, None).unwrap();
             }
             _ => {
-                let edited = env
+                let other = write_dat_from(
+                    &env.tmp.path().join("dats"),
+                    "alpha (Redump).dat",
+                    "1",
+                    "Redump",
+                    &games(),
+                );
+                env.store.import_dat(&other, None).unwrap();
+                let changed = env
                     .store
-                    .edit_root(
-                        "play",
-                        &RootSpec::new("play", env.tmp.path().join("roots/play")),
-                        "Operator",
-                    )
+                    .change_source_set_dat(SET, "Redump/Test - System", "Operator")
                     .unwrap();
-                assert_eq!(edited.voided.len(), 1, "{end}");
-                env.store
-                    .edit_root(
-                        "play",
-                        &RootSpec::new("play", env.tmp.path().join("roots/play")).writable(),
-                        "Operator",
-                    )
-                    .unwrap();
+                assert_eq!(changed.voided.len(), 1, "{end}");
             }
         }
         assert_ne!(env.store.job(job.id).unwrap().state, JobState::Succeeded);

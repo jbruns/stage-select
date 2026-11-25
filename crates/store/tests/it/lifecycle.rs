@@ -54,9 +54,9 @@ impl Env {
         crate::register(
             &store,
             &[
-                RootSpec::new("sets", tmp.path().join("sets")).writing(&[SET]),
+                RootSpec::new("sets", tmp.path().join("sets")),
                 RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
-                RootSpec::new("play", tmp.path().join("play")).writable(),
+                RootSpec::new("play", tmp.path().join("play")).library(),
                 RootSpec::new("additions", tmp.path().join("additions"))
                     .of_kind(RootKind::Additions),
             ],
@@ -82,6 +82,7 @@ impl Env {
         let dat = write_dat_version(&tmp.path().join("dats"), "test.dat", "1", &games());
         let (revision, _) = store.import_dat(&dat, None).unwrap();
         store.add_source_set("sets", SET, SYSTEM).unwrap();
+        crate::let_change(&store, SET);
         store
             .save_profile(
                 PROFILE,
@@ -570,7 +571,7 @@ fn an_unregistered_additions_sets_kept_files_are_still_deleted_and_then_its_mark
     );
     let general = env.store.edit_root(
         "additions",
-        &RootSpec::new("additions", env.tmp.path().join("additions")).writable(),
+        &RootSpec::new("additions", env.tmp.path().join("additions")).library(),
         "Operator",
     );
     assert!(
@@ -1361,14 +1362,14 @@ fn a_source_set_is_checked_against_its_root_as_an_edit_under_way_leaves_it() {
         Fault::RootEditing,
         || {
             env.store
-                .edit_root("more", &RootSpec::new("more", &more).writable(), "Operator")
+                .edit_root("more", &RootSpec::new("more", &more).library(), "Operator")
         },
         || env.store.add_source_set("more", "Beta", SYSTEM),
     );
 
     edited.unwrap();
     assert!(
-        matches!(&added, Err(Error::Refused(why)) if why.contains("root more is writable")),
+        matches!(&added, Err(Error::Refused(why)) if why.contains("root more is a library root")),
         "{added:?}"
     );
 }

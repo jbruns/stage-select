@@ -601,7 +601,7 @@ fn the_store_uses_wal_mode() {
 #[test]
 fn a_source_set_in_a_writable_root_is_refused() {
     let env = Env::new(20);
-    crate::reregister(&env.store, RootSpec::new("sets", env.root()).writable());
+    crate::reregister(&env.store, RootSpec::new("sets", env.root()).library());
     env.import(1);
 
     let refused = env

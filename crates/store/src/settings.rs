@@ -454,7 +454,7 @@ mod tests {
             std::fs::create_dir_all(&path).unwrap();
             let spec = match how {
                 Some(true) => RootSpec::new(name, &path).of_kind(RootKind::Ingest),
-                Some(false) => RootSpec::new(name, &path).writable(),
+                Some(false) => RootSpec::new(name, &path).library(),
                 None => RootSpec::new(name, &path),
             };
             store.register_root(&spec, "test").unwrap();

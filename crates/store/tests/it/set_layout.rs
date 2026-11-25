@@ -146,8 +146,8 @@ impl Env {
         crate::register(
             &store,
             &[
-                RootSpec::new("sets", sets).writing(&["mame"]),
-                RootSpec::new("play", tmp.path().join("play")).writable(),
+                RootSpec::new("sets", sets),
+                RootSpec::new("play", tmp.path().join("play")).library(),
                 RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
             ],
         );
@@ -155,6 +155,7 @@ impl Env {
             .import_dat_bytes(xml.as_bytes(), "mame.xml", None)
             .unwrap();
         store.add_source_set("sets", "mame", &revision.dat).unwrap();
+        crate::let_change(&store, "mame");
         store
             .save_profile(
                 "Mine",

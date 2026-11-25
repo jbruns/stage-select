@@ -165,7 +165,7 @@ fn a_root_registration_refused_once_its_folders_are_made_removes_only_those() {
         }
     })));
 
-    let why = env.refused(&RootSpec::new("play", &path).writable().creating());
+    let why = env.refused(&RootSpec::new("play", &path).library().creating());
 
     env.store.hook_faults(None);
     assert!(why.contains("can't write"), "{why}");
@@ -196,7 +196,7 @@ fn a_root_folder_made_but_not_opened_is_removed() {
 }
 
 #[test]
-fn a_root_declared_writable_that_cant_be_written_is_refused() {
+fn a_writable_kind_of_root_that_cant_be_written_is_refused() {
     use std::os::unix::fs::PermissionsExt;
     let env = Env::new();
     let dir = env.dir("locked");
@@ -205,9 +205,9 @@ fn a_root_declared_writable_that_cant_be_written_is_refused() {
         eprintln!("skipped: this user writes to read-only folders");
         return;
     }
-    let why = env.refused(&RootSpec::new("play", &dir).writable());
+    let why = env.refused(&RootSpec::new("play", &dir).library());
     assert!(why.contains("can't write"), "{why}");
-    // Read-only, the same folder is fine.
+    // As a sources root, read-only, the same folder is fine.
     env.register(&RootSpec::new("play", &dir)).unwrap();
 }
 
@@ -221,7 +221,7 @@ fn a_second_additions_root_is_refused() {
     assert!(why.contains("only one"), "{why}");
 
     // Nor can another root become one by an edit.
-    env.register(&RootSpec::new("more", env.dir("b")).writable())
+    env.register(&RootSpec::new("more", env.dir("b")).library())
         .unwrap();
     let edited = env.store.edit_root("more", &second, "Operator");
     assert!(
@@ -231,41 +231,34 @@ fn a_second_additions_root_is_refused() {
 }
 
 #[test]
-fn each_kind_keeps_its_writability_and_a_root_needs_a_name() {
+fn a_roots_kind_fixes_whether_it_is_writable() {
+    let env = Env::new();
+    for (name, kind, writable) in [
+        ("sets", RootKind::Sources, false),
+        ("play", RootKind::Library, true),
+        ("in", RootKind::Ingest, true),
+        ("additions", RootKind::Additions, true),
+    ] {
+        let root = env
+            .store
+            .register_root(
+                &RootSpec::new(name, env.dir(name)).of_kind(kind),
+                "Operator",
+            )
+            .unwrap();
+        assert_eq!((root.kind, root.writable), (kind, writable), "{name}");
+        assert!(root.writable_paths.is_empty(), "{name}");
+    }
+}
+
+#[test]
+fn a_root_needs_a_name_and_an_absolute_path() {
     let env = Env::new();
     let dir = env.dir("r");
     for (spec, says) in [
-        (
-            RootSpec {
-                kind: RootKind::Ingest,
-                ..RootSpec::new("in", &dir)
-            },
-            "must be writable",
-        ),
-        (
-            RootSpec {
-                kind: RootKind::Additions,
-                ..RootSpec::new("additions", &dir)
-            },
-            "must be writable",
-        ),
-        (
-            RootSpec::new("additions", &dir)
-                .of_kind(RootKind::Additions)
-                .writing(&["x"]),
-            "only for a read-only root",
-        ),
-        (
-            RootSpec::new("play", &dir).writable().writing(&["x"]),
-            "only for a read-only root",
-        ),
         (RootSpec::new("", &dir), "name"),
         (RootSpec::new("a/b", &dir), "name"),
         (RootSpec::new("sets", "relative"), "absolute"),
-        (
-            RootSpec::new("sets", &dir).writing(&["../up"]),
-            "writable path",
-        ),
     ] {
         let why = env.refused(&spec);
         assert!(why.contains(says), "{spec:?}: {why}");
@@ -310,51 +303,153 @@ fn a_root_is_not_unregistered_while_something_is_registered_in_it() {
     assert!(env.store.roots().is_empty());
 }
 
+/// Imports a DAT with no games, `No-Intro/Test - System`, for Source Sets to be registered against.
+fn import_dat(env: &Env) {
+    let dat = crate::common::write_dat(&env.dir("dats"), &[]);
+    env.store.import_dat(&dat, None).unwrap();
+}
+
 #[test]
-fn a_root_holding_source_sets_isnt_made_writable() {
+fn a_root_holding_source_sets_isnt_made_a_library_root() {
     let env = Env::new();
     env.register(&RootSpec::new("sets", env.dir("sets")))
         .unwrap();
     std::fs::create_dir_all(env.dir("sets").join("Alpha")).unwrap();
-    let dat = crate::common::write_dat(&env.dir("dats"), &[]);
-    env.store.import_dat(&dat, None).unwrap();
+    import_dat(&env);
     env.store
         .add_source_set("sets", "Alpha", "No-Intro/Test - System")
+        .unwrap();
+    env.store
+        .set_repairs_may_change("Alpha", true, "Operator")
         .unwrap();
 
     let edited = env.store.edit_root(
         "sets",
-        &RootSpec::new("sets", env.dir("sets")).writable(),
+        &RootSpec::new("sets", env.dir("sets")).library(),
         "Operator",
     );
     assert!(
-        matches!(&edited, Err(Error::Refused(why)) if why.contains("Alpha")),
+        matches!(&edited, Err(Error::Conflict(why)) if why.contains("kind") && why.contains("source set Alpha")),
         "{edited:?}"
     );
-    // Writable paths are how a source set's folder is written to.
-    env.store
+    // Any other edit keeps the writable paths each source set's switch lists.
+    let edited = env
+        .store
         .edit_root(
             "sets",
-            &RootSpec::new("sets", env.dir("sets")).writing(&["Alpha"]),
+            &RootSpec {
+                readers: Some(2),
+                ..RootSpec::new("sets", env.dir("sets"))
+            },
             "Operator",
         )
         .unwrap();
+    assert_eq!(edited.root.writable_paths, ["Alpha"]);
+    assert!(!edited.root.writable);
 }
 
 #[test]
-fn a_roots_path_or_writability_doesnt_change_while_a_job_runs_on_it() {
+fn a_source_set_goes_only_in_a_sources_root_and_a_library_folder_only_in_a_library_root() {
     let env = Env::new();
-    env.register(&RootSpec::new("play", env.dir("play")).writable())
+    import_dat(&env);
+    for (name, kind) in [
+        ("sets", RootKind::Sources),
+        ("play", RootKind::Library),
+        ("in", RootKind::Ingest),
+        ("additions", RootKind::Additions),
+    ] {
+        env.register(&RootSpec::new(name, env.dir(name)).of_kind(kind))
+            .unwrap();
+        std::fs::create_dir_all(env.dir(name).join("Alpha")).unwrap();
+    }
+    for root in ["play", "in", "additions"] {
+        let refused = env
+            .store
+            .add_source_set(root, "Alpha", "No-Intro/Test - System");
+        assert!(
+            matches!(&refused, Err(Error::Refused(why)) if why.contains("only in a sources root")),
+            "{root}: {refused:?}"
+        );
+    }
+    env.store
+        .add_source_set("sets", "Alpha", "No-Intro/Test - System")
+        .unwrap();
+    env.store
+        .save_profile(
+            "Mine",
+            &Default::default(),
+            None,
+            "Operator",
+            &[],
+            crate::builds::WORKERS,
+        )
+        .unwrap();
+    let add = |root: &str| {
+        env.store
+            .add_library_folder(&stage_select_api::build::AddLibraryFolder {
+                root: root.into(),
+                path: Some("atari".into()),
+                template: None,
+                source_set: "Alpha".into(),
+                profile: "Mine".into(),
+            })
+    };
+    for root in ["sets", "in", "additions"] {
+        let refused = add(root);
+        assert!(
+            matches!(&refused, Err(Error::Refused(why)) if why.contains("only in a library root")),
+            "{root}: {refused:?}"
+        );
+    }
+    add("play").unwrap();
+}
+
+#[test]
+fn an_empty_library_root_made_a_sources_root_is_read_only() {
+    let env = Env::new();
+    env.register(&RootSpec::new("shelf", env.dir("shelf")).library())
+        .unwrap();
+
+    let edited = env
+        .store
+        .edit_root(
+            "shelf",
+            &RootSpec::new("shelf", env.dir("shelf")),
+            "Operator",
+        )
+        .unwrap();
+
+    assert_eq!(
+        (edited.root.kind, edited.root.writable),
+        (RootKind::Sources, false)
+    );
+    let root = env.store.roots().root("shelf").unwrap().clone();
+    assert!(!root.writable && !root.may_write("Alpha"));
+    let back = env
+        .store
+        .edit_root(
+            "shelf",
+            &RootSpec::new("shelf", env.dir("shelf")).library(),
+            "Operator",
+        )
+        .unwrap();
+    assert!(back.root.writable);
+}
+
+#[test]
+fn a_roots_path_or_kind_doesnt_change_while_a_job_runs_on_it() {
+    let env = Env::new();
+    env.register(&RootSpec::new("play", env.dir("play")).library())
         .unwrap();
     let job = env.store.enqueue_calibration("Operator").unwrap();
     assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
 
     for (spec, change) in [
         (
-            RootSpec::new("play", env.dir("elsewhere")).writable(),
+            RootSpec::new("play", env.dir("elsewhere")).library(),
             "path",
         ),
-        (RootSpec::new("play", env.dir("play")), "writability"),
+        (RootSpec::new("play", env.dir("play")), "kind"),
     ] {
         let refused = env.store.edit_root("play", &spec, "Operator");
         assert!(
@@ -369,7 +464,7 @@ fn a_roots_path_or_writability_doesnt_change_while_a_job_runs_on_it() {
             "play",
             &RootSpec {
                 readers: Some(2),
-                ..RootSpec::new("play", env.dir("play")).writable()
+                ..RootSpec::new("play", env.dir("play")).library()
             },
             "Operator",
         )

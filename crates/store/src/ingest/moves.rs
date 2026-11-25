@@ -1648,7 +1648,7 @@ impl Store {
         Ok(match roots.root(root) {
             Some(r) if r.writable => FolderDir::open(&r.path, rel).map_err(|e| e.to_string()),
             Some(_) => Err(format!(
-                "root {root} is not writable now; make it writable in your roots"
+                "root {root} is not writable now: it is a sources root, which Stage Select changes only where you let it"
             )),
             None => Err(format!("there is no root {root}")),
         })
@@ -2351,7 +2351,7 @@ mod tests {
         use stage_select_api::roots::{RootKind, RootSpec};
         for spec in [
             RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
-            RootSpec::new("lib", tmp.path().join("lib")).writable(),
+            RootSpec::new("lib", tmp.path().join("lib")).library(),
         ] {
             store.register_root(&spec, "test").unwrap();
         }

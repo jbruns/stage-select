@@ -1027,10 +1027,7 @@ fn a_placed_chd_the_audit_couldnt_read_is_set_aside_only_by_your_choice() {
 
 /// Names chdman where none is, so that a full audit can't read a CHD; the source set stays writable.
 fn without_chdman(env: &mut Env) {
-    crate::reregister(
-        &env.store,
-        RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]),
-    );
+    crate::let_change(&env.store, SET);
     env.store.use_chdman(Some(env.tmp.path().join("no-chdman")));
 }
 

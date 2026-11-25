@@ -73,15 +73,15 @@ starts with is in "Starting the service"; everything else you set in the workben
 While you have no roots, the workbench opens **Set up Stage Select**, five steps from an empty store to your first
 audit. You can skip any of them and come back later.
 
-1. **Register a root.** A root is a folder Stage Select may work in. Register `/data/games` as a read-only root, and
-   `/data/libraries` as a writable one. Stage Select reads nothing until you do.
+1. **Register a root.** A root is a folder Stage Select may work in. Register `/data/games` as a root of kind
+   source sets, and `/data/libraries` as one of kind play library. Stage Select reads nothing until you do.
 2. **Import a DAT.** Choose your DAT file. Stage Select keeps each import as a DAT revision.
-3. **Register a source set:** the folder in your read-only root that holds the games of that DAT. Registering it
+3. **Register a source set:** the folder in your source sets root that holds the games of that DAT. Registering it
    reads no file yet.
 4. **Audit it.** The audit reads each file and checks it against the DAT. When it finishes, open it to see what it
    found: games complete, incomplete or missing, and every file matched, mismatched or unmatched, with the evidence
    for each.
-5. **Make a library folder** in your writable root, for the games you select to be built into.
+5. **Make a library folder** in your play library root, for the games you select to be built into.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/audit-dark.png">
@@ -536,16 +536,20 @@ can see; see "Browsing for a folder". Each root has:
   when the service's user may not write to the folder above, the file system is read-only, or a file is in the way,
   it registers nothing and says why. The root's registration records the folder it created, and the service's log
   says so. Without the choice, a missing folder is refused.
-- **A kind:** `general`, for source sets, if read-only, or play library folders, if writable; `ingest`, an ingest
-  folder, where new files arrive (see "Ingest folders"); or `additions`, where your additions sets live, one folder
-  per system (see "Additions"). There is at most one `additions` root. An ingest or additions root is always
-  writable.
-- **Whether it's writable.** Stage Select writes only to writable roots, and checks it can write to the folder
-  when you make a root writable. In a read-only root, it changes only the source sets you let it change: each source
-  set has the switch **Stage Select may change this source set**, on by default, which lets repairs fix its files
-  and lets single copy place its games into your play library folders (see "Source sets"). The root keeps the paths
-  of those source sets as its **writable paths**; the workbench shows them, and you switch each on its source set.
-  An additions root has no writable paths.
+- **A kind**, which says what the root holds and whether Stage Select may write to it:
+  - `sources` (**Source sets** in the workbench), for your source sets. Always read-only: Stage Select changes only
+    the source sets you let it change. Each source set has the switch **Stage Select may change this source set**,
+    on by default, which lets repairs fix its files and lets single copy place its games into your play library
+    folders (see "Source sets"). The root keeps the paths of those source sets as its **writable paths**; the
+    workbench shows them, and you switch each on its source set. A new root is `sources` unless you say otherwise.
+  - `library` (**Play library**), for your play library folders. Always writable.
+  - `ingest` (**Ingest folder**), an ingest folder, where new files arrive (see "Ingest folders"). Always writable.
+  - `additions` (**Additions sets**), where your additions sets live, one folder per system (see "Additions").
+    Always writable, and there is at most one.
+
+  You don't choose whether a root is writable: its kind does. Stage Select checks it can write to the folder when you
+  register a root of a writable kind, or change a root's kind or path. A source set goes only in a `sources` root,
+  and a play library folder only in a `library` root.
 - **Its ceilings**, the most every job together may do in it; see "Jobs". You set them with the root, or under
   "Adjust ceilings" in Operations.
 
@@ -559,32 +563,27 @@ What you can't change, and what a change does:
   folder or an additions set; while it holds kept files you can still delete, even of something you've unregistered;
   or while work that hasn't finished reads or writes in it. You're told what holds it. Unregister or finish those
   first. Unregistering a root touches no file.
-- You can't change its kind while anything holds it from being unregistered, nor make a root holding source sets
-  writable.
+- You can't change its kind while anything holds it from being unregistered. Changing an empty root between
+  `sources` and `library` makes it read-only or writable with it.
 - You can't change its path to where a source set in it would sit inside, or hold, a source set in another root:
   source sets never nest.
-- You can't change its path, or whether it's writable, while a job runs on it. A plan counts wherever it reads or
+- You can't change its path or its kind while a job runs on it. A plan counts wherever it reads or
   writes: a repair writes to its source set, to each play library folder holding placed games it changes, and to
   each ingest folder it fills a game from.
-- You can't change its path, or make it more writable (read-only to writable, or by adding a writable path to a
-  read-only root), while an approved plan that hasn't finished writes to it. A change that both narrows and widens,
-  such as swapping one writable path for another, counts as widening. Letting Stage Select change one source set
-  waits only for unfinished work writing to that source set.
-- Making a root less writable, from writable to read-only (even listing writable paths) or by removing a writable
-  path, voids each approved plan not yet started that would write where it no longer may: its job fails, having
-  changed nothing, and you're told which plans. A plan already under way there must finish first. Plan again once the
-  root is as you want it. Stopping Stage Select changing a source set does the same for the plans that would write to
-  that source set.
+- You can't change its path while an approved plan that hasn't finished writes to it. Letting Stage Select change
+  one source set waits only for unfinished work writing to that source set.
+- Stopping Stage Select changing a source set voids each approved plan not yet started that would write to that
+  source set: its job fails, having changed nothing, and you're told which plans. A plan already under way there must
+  finish first. Plan again once the source set is as you want it.
 - Unregistering a source set takes its path out of its root's writable paths once no kept files of it are left to
   delete. The change is recorded as made by "Stage Select, unregistering a source set".
 - A plan you approve while a root it uses is being changed is refused, changing nothing: review it again.
 
 ```sh
 stage-select root list
-stage-select root register <name> <path> [--create] [--kind general|ingest|additions] [--writable | --read-only]
-    [--writable-path <path>]… [--readers N] [--read-mib-per-s N] [--write-mib-per-s N]
-stage-select root edit <name> [--path <path>] [--kind …] [--writable | --read-only]
-    [--writable-path <path>]… [--no-writable-paths] [--readers N|default] [--read-mib-per-s N|default]
+stage-select root register <name> <path> [--create] [--kind sources|library|ingest|additions] [--readers N]
+    [--read-mib-per-s N] [--write-mib-per-s N]
+stage-select root edit <name> [--path <path>] [--kind …] [--readers N|default] [--read-mib-per-s N|default]
     [--write-mib-per-s N|default]
 stage-select root unregister <name>
 stage-select root holds <name>
@@ -592,8 +591,7 @@ stage-select root holds <name>
 
 `root list` prints each root's name, path, kind, where Stage Select may write to it, and your ceilings for it.
 `root register --create` creates the root's folder first if it is missing, and says so. `root edit` changes only
-what you give; `--writable-path` replaces the root's writable paths, and `default` clears
-your value of a ceiling. To switch one source set, use `set edit` (see "Source sets"). The commands work on the store directly, so stop the service first, or use the workbench or
+what you give, and `default` clears your value of a ceiling. To switch one source set, use `set edit` (see "Source sets"). The commands work on the store directly, so stop the service first, or use the workbench or
 the API while it runs.
 
 ### Starting the service
@@ -886,7 +884,7 @@ its files, and single copy may place its games into your play library folders; `
 instead, so repairs are refused and single copy copies each game. The folder must exist, unless you give `--create`
 (in the workbench, **Create an empty source set**; in the API, `"create": true`): Stage Select then creates it, and
 any missing folders above it in the root, for ingest to fill. It creates only folders that resolve inside the root,
-and only for a source set it may change, as creating it writes to a read-only root: `--create` and `--read-only`
+and only for a source set it may change, as creating it writes to a read-only `sources` root: `--create` and `--read-only`
 can't go together. The new source set is empty, so its first audit counts every game missing; a repair then fills
 it from your ingest folders. The source set records who had its folder created and when, and the service's log says
 so. `set edit` prints whether Stage Select may change a
@@ -1207,7 +1205,7 @@ against the new DAT can fix its files, such as repacking loose files to your sto
   is queued or running, a repair of it has started, an ingest plan is still moving files into it, or any of its games
   is placed in a library folder under single copy: send them back first, or turn single copy off.
 - **What it voids.** Each approved plan not yet started that was made from the old DAT: queued builds of its library
-  folders and approved repairs of it. Each fails, having changed nothing, as when a root stops being writable.
+  folders and approved repairs of it. Each fails, having changed nothing, as when you stop Stage Select changing a source set.
 - **Coverage.** It keeps its coverage when it still covers any game of the new DAT's newest revision, a World game
   included, and otherwise clears it, so it covers every game. Checking needs the clone lists when it has a coverage.
 - **Staleness.** It is stale, as "DAT changed", until its next audit. A repair waits for that audit: one planned
@@ -1497,9 +1495,9 @@ parent.
 
 ### Library folders and builds
 
-A library folder is a folder in a writable root that Stage Select builds selections into, for your front end to play
+A library folder is a folder in a `library` root that Stage Select builds selections into, for your front end to play
 from. It is bound to a source set and a selection profile, and so to a system; a system may have several, each with
-its own profile. A source set cannot be registered in a writable root, and nothing else is ever written to one.
+its own profile. A source set cannot be registered in a `library` root, and nothing else is ever written to one.
 
 Registering a library folder needs a folder that is empty or missing; registration creates it and writes a
 marker, `.stage-select/marker`, holding the store's id, the folder's id and its build generation. Everything Stage
@@ -2085,9 +2083,9 @@ What these versions promise you:
 | Method and path                                    | What                                                         |
 |----------------------------------------------------|--------------------------------------------------------------|
 | `GET /api/v1/health`                               | `{"status": "ok"}`, unauthenticated                          |
-| `GET /api/v1/roots`                                | your roots, by name: each `{"name", "path", "kind", "writable", "writable_paths"?, "readers"?, "read_mib_per_s"?, "write_mib_per_s"?, "updated_by", "updated_at"}`, `kind` being `general`, `ingest` or `additions` |
-| `POST /api/v1/roots`                               | register a root: `{"name", "path", "kind"?, "writable"?, "writable_paths"?, "readers"?, "read_mib_per_s"?, "write_mib_per_s"?, "create"?}`; `create`, by default `false`, creates the folder and its missing parents first when it is missing (`PUT` ignores it); `201` with the root; `400` when the folder doesn't exist and `create` isn't `true`, can't be created, saying why, can't be written though you made it writable, the name is taken, there is already an additions root, or another rule in "Roots" refuses it |
-| `PUT /api/v1/roots/{name}`                         | replace a root with the same body; its `name` must stay. Returns `{"root", "voided"?}`, `voided` listing each approved plan the edit voided, `{"kind": "build" \| "repair", "plan", "job", "writes_to"}`; `409` while a job runs on it or a plan under way writes to it, naming them |
+| `GET /api/v1/roots`                                | your roots, by name: each `{"name", "path", "kind", "writable", "writable_paths"?, "readers"?, "read_mib_per_s"?, "write_mib_per_s"?, "updated_by", "updated_at"}`, `kind` being `sources`, `library`, `ingest` or `additions`, and `writable` and `writable_paths` following from it and from each source set's switch |
+| `POST /api/v1/roots`                               | register a root: `{"name", "path", "kind"?, "readers"?, "read_mib_per_s"?, "write_mib_per_s"?, "create"?}`; `create`, by default `false`, creates the folder and its missing parents first when it is missing (`PUT` ignores it); `201` with the root; `400` when the folder doesn't exist and `create` isn't `true`, can't be created, saying why, can't be written though its kind is a writable one, the kind or another field is unknown, the name is taken, there is already an additions root, or another rule in "Roots" refuses it |
+| `PUT /api/v1/roots/{name}`                         | replace a root with the same body; its `name` must stay. Returns `{"root", "voided"?}`, `voided` listing each approved plan the edit voided, `{"kind": "build" \| "repair", "plan", "job", "writes_to"}`; `409` while a job runs on it, a plan under way writes to it, or, for a change of kind, anything is registered in it, naming them |
 | `POST /api/v1/roots/{name}/unregistration`         | unregister a root, touching no file; `204`, or `409` naming what is registered in it |
 | `GET /api/v1/roots/{name}/changes`                 | every change to a root, oldest first: `{"action", "after"?, "changed_by", "changed_at", "created_folder"?}`, `action` being `registered`, `edited` or `unregistered`, `after` the root as it left it, and `created_folder` the folder its registration created |
 | `GET /api/v1/folders?path=&hidden=`                | the folders in a folder, for browsing: `{"path", "parent"?, "folders": [{"name", "path", "writable", "root"?, "link"?}], "more"?}`, `path` being the absolute path tidied, `parent` the folder above it (none at `/`), `root` the root a folder is in once links are followed, `link` `true` for a symbolic link to a folder, listed at its own path; sorted by name, leaving out files and, unless `hidden=true`, folders whose name starts with a dot and `lost+found`; at most 500, `more` being `true` when it left some out; `400` when the path isn't absolute, steps up with `..`, or isn't a folder the service can list; `404` when there is no folder there |
@@ -2547,7 +2545,7 @@ Its screens:
   Source sets. It takes you to your first audit in steps, each saying what it does: register a root, choosing from
   the folders the service can see (see "Roots") or typing a path; import a DAT (fetching only brings newer revisions
   of DATs your source sets follow, so the step links to fetching once there is one to fetch); register a
-  source set in a read-only root; audit it; and, once you have a writable root, make a library folder. Each step
+  source set in a source sets root; audit it; and, once you have a play library root, make a library folder. Each step
   waits for the one it needs, and you can skip any of them and take it later from the screen it names. Settings, then
   About, links back to these steps.
 - **Source sets** lists each source set with its status (running, repair open, needs review, stale, resting on
@@ -2677,8 +2675,9 @@ Its screens:
   libraries keep each game once under single copy and place games stored as CHD too, each with a note on what it trades, with a global settings tab and a tab per
   system, as the selection profile editor has. Saving changes no file; each folder's next plan proposes its
   conversions, and a build or repair plan says which format it follows and which games stay TorrentZip, and why.
-  **Roots** lists your roots: each one's path, kind, whether it's writable, the source sets in a read-only root that
-  Stage Select may change, each linking to its page, and who changed it last; editing a read-only root lists them too.
+  **Roots** lists your roots: each one's path, kind, whether it's writable, which follows from its kind, the source sets
+  in a source sets root that Stage Select may change, each linking to its page, and who changed it last; editing a
+  source sets root lists them too.
   You switch each on its source set: the **Stage Select may change this source set** choice when you register it, on
   by default, and in its overview's **About it**, where turning it off lists the approved plans it voided. You register a root there, with **Browse…** beside its path to
   browse from `/` and **Create this folder** for a folder that doesn't exist yet, edit one, its name aside, or
@@ -2694,7 +2693,7 @@ Its screens:
   changed"), or the folder was rebound to another; the folder says which. Each row can be checked, or have a build
   planned of the newest selection of its source set and profile against the source set's latest verified DAT revision,
   made first when there is none. **New library folder** (`/libraries/new`, or `/libraries/new?source_set=<name>` or
-  `?selection=<id>` from a source set or a selection) picks a saved selection profile and a writable root, proposes the
+  `?selection=<id>` from a source set or a selection) picks a saved selection profile and a play library root, proposes the
   path from the path template as for a source set, with **Browse…** beside it in the root you chose, creates the folder
   and plans its first build. A folder's page
   (`/libraries/<id>?tab=…`), under a trail back to its source set, has tabs: **Overview**, its facts, with the coverage

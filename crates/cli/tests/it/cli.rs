@@ -862,23 +862,25 @@ fn a_root_is_registered_edited_and_unregistered_from_the_command_line() {
     assert!(!held.status.success());
     assert!(String::from_utf8_lossy(&held.stderr).contains(&format!("source set {rel}")));
 
-    run_ok(ts().args([
-        "root",
-        "edit",
-        "sets",
-        "--writable-path",
-        rel,
-        "--readers",
-        "default",
-    ]));
+    run_ok(ts().args(["set", "edit", rel, "--may-change"]));
+    run_ok(ts().args(["root", "edit", "sets", "--readers", "default"]));
     let listed = run_ok(ts().args(["root", "list"]));
     assert_eq!(
         listed,
         format!(
-            "sets\t{}\tgeneral\tread-only but for {rel}\n",
+            "sets\t{}\tsources\tread-only but for {rel}\n",
             root.display()
         )
     );
+    // The kind alone says whether a root is writable.
+    for args in [
+        &["root", "edit", "sets", "--kind", "general"][..],
+        &["root", "edit", "sets", "--writable"],
+        &["root", "edit", "sets", "--writable-path", rel],
+    ] {
+        let refused = ts().args(args).output().unwrap();
+        assert!(!refused.status.success(), "{args:?}");
+    }
     run_ok(ts().args(["set", "unregister", rel]));
     run_ok(ts().args(["root", "unregister", "sets"]));
     assert!(run_ok(ts().args(["root", "list"])).starts_with("no roots are registered"));
@@ -894,6 +896,7 @@ fn a_root_is_registered_edited_and_unregistered_from_the_command_line() {
             .collect::<Vec<_>>(),
         [
             ("registered", "command line"),
+            ("edited", "command line"),
             ("edited", "command line"),
             ("edited", "Stage Select, unregistering a source set"),
             ("unregistered", "command line")
@@ -1057,7 +1060,7 @@ fn library_remove_restore_and_delete_say_why_they_are_refused() {
     std::fs::create_dir_all(&play).unwrap();
     run_ok(ts().args(["root", "register", "sets"]).arg(root));
     run_ok(
-        ts().args(["root", "register", "play", "--writable"])
+        ts().args(["root", "register", "play", "--kind", "library"])
             .arg(&play),
     );
     run_ok(ts().args(["dat", "import"]).arg(&dat));

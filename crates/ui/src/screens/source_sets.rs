@@ -878,8 +878,8 @@ pub(crate) fn Register(on_added: Callback<String>) -> impl IntoView {
                         .map(|_| {
                             view! {
                                 <p class="note">
-                                    "A source set goes only in a read-only root, and you have none. Register one \
-                                     under Settings, then Roots."
+                                    "A source set goes only in a source sets root, and you have none. Register \
+                                     one under Settings, then Roots."
                                 </p>
                             }
                         })

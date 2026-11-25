@@ -31,7 +31,7 @@ impl Env {
             &store,
             &[
                 RootSpec::new("sets", tmp.path().join("roots/sets")),
-                RootSpec::new("play", tmp.path().join("roots/play")).writable(),
+                RootSpec::new("play", tmp.path().join("roots/play")).library(),
             ],
         );
         let dat = write_dat_version(
@@ -390,12 +390,12 @@ fn the_first_failing_check_of_a_source_set_path_is_the_one_reported() {
         Err("../x: a source set's path must not contain `..`".to_owned())
     );
     // The Root before the path.
-    crate::reregister(&env.store, RootSpec::new("sets", env.sets()).writable());
+    crate::reregister(&env.store, RootSpec::new("sets", env.sets()).library());
     assert_eq!(
         env.add_set("../x"),
         Err(
-            "root sets is writable, and only library folders go in a writable root; add the source set from a \
-             read-only root"
+            "root sets is a library root, and a source set goes only in a sources root; register it in a sources \
+             root, or register this folder as a root of kind sources"
                 .to_owned()
         )
     );
@@ -436,7 +436,9 @@ fn the_first_failing_check_of_a_library_folder_path_is_the_one_reported() {
     assert_eq!(
         refused.map_err(refusal),
         Err(
-            "root sets is read-only; a library folder needs a root with writable = true".to_owned()
+            "root sets is a sources root, and a play library folder goes only in a library root; register it in a \
+             library root, or register this folder as a root of kind library"
+                .to_owned()
         )
     );
     // The path before its Root's folder.

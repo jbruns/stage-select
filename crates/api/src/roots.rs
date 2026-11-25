@@ -8,9 +8,12 @@ use serde::{Deserialize, Serialize};
 )]
 #[serde(rename_all = "snake_case")]
 pub enum RootKind {
-    /// Source Sets, if read-only, or Library Folders, if writable.
+    /// Source Sets. Read-only: Stage Select changes only the Source Sets the Operator lets it, each through its own
+    /// switch (`SourceSetRecord::repairs_may_change`), which lists it among the Root's `writable_paths`.
     #[default]
-    General,
+    Sources,
+    /// Play Library Folders. Writable.
+    Library,
     /// An Ingest Folder: where new files arrive, assessed, and moved out only by plans you approve. Writable.
     Ingest,
     /// Where the Additions Sets live, one folder per system. Writable, and there is at most one.
@@ -18,15 +21,26 @@ pub enum RootKind {
 }
 
 impl RootKind {
-    pub const ALL: [RootKind; 3] = [RootKind::General, RootKind::Ingest, RootKind::Additions];
+    pub const ALL: [RootKind; 4] = [
+        RootKind::Sources,
+        RootKind::Library,
+        RootKind::Ingest,
+        RootKind::Additions,
+    ];
 
     /// Its name in the API and the CLI.
     pub fn as_str(self) -> &'static str {
         match self {
-            RootKind::General => "general",
+            RootKind::Sources => "sources",
+            RootKind::Library => "library",
             RootKind::Ingest => "ingest",
             RootKind::Additions => "additions",
         }
+    }
+
+    /// Whether a Root of this kind is writable as a whole: every kind but `sources`.
+    pub fn writable(self) -> bool {
+        self != RootKind::Sources
     }
 }
 
@@ -38,7 +52,7 @@ impl std::str::FromStr for RootKind {
             .into_iter()
             .find(|k| k.as_str() == s)
             .ok_or_else(|| {
-                format!("{s:?} is not a kind of root: give general, ingest or additions")
+                format!("{s:?} is not a kind of root: give sources, library, ingest or additions")
             })
     }
 }
@@ -50,9 +64,10 @@ pub struct Root {
     pub name: String,
     pub path: String,
     pub kind: RootKind,
-    /// Whether Stage Select may write to it: Builds to its Library Folders, repairs to any Source Set in it.
+    /// Whether Stage Select may write to it as a whole, which its kind fixes: read-only for `sources`, writable for
+    /// every other kind. Never part of a [`RootSpec`].
     pub writable: bool,
-    /// For a read-only Root: the paths of the Source Sets in it that Stage Select may change, by Repairs and by
+    /// For a `sources` Root: the paths of the Source Sets in it that Stage Select may change, by Repairs and by
     /// Single Copy placing their Games. Each Source Set switches its own (`SourceSetRecord::repairs_may_change`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub writable_paths: Vec<String>,
@@ -69,7 +84,9 @@ pub struct Root {
     pub updated_at: String,
 }
 
-/// A Root as `POST /roots` registers it and `PUT /roots/{name}` replaces it. An edit can't change its name.
+/// A Root as `POST /roots` registers it and `PUT /roots/{name}` replaces it. An edit can't change its name. Its kind
+/// fixes whether it is writable, and only each Source Set's own switch changes its `writable_paths`, so neither is
+/// given here.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RootSpec {
@@ -78,10 +95,6 @@ pub struct RootSpec {
     pub path: String,
     #[serde(default)]
     pub kind: RootKind,
-    #[serde(default)]
-    pub writable: bool,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub writable_paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readers: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -95,7 +108,7 @@ pub struct RootSpec {
 }
 
 impl RootSpec {
-    /// A read-only Root of kind general named `name`, at `path`, with no Ceilings of its own.
+    /// A `sources` Root named `name`, at `path`, with no Ceilings of its own.
     pub fn new(name: &str, path: impl AsRef<std::path::Path>) -> RootSpec {
         RootSpec {
             name: name.into(),
@@ -104,35 +117,20 @@ impl RootSpec {
         }
     }
 
-    /// This Root, writable.
-    pub fn writable(self) -> RootSpec {
-        RootSpec {
-            writable: true,
-            ..self
-        }
+    /// This Root, of kind `library`.
+    pub fn library(self) -> RootSpec {
+        self.of_kind(RootKind::Library)
     }
 
-    /// This Root, of kind `kind`: writable too, unless general.
+    /// This Root, of kind `kind`.
     pub fn of_kind(self, kind: RootKind) -> RootSpec {
-        RootSpec {
-            kind,
-            writable: self.writable || kind != RootKind::General,
-            ..self
-        }
+        RootSpec { kind, ..self }
     }
 
     /// This Root, its folder created when it is registered if it is missing.
     pub fn creating(self) -> RootSpec {
         RootSpec {
             create: true,
-            ..self
-        }
-    }
-
-    /// This Root, read-only but for `paths`.
-    pub fn writing(self, paths: &[&str]) -> RootSpec {
-        RootSpec {
-            writable_paths: paths.iter().map(|p| (*p).to_owned()).collect(),
             ..self
         }
     }
@@ -144,8 +142,6 @@ impl From<&Root> for RootSpec {
             name: root.name.clone(),
             path: root.path.clone(),
             kind: root.kind,
-            writable: root.writable,
-            writable_paths: root.writable_paths.clone(),
             readers: root.readers,
             read_mib_per_s: root.read_mib_per_s,
             write_mib_per_s: root.write_mib_per_s,
@@ -210,7 +206,7 @@ pub struct FolderSuggestions {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FolderSuggestion {
     pub path: String,
-    /// Whether the Service can write to it now, as it would check when the Root is registered writable.
+    /// Whether the Service can write to it now, as it would check when a Root of a writable kind is registered.
     pub writable: bool,
 }
 

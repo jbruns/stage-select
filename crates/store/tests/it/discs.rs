@@ -171,7 +171,7 @@ impl Env {
             &store,
             &[
                 RootSpec::new("sets", &sets),
-                RootSpec::new("play", tmp.path().join("roots/play")).writable(),
+                RootSpec::new("play", tmp.path().join("roots/play")).library(),
             ],
         );
         let dat = match rule {
@@ -925,10 +925,7 @@ fn a_release_one_of_whose_discs_now_has_nothing_to_build_is_left_as_it_is_when_i
 /// which lists no ROMs for Disc 1 and drops Disc 2, and audits. Returns the store, the folder and the files placed.
 fn duo_placed_then_disc_1_romless_and_disc_2_gone() -> (Env, LibraryFolder, Vec<String>) {
     let mut env = Env::with(StorageFormat::LooseFolder, duo);
-    crate::reregister(
-        &env.store,
-        RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]),
-    );
+    crate::let_change(&env.store, SET);
     env.single_copy(true);
     let folder = env.folder();
     let plan = env.built(&folder, env.selection(&DUO));

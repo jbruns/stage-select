@@ -76,7 +76,7 @@ impl Env {
         crate::register(
             &store,
             &[
-                RootSpec::new("sets", tmp.path().join("roots/sets")).writing(&["mame"]),
+                RootSpec::new("sets", tmp.path().join("roots/sets")),
                 RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
             ],
         );
@@ -102,6 +102,7 @@ impl Env {
             .import_dat_bytes(listxml(machines).as_bytes(), "mame.xml", None)
             .unwrap();
         store.add_source_set("sets", "mame", &revision.dat).unwrap();
+        crate::let_change(&store, "mame");
         store.register_ingest_folder("in").unwrap();
         Env { tmp, store }
     }

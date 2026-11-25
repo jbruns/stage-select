@@ -24,7 +24,7 @@ use stage_select_store::{Error, Fault, Store, Workers};
 
 const SET: &str = "Test - System";
 const PROFILE: &str = "Mine";
-const WORKERS: Workers = Workers {
+pub(crate) const WORKERS: Workers = Workers {
     readers: 1,
     hashers: 1,
 };
@@ -94,7 +94,7 @@ impl Env {
             &store,
             &[
                 RootSpec::new("sets", &sets),
-                RootSpec::new("play", &play).writable(),
+                RootSpec::new("play", &play).library(),
             ],
         );
         let dat = write_dat_version(
@@ -2685,9 +2685,9 @@ fn registration_needs_a_writable_root_and_an_empty_folder_and_a_plan_checks_the_
         BTreeSet::from([BlockerKind::Marker])
     );
 
-    // The second folder builds; a Root made read-only blocks its next plan.
+    // The second folder builds; a Root read-only once the store is restored blocks its next plan.
     assert_eq!(env.build(&env.plan(&second, id)).state, JobState::Succeeded);
-    crate::reregister(&env.store, RootSpec::new("play", env.play()));
+    let (env, _) = env.restart_with_play(false);
     let plan = env.store.plan_build(second.id, id).unwrap();
     assert_eq!(blockers(&plan), BTreeSet::from([BlockerKind::ReadOnlyRoot]));
 }
@@ -5413,10 +5413,7 @@ fn an_interrupted_repack_of_a_file_no_longer_selected_leaves_the_folder_lacking_
 #[test]
 fn a_build_reading_a_source_set_and_a_repair_of_it_never_overlap() {
     let env = Env::new();
-    crate::reregister(
-        &env.store,
-        RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]),
-    );
+    crate::let_change(&env.store, SET);
     env.audit();
     let id = env.record(&everything(&env.sha256));
     let folder = env.folder("atari2600");
@@ -6778,10 +6775,6 @@ fn a_clones_rom_counted_from_its_parents_zip_under_another_name_has_no_source_ye
     assert!(reason.contains("Duel (Europe).a26"), "{reason}");
 }
 
-/// Approved builds of two folders in two writable Roots, neither started, the source set's folder writable too though
-/// neither build writes to it. Narrowing what the Root `play` lets Stage Select write to voids its build and no other;
-/// narrowing the source set's Root voids nothing, as both builds only read it; and `play`'s path can't change while
-/// its build is approved.
 #[test]
 fn a_voided_build_no_longer_keeps_its_selection_and_audit_from_pruning() {
     let env = Env::new();
@@ -6806,25 +6799,31 @@ fn a_voided_build_no_longer_keeps_its_selection_and_audit_from_pruning() {
         .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
         .unwrap();
 
+    let other = write_dat_from(
+        &env.tmp.path().join("in"),
+        "Test - System (Redump).dat",
+        "20260101-000000",
+        "Redump",
+        &games(),
+    );
+    let (revision, _) = env.store.import_dat(&other, None).unwrap();
     let voided = env
         .store
-        .edit_root("play", &RootSpec::new("play", env.play()), "Operator")
+        .change_source_set_dat(SET, "Redump/Test - System", "Operator")
         .unwrap();
     assert_eq!(voided.voided.len(), 1, "{:?}", voided.voided);
     env.audit();
-    env.record(&everything(&env.sha256));
+    env.record(&everything(&revision.sha256));
 
     assert!(env.store.selection_record(first).unwrap().pruned);
     assert!(env.store.audit(audit).unwrap().pruned);
 }
 
 #[test]
-fn making_a_root_less_writable_voids_exactly_the_approved_builds_that_write_there() {
+fn a_library_root_keeps_its_path_and_kind_while_approved_builds_write_there() {
     let env = Env::new();
-    let sets = env.tmp.path().join("roots/sets");
-    crate::reregister(&env.store, RootSpec::new("sets", &sets).writing(&[SET]));
     let other = env.tmp.path().join("roots/other");
-    crate::register(&env.store, &[RootSpec::new("other", &other).writable()]);
+    crate::register(&env.store, &[RootSpec::new("other", &other).library()]);
     env.audit();
     let id = env.record(&everything(&env.sha256));
     let here = env.folder("atari");
@@ -6841,15 +6840,15 @@ fn making_a_root_less_writable_voids_exactly_the_approved_builds_that_write_ther
             .store
             .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
             .unwrap();
-        (plan.id, job.id)
+        job.id
     };
-    let (here_plan, here_job) = approve(&here);
-    let (_, there_job) = approve(&there);
+    let here_job = approve(&here);
+    let there_job = approve(&there);
     let queued = |job: i64| env.store.job(job).unwrap().state == JobState::Queued;
 
     let moved = env.store.edit_root(
         "play",
-        &RootSpec::new("play", env.tmp.path().join("in")).writable(),
+        &RootSpec::new("play", env.tmp.path().join("in")).library(),
         "Operator",
     );
     assert!(
@@ -6857,54 +6856,13 @@ fn making_a_root_less_writable_voids_exactly_the_approved_builds_that_write_ther
         "{moved:?}"
     );
 
-    let narrowed = env
+    let sources = env
         .store
-        .edit_root("sets", &RootSpec::new("sets", &sets), "Operator")
-        .unwrap();
-    assert!(narrowed.voided.is_empty(), "{:?}", narrowed.voided);
+        .edit_root("play", &RootSpec::new("play", env.play()), "Operator");
+    assert!(
+        matches!(&sources, Err(Error::Conflict(why)) if why.contains("kind can't change yet")),
+        "{sources:?}"
+    );
     assert!(queued(here_job) && queued(there_job));
-
-    let read_only = env
-        .store
-        .edit_root("play", &RootSpec::new("play", env.play()), "Operator")
-        .unwrap();
-    assert_eq!(
-        read_only.voided,
-        [stage_select_api::roots::VoidedPlan {
-            kind: stage_select_api::roots::VoidedPlanKind::Build,
-            plan: here_plan,
-            job: here_job,
-            writes_to: "play library folder play/atari".into(),
-        }]
-    );
-    let voided = env.store.job(here_job).unwrap();
-    assert_eq!(voided.state, JobState::Failed);
-    assert!(voided.error.unwrap().starts_with("voided: root play"));
-    assert!(queued(there_job), "a build in another root is left");
-}
-
-#[test]
-fn listing_writable_paths_on_a_root_made_read_only_narrows_it_and_voids_the_builds_there() {
-    let env = Env::new();
-    env.audit();
-    let id = env.record(&everything(&env.sha256));
-    let plan = env.plan(&env.folder("atari"), id);
-    let job = env
-        .store
-        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
-        .unwrap();
-
-    let narrowed = env
-        .store
-        .edit_root(
-            "play",
-            &RootSpec::new("play", env.play()).writing(&["future-set"]),
-            "Operator",
-        )
-        .unwrap();
-    assert_eq!(
-        narrowed.voided.iter().map(|v| v.job).collect::<Vec<_>>(),
-        [job.id]
-    );
-    assert_eq!(env.store.job(job.id).unwrap().state, JobState::Failed);
+    assert!(env.store.roots().root("play").unwrap().writable);
 }

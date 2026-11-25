@@ -137,7 +137,7 @@ impl Env {
             &store,
             &[
                 RootSpec::new("sets", &sets),
-                RootSpec::new("play", &play).writable(),
+                RootSpec::new("play", &play).library(),
             ],
         );
         let dat = write_dat_from(&tmp.path().join("in"), "test.dat", "1", "Redump", &games());
@@ -1475,10 +1475,7 @@ fn a_chd_is_never_a_source_sets_format_nor_a_play_librarys_for_a_system_without_
 fn under_single_copy_a_game_stored_as_chd_is_copied_not_placed() {
     let env = Env::new(None);
     // The source set's folder writable, so nothing but the format keeps the game from being placed.
-    crate::reregister(
-        &env.store,
-        RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]),
-    );
+    crate::let_change(&env.store, SET);
     let mut policy = env.store.storage_policy().unwrap();
     policy.play_libraries.single_copy = true;
     env.store.set_storage_policy(&policy, "Operator").unwrap();
@@ -1501,10 +1498,7 @@ fn under_single_copy_a_game_stored_as_chd_is_copied_not_placed() {
 /// Turns single copy on for `env`, with its source set's folder writable and the system's games stored in play
 /// libraries as loose folders, so that each disc's files can be placed; with `chdman`, when one is given.
 fn placing(env: &mut Env, chdman: Option<&Path>) {
-    crate::reregister(
-        &env.store,
-        RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]),
-    );
+    crate::let_change(&env.store, SET);
     if let Some(chdman) = chdman {
         env.store.use_chdman(Some(chdman.to_path_buf()));
     }
@@ -2270,10 +2264,7 @@ fn latest_report(env: &Env) -> (i64, stage_select_api::report::Report) {
 
 /// Has the store use `chdman`, keeping the source set's folder writable.
 fn use_chdman(env: &mut Env, chdman: &Path) {
-    crate::reregister(
-        &env.store,
-        RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]),
-    );
+    crate::let_change(&env.store, SET);
     env.store.use_chdman(Some(chdman.to_path_buf()));
 }
 

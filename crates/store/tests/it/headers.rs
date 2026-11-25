@@ -46,8 +46,8 @@ impl Env {
         crate::register(
             &store,
             &[
-                RootSpec::new("sets", root).writing(&[SET]),
-                RootSpec::new("play", tmp.path().join("roots/play")).writable(),
+                RootSpec::new("sets", root),
+                RootSpec::new("play", tmp.path().join("roots/play")).library(),
                 RootSpec::new("ingest", tmp.path().join("roots/ingest")).of_kind(RootKind::Ingest),
                 RootSpec::new("additions", tmp.path().join("roots/additions"))
                     .of_kind(RootKind::Additions),
@@ -138,6 +138,7 @@ impl Env {
         self.store
             .add_source_set("sets", SET, "No-Intro/Test - System")
             .unwrap();
+        crate::let_change(&self.store, "Test - System");
     }
 
     fn audit(&self, evidence: AuditEvidence) -> stage_select_store::StoredAudit {
