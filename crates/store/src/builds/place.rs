@@ -706,6 +706,16 @@ impl Store {
         for ((w, s), file) in unit.iter().zip(spots).zip(&held) {
             let o = one(w)?.expect("checked above");
             self.fault_point(Fault::PlaceRenaming(w.seq));
+            // Still the file the plan found, through the descriptor held since: one edited in place while it was held,
+            // or while those before it were moved, isn't moved, and whatever was moved goes back.
+            let now = rustix::fs::fstat(file).map_err(io_err)?;
+            if Identity::of(&now) != Identity::from(o.identity)
+                || file_stat(&now) != o.file
+                || ctime_ns(&now) != o.ctime_ns
+            {
+                let why = format!("{} changed since the plan was made", o.path);
+                return self.unmove(p, set, unit, &moved, &why);
+            }
             let renamed = parent_of(&set.dir, &o.path).and_then(|(parent, name)| {
                 parent
                     .as_ref()

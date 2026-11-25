@@ -838,6 +838,40 @@ fn a_converted_file_edited_before_it_is_checked_is_found_changed() {
     assert!(changed >= 1, "{changed}");
 }
 
+/// A file edited in place just before its rename, keeping its size and modification time, stays in its source set,
+/// found changed.
+#[test]
+fn a_file_edited_just_before_its_rename_stays_in_the_source_set_found_changed() {
+    let env = Env::new();
+    pong_zip(&env);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(
+        item(&plan, "Pong (USA)").place.as_ref().unwrap().how,
+        PlaceHow::Rename
+    );
+    let source = env.set().join("Pong (USA).zip");
+    let edited = source.clone();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if matches!(fault, Fault::PlaceRenaming(_)) {
+                overwrite_keeping_stamp(&edited);
+            }
+        })));
+    let job = env.build(&plan);
+    env.store.hook_faults(None);
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    let pong = env.item(job.id, "Pong (USA)");
+    assert_eq!(pong.state, ItemState::Failed, "{pong:?}");
+    assert_eq!(
+        env.files(),
+        (vec!["Pong (USA).zip".into()], Vec::<String>::new())
+    );
+    assert_eq!(env.walk(), Some((1, 0, 0)));
+}
+
 /// A file edited in place as it is renamed into place, keeping its size and modification time, is found changed.
 #[test]
 fn a_file_edited_as_it_is_renamed_into_place_is_found_changed() {
