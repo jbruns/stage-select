@@ -24,11 +24,38 @@ pub fn step_status(kind: PlanningKind, step: PlanStep) -> &'static str {
     }
 }
 
-/// How far a plan of one kind being made has got, once the Service has said.
+/// What a plan stops being read with once the page that started it is gone. The Service goes on making it.
+const LEFT: &str = "You left the page that started this plan; it is still being made.";
+
+/// The plans started in turn, to tell the latest, whose progress shows, from those it superseded.
+#[derive(Debug, Default)]
+struct Turns {
+    seq: u64,
+}
+
+/// One plan started, to check against the latest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Turn(u64);
+
+impl Turns {
+    /// Starts a turn, superseding every one before.
+    fn take(&mut self) -> Turn {
+        self.seq += 1;
+        Turn(self.seq)
+    }
+
+    fn is_latest(&self, turn: Turn) -> bool {
+        turn.0 == self.seq
+    }
+}
+
+/// How far the latest plan of one kind being made has got, once the Service has said. Its progress lives as long as
+/// the owner it was made under: a page's stops being read when you leave the page, an app-wide one never does.
 #[derive(Clone, Copy)]
 pub struct MakingPlan {
     kind: PlanningKind,
     at: RwSignal<Option<PlanProgress>>,
+    turns: StoredValue<Turns>,
 }
 
 impl MakingPlan {
@@ -36,12 +63,14 @@ impl MakingPlan {
         MakingPlan {
             kind,
             at: RwSignal::new(None),
+            turns: StoredValue::new(Turns::default()),
         }
     }
 
-    /// Forgets how far the last plan got, for one about to start.
+    /// Forgets how far the last plan got, for one about to start: what a plan started before says no longer shows.
     pub fn forget(self) {
-        self.at.set(None);
+        self.turns.try_update_value(|t| t.take());
+        self.at.try_set(None);
     }
 
     /// The step under way, or `before` until the Service has said.
@@ -59,13 +88,24 @@ impl MakingPlan {
     }
 
     /// Starts making a plan at `start` from `body`, and reads how far it has got until it is made: its id, or why it
-    /// wasn't.
+    /// wasn't. Its progress shows until another plan starts; reading stops once the owner is gone.
     pub async fn make<B: Serialize>(self, start: &str, body: &B) -> Result<i64, String> {
-        self.forget();
+        let turn = self.turns.try_update_value(Turns::take).ok_or(LEFT)?;
+        self.at.try_set(None);
         let mut planning: Planning = api::post(start, body).await?;
         loop {
-            self.at.set(Some(planning.progress));
+            match self.turns.try_with_value(|t| t.is_latest(turn)) {
+                None => return Err(LEFT.into()),
+                Some(true) => {
+                    self.at.try_set(Some(planning.progress));
+                }
+                Some(false) => {}
+            }
             if let Some(ended) = ended(&planning) {
+                if ended.is_ok() {
+                    // The plan is recorded only now, not when it was started, so what counts statuses reads again.
+                    api::writes().update(|n| *n += 1);
+                }
                 return ended;
             }
             api::sleep(POLL_MS).await;
@@ -106,6 +146,26 @@ mod tests {
             step_status(PlanningKind::Build, PlanStep::Walking),
             "Looking at the files in the library folder…"
         );
+    }
+
+    #[test]
+    fn only_the_latest_plan_started_shows_its_progress() {
+        let mut turns = Turns::default();
+        let a = turns.take();
+        assert!(turns.is_latest(a));
+        let b = turns.take();
+        assert!(!turns.is_latest(a), "a plan started before no longer shows");
+        assert!(turns.is_latest(b));
+    }
+
+    #[test]
+    fn a_plan_read_from_a_page_stops_being_read_once_the_page_is_gone() {
+        let owner = Owner::new();
+        let making = owner.with(|| MakingPlan::new(PlanningKind::Repair));
+        assert!(making.turns.try_with_value(|_| ()).is_some());
+        drop(owner);
+        assert!(making.turns.try_update_value(Turns::take).is_none());
+        making.forget();
     }
 
     #[test]
