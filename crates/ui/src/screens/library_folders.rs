@@ -11,8 +11,8 @@ use leptos_router::components::{A, Outlet};
 use leptos_router::hooks::{use_params_map, use_query_map};
 use stage_select_api::build::{
     AddLibraryFolder, BuildDetail, BuildItem, BuildState, BuildSummary, BuiltFile,
-    ChangeLibraryFolder, FileOutcome, FolderCheck, Incomplete, IncompleteReason, ItemState,
-    LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, RemoveAction, RemoveGames,
+    ChangeLibraryFolder, FileOutcome, FolderCheck, Incomplete, IncompleteCounts, IncompleteReason,
+    ItemState, LibraryFolder, PlacedFile, Plan, PlanBuild, PlanChoices, RemoveAction, RemoveGames,
     RemovedGame, RestoreGames, UnfinishedBuild,
 };
 use stage_select_api::planning::PlanningKind;
@@ -24,8 +24,8 @@ use stage_select_api::{
 use crate::api;
 use crate::app::{Loading, navigator};
 use crate::build_model::{
-    build_files, build_state_label, drift_kind_label, folders_for, incomplete_counts,
-    incomplete_reason_label, troubles, unfinished_label,
+    available_line, build_files, build_state_label, drift_kind_label, folders_for,
+    incomplete_counts, incomplete_reason_label, not_in_source_set, troubles, unfinished_label,
 };
 use crate::events::{Live, use_live};
 use crate::kept_model::KeptPlace;
@@ -147,7 +147,10 @@ fn reasons(folder: &LibraryFolder, full: bool) -> AnyView {
         lines.push("Its latest check found files that differ from its build.".into());
     }
     if let Some(counts) = folder.incomplete.as_ref().filter(|_| full) {
-        lines.push(format!("Incomplete: {}.", incomplete_counts(counts)));
+        if counts.makes_incomplete() {
+            lines.push(format!("Incomplete: {}.", incomplete_counts(counts)));
+        }
+        lines.extend(not_in_source_set(counts).map(|n| format!("{n}.")));
     }
     if let Some(u) = folder.unfinished.as_ref().filter(|_| full) {
         lines.push(format!("{}.", unfinished_label(u)));
@@ -1299,7 +1302,10 @@ fn Overview(folder: LibraryFolder, busy: Signal<bool>, refresh: RwSignal<u64>) -
         {folder.active_job.map(|job| view! { <JobOutcome job cancel=true /> })}
         {reasons(&folder, false)}
         {latest}
-        {folder.incomplete.is_some().then(|| view! { <IncompleteItems folder=id failed_shown /> })}
+        {folder.incomplete.clone().map(|counts| {
+            let set = folder.source_set.clone();
+            view! { <IncompleteItems folder=id set counts failed_shown /> }
+        })}
         <BuiltFiles folder=id busy refresh />
         {(!removed.is_empty()).then(|| view! { <RemovedGames folder=id removed busy refresh /> })}
         <Help summary="About this library folder">{facts}</Help>
@@ -1594,21 +1600,35 @@ fn incomplete_detail(row: IncompleteRow) -> AnyView {
     .into_any()
 }
 
-/// What the folder lacks of its current build's selection, and why. `failed_shown` leaves out the files that failed,
-/// when the build's failure count beside links to them.
+/// What the folder lacks of its current build's selection, and why: what makes it incomplete, then the games your
+/// source set has no file for, which don't. `failed_shown` leaves out the files that failed, when the build's failure
+/// count beside links to them.
 #[component]
-fn IncompleteItems(folder: i64, failed_shown: bool) -> impl IntoView {
+fn IncompleteItems(
+    folder: i64,
+    set: String,
+    counts: IncompleteCounts,
+    failed_shown: bool,
+) -> impl IntoView {
     let live = use_live();
     let loaded = LocalResource::new(move || {
         live.settled.track();
         async move { api::get::<Incomplete>(&format!("/libraries/{folder}/incomplete")).await }
     });
     let items = last_good_rows(move || loaded.get().map(|r| r.map(|i| i.items)));
+    let state = move |what: &'static str| {
+        move || match loaded.get() {
+            None => view! { <Loading what /> }.into_any(),
+            Some(Err(message)) => view! { <Problem message /> }.into_any(),
+            Some(Ok(_)) => ().into_any(),
+        }
+    };
     let rows = Signal::derive(move || {
         items.with(|items| {
             Arc::new(
                 items
                     .iter()
+                    .filter(|i| i.reason.makes_incomplete())
                     .filter(|i| !(failed_shown && i.reason == IncompleteReason::Failed))
                     .cloned()
                     .map(IncompleteRow)
@@ -1616,31 +1636,151 @@ fn IncompleteItems(folder: i64, failed_shown: bool) -> impl IntoView {
             )
         })
     });
+    let lacked = Signal::derive(move || {
+        items.with(|items| {
+            Arc::new(
+                items
+                    .iter()
+                    .filter(|i| !i.reason.makes_incomplete())
+                    .cloned()
+                    .map(LackedRow)
+                    .collect::<Vec<_>>(),
+            )
+        })
+    });
+    let missing = tab_link(&set_href(&set), Some("games"), &[("status", "missing")]);
     view! {
-        <section aria-labelledby="incomplete-title">
-            <h2 id="incomplete-title">"Incomplete"</h2>
-            {move || match loaded.get() {
-                None => view! { <Loading what="what the folder lacks" /> }.into_any(),
-                Some(Err(message)) => view! { <Problem message /> }.into_any(),
-                Some(Ok(_)) => ().into_any(),
-            }}
-            <List
-                id="incomplete"
-                label="Incomplete"
-                rows
-                empty="The folder lacks nothing."
-                placeholder="Filter by file, game or game group"
-                detail=Callback::new(incomplete_detail)
-                scope="incomplete"
-            />
-            <Help summary="Why a game is missing">
+        {counts.makes_incomplete().then(|| view! {
+            <section aria-labelledby="incomplete-title">
+                <h2 id="incomplete-title">"Incomplete"</h2>
+                {state("what the folder lacks")}
+                <List
+                    id="incomplete"
+                    label="Incomplete"
+                    rows
+                    empty="The folder lacks nothing."
+                    placeholder="Filter by file, game or game group"
+                    detail=Callback::new(incomplete_detail)
+                    scope="incomplete"
+                />
+                <Help summary="Why a game is missing">
+                    <p>
+                        "The folder lacks these selected games. Fix what stops them, then plan again; open a file to \
+                        see why it's missing."
+                    </p>
+                </Help>
+            </section>
+        })}
+        {not_in_source_set(&counts).map(|line| view! {
+            <section aria-labelledby="no-source-title">
+                <h2 id="no-source-title">"Not in your source set"</h2>
                 <p>
-                    "The folder lacks these selected games. Fix what stops them, then plan again; open a file to see \
-                    why it's missing."
+                    {format!("{line}. ")}
+                    <A href=missing>"Open your source set's missing games"</A>
                 </p>
-            </Help>
-        </section>
+                {state("the games your source set lacks")}
+                <List
+                    id="no-source"
+                    label="Not in your source set"
+                    rows=lacked
+                    empty="Your source set has every selected game."
+                    placeholder="Filter by file, game or game group"
+                    detail=Callback::new(lacked_detail)
+                    scope="no-source"
+                />
+                <Help summary="Why these games aren't built">
+                    <p>
+                        "Your source set has no file for these selected games, so the build skipped them. They don't \
+                        make the folder incomplete: the folder holds every game its build could place, and your \
+                        source set's audit lists these as missing. Add them to your source set and audit it, or \
+                        choose a game you have in the same game group in the selection, then plan again."
+                    </p>
+                </Help>
+            </section>
+        })}
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LackedCol {
+    Game,
+    Available,
+    Target,
+}
+
+/// A selected game the folder lacks because the source set has no file for it.
+#[derive(Clone, PartialEq)]
+struct LackedRow(stage_select_api::build::IncompleteItem);
+
+impl ListRow for LackedRow {
+    type Col = LackedCol;
+    const COLUMNS: &'static [LackedCol] =
+        &[LackedCol::Game, LackedCol::Available, LackedCol::Target];
+
+    fn column(col: LackedCol) -> Column {
+        let flex = |share| Width::Flex { min: 10.0, share };
+        match col {
+            LackedCol::Game => Column::new("game", "Game", flex(2)).sortable(),
+            LackedCol::Available => Column::new("available", "You have", flex(2))
+                .sortable()
+                .hint("A game in the same game group that your source set has a file for"),
+            LackedCol::Target => Column::new("file", "File", flex(3)).sortable(),
+        }
+    }
+
+    fn key(&self) -> String {
+        self.0.target.clone()
+    }
+
+    fn title(&self) -> String {
+        self.0.game.clone()
+    }
+
+    fn search(&self) -> String {
+        let available = self.0.available.as_deref().unwrap_or_default();
+        format!(
+            "{} {} {} {available}",
+            self.0.target, self.0.game, self.0.group
+        )
+    }
+
+    fn cell(&self, col: LackedCol) -> AnyView {
+        let i = &self.0;
+        match col {
+            LackedCol::Game => view! { <Clip text=i.game.clone() /> }.into_any(),
+            LackedCol::Available => match &i.available {
+                Some(game) => view! { <Clip text=game.clone() /> }.into_any(),
+                None => ().into_any(),
+            },
+            LackedCol::Target => view! { <Clip text=i.target.clone() /> }.into_any(),
+        }
+    }
+
+    fn compare(&self, other: &Self, col: LackedCol) -> Ordering {
+        let (a, b) = (&self.0, &other.0);
+        match col {
+            LackedCol::Game => a.game.cmp(&b.game),
+            LackedCol::Available => a.available.cmp(&b.available),
+            LackedCol::Target => a.target.cmp(&b.target),
+        }
+    }
+}
+
+fn lacked_detail(row: LackedRow) -> AnyView {
+    let i = row.0;
+    view! {
+        {i.available.map(|game| view! { <p>{available_line(&game)}</p> })}
+        {i.detail.map(|d| view! { <p>{capitalised(&d)}"."</p> })}
+        <dl class="facts">
+            <dt>"Game"</dt>
+            <dd>{i.game}</dd>
+            <dt>"Game group"</dt>
+            <dd>{i.group}</dd>
+            <dt>"File"</dt>
+            <dd>{i.target}</dd>
+        </dl>
+    }
+    .into_any()
 }
 
 /// Starts a read-only check of the folder, and shows the latest one.

@@ -85,14 +85,32 @@ pub fn incomplete_reason_label(reason: IncompleteReason) -> &'static str {
     }
 }
 
-/// The counts behind an incomplete badge, such as `2 conflict, 1 failed`, leaving out reasons with none.
+/// The counts behind an incomplete badge, such as `2 conflict, 1 failed`, leaving out reasons with none and games
+/// the source set lacks, which don't make a folder incomplete ([`not_in_source_set`]).
 pub fn incomplete_counts(counts: &IncompleteCounts) -> String {
     IncompleteReason::ALL
         .into_iter()
-        .filter(|r| counts.get(*r) > 0)
+        .filter(|r| r.makes_incomplete() && counts.get(*r) > 0)
         .map(|r| format!("{} {}", counts.get(r), incomplete_reason_label(r)))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// How many selected games the folder lacks because your source set has no file for them, such as `23 games not in
+/// your source set`; none when there are none.
+pub fn not_in_source_set(counts: &IncompleteCounts) -> Option<String> {
+    match counts.no_source {
+        0 => None,
+        1 => Some("1 game not in your source set".into()),
+        n => Some(format!("{n} games not in your source set")),
+    }
+}
+
+/// What you can do about a game with no source whose game group has `clone`, which your source set holds.
+pub fn available_line(clone: &str) -> String {
+    format!(
+        "You have {clone} in your source set. To build it instead, choose it for this game group in the selection."
+    )
 }
 
 /// The interrupted-build badge's text, from the store's record of the build.
@@ -1189,6 +1207,7 @@ mod tests {
             changes_source_set: false,
             disk: false,
             missing_dependencies: Vec::new(),
+            available: None,
         }
     }
 
@@ -1288,6 +1307,39 @@ mod tests {
         };
 
         assert_eq!(incomplete_counts(&counts), "1 failed, 2 conflict");
+    }
+
+    #[test]
+    fn games_the_source_set_lacks_are_counted_apart_from_what_makes_a_folder_incomplete() {
+        let counts = IncompleteCounts {
+            failed: 1,
+            no_source: 23,
+            ..IncompleteCounts::default()
+        };
+
+        assert_eq!(incomplete_counts(&counts), "1 failed");
+        assert_eq!(
+            not_in_source_set(&counts).as_deref(),
+            Some("23 games not in your source set")
+        );
+        let one = IncompleteCounts {
+            no_source: 1,
+            ..IncompleteCounts::default()
+        };
+        assert_eq!(
+            not_in_source_set(&one).as_deref(),
+            Some("1 game not in your source set")
+        );
+        assert_eq!(not_in_source_set(&IncompleteCounts::default()), None);
+    }
+
+    #[test]
+    fn a_game_with_no_source_names_the_clone_you_have_to_choose_instead() {
+        assert_eq!(
+            available_line("Pong (USA)"),
+            "You have Pong (USA) in your source set. To build it instead, choose it for this game group in the \
+             selection."
+        );
     }
 
     #[test]

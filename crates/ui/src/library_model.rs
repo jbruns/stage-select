@@ -1,7 +1,7 @@
 //! What the Library Folder screens decide without rendering: a folder's status, the selection a new plan builds,
 //! the page's tabs, and the words for why a folder is stale.
 
-use stage_select_api::build::{BuiltFile, LibraryFolder, RemoveAction, Stale};
+use stage_select_api::build::{BuiltFile, IncompleteCounts, LibraryFolder, RemoveAction, Stale};
 use stage_select_api::selection::ARCADE_COVERAGE_REFUSAL;
 use stage_select_api::storage::release_of;
 use stage_select_api::{Job, JobKind, JobState, SelectionRecord, SourceSetSystem};
@@ -41,7 +41,11 @@ pub fn facts(folder: &LibraryFolder) -> LibraryFacts {
         running: folder.active_job.is_some(),
         plan_open: folder.plan_open,
         drift: drifted(folder),
-        incomplete: folder.incomplete.is_some() || folder.unfinished.is_some(),
+        incomplete: folder
+            .incomplete
+            .as_ref()
+            .is_some_and(IncompleteCounts::makes_incomplete)
+            || folder.unfinished.is_some(),
         stale: !folder.stale.is_empty(),
         // A first build that failed or was interrupted wrote some files: the folder is incomplete, not never built.
         built: folder.build.is_some() || folder.unfinished.is_some(),
@@ -581,6 +585,43 @@ mod tests {
             ..open
         };
         assert_eq!(status(&running), LibraryStatus::Running);
+    }
+
+    #[test]
+    fn games_the_source_set_lacks_leave_a_folder_current_and_any_other_gap_makes_it_incomplete() {
+        let lacking = |counts: IncompleteCounts| LibraryFolder {
+            incomplete: Some(counts),
+            ..built("2026-01-03T00:00:00Z")
+        };
+        let no_source = IncompleteCounts {
+            no_source: 23,
+            ..IncompleteCounts::default()
+        };
+        assert_eq!(status(&lacking(no_source.clone())), LibraryStatus::Current);
+        let stale = LibraryFolder {
+            stale: vec![Stale::ProfileSaved {
+                built: 1,
+                latest: 2,
+            }],
+            ..lacking(no_source.clone())
+        };
+        assert_eq!(status(&stale), LibraryStatus::Stale);
+        for counts in [
+            IncompleteCounts {
+                failed: 1,
+                ..no_source.clone()
+            },
+            IncompleteCounts {
+                missing_dependency: 1,
+                ..no_source.clone()
+            },
+            IncompleteCounts {
+                missing_disc: 1,
+                ..IncompleteCounts::default()
+            },
+        ] {
+            assert_eq!(status(&lacking(counts)), LibraryStatus::Incomplete);
+        }
     }
 
     fn selection(id: i64, set: &str, profile: &str, version: u32, sha: &str) -> SelectionRecord {

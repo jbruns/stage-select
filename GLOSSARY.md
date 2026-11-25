@@ -281,9 +281,11 @@ Folder at registration. It only proposes: a registered path never moves when a t
 _Avoid_: Naming scheme
 
 **Incomplete**:
-A Library Folder whose current Build lacks a selected Game, because its Game Group was unresolved and skipped, had no
-source, failed, or is in conflict; or lacks a disc of a selected Multi-disc Game, because the choice for its Game
-Group left that disc out; or lacks a Dependency or Disk of a selected Game. Stage Select shows why and how many.
+A Library Folder whose current Build lacks a selected Game, because its Game Group was unresolved and skipped, failed,
+or is in conflict; or lacks a disc of a selected Multi-disc Game, because the choice for its Game Group left that disc
+out; or lacks a Dependency or Disk of a selected Game. Stage Select shows why and how many. A selected Game its Source
+Set has no source for doesn't make the folder Incomplete: that is the Source Set's gap, which its Audit shows as
+Missing. The folder lists such Games apart, naming any clone in the Game Group the Source Set has a source for.
 
 **Stale**:
 A Source Set whose files look changed since its latest Audit, or that Follows its DAT and has a newer DAT Revision to

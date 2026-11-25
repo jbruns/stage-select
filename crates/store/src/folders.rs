@@ -411,6 +411,7 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
             game: r.get(2)?,
             target: r.get(3)?,
             detail: r.get(4)?,
+            available: None,
         })
     })?;
     out.items = rows.collect::<Result<_, _>>()?;
@@ -419,56 +420,85 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
         [build],
         |r| r.get(0),
     )?;
-    if let Some(check) = latest_check(c, row.id)?
-        .filter(|check| check.generation == row.generation && check.summary.marker.is_none())
-    {
+    let check = latest_check(c, row.id)?
+        .filter(|check| check.generation == row.generation && check.summary.marker.is_none());
+    let no_source = |i: &IncompleteItem| i.reason == IncompleteReason::NoSource;
+    if check.is_some() || out.items.iter().any(no_source) {
         let content = build_plan(c, build)?;
-        let group_of = |target: &str| {
+        let planned: std::collections::HashMap<String, &stage_select_api::build::PlanItem> =
             content
                 .items
                 .iter()
-                .find(|i| i.target.eq_ignore_ascii_case(target))
-                .map(|i| (i.group.clone(), i.game.clone()))
-        };
-        let selected = selected_targets(c, selection)?;
-        let is_selected = |target: &str| selected.contains_key(&target.to_lowercase());
-        let mut found = Vec::new();
-        for f in check.files.iter().filter(|f| is_selected(&f.target)) {
-            let reason = match f.outcome {
-                FileOutcome::Conflict | FileOutcome::Unreadable => IncompleteReason::Conflict,
-                FileOutcome::Missing => IncompleteReason::Missing,
-                _ => continue,
+                .map(|i| (i.target.to_ascii_lowercase(), i))
+                .collect();
+        // A game with no source names the clone its plan found available; the plan keeps it, so the record needn't.
+        for item in out.items.iter_mut().filter(|i| no_source(i)) {
+            item.available = planned
+                .get(&item.target.to_ascii_lowercase())
+                .and_then(|p| p.available.clone());
+        }
+        if let Some(check) = check {
+            // A kept Game's files are where its Build's plan laid them out by the storage policy: loose, as CHD or in
+            // a disc layout, not only `<game>.zip`.
+            let selected = selected_targets(c, selection)?;
+            let kept: std::collections::HashSet<&str> =
+                selected.values().map(String::as_str).collect();
+            let is_selected = |target: &str| {
+                selected.contains_key(&target.to_lowercase())
+                    || planned
+                        .get(&target.to_ascii_lowercase())
+                        .is_some_and(|p| kept.contains(p.game.as_str()))
             };
-            found.push((reason, f.target.clone(), f.detail.clone()));
-        }
-        for d in check.drift.iter().filter(|d| is_selected(&d.name)) {
-            found.push((
-                IncompleteReason::Conflict,
-                d.name.clone(),
-                Some(format!(
-                    "{} is in the folder and was not built by Stage Select",
-                    d.name
-                )),
-            ));
-        }
-        for (reason, target, detail) in found {
-            if out
+            let mut found = Vec::new();
+            for f in check.files.iter().filter(|f| is_selected(&f.target)) {
+                let reason = match f.outcome {
+                    FileOutcome::Conflict | FileOutcome::Unreadable => IncompleteReason::Conflict,
+                    FileOutcome::Missing => IncompleteReason::Missing,
+                    _ => continue,
+                };
+                found.push((reason, f.target.clone(), f.detail.clone()));
+            }
+            for d in check.drift.iter().filter(|d| is_selected(&d.name)) {
+                found.push((
+                    IncompleteReason::Conflict,
+                    d.name.clone(),
+                    Some(format!(
+                        "{} is in the folder and was not built by Stage Select",
+                        d.name
+                    )),
+                ));
+            }
+            let mut recorded: std::collections::HashMap<String, usize> = out
                 .items
                 .iter()
-                .any(|i| i.target.eq_ignore_ascii_case(&target))
-            {
-                continue;
+                .enumerate()
+                .map(|(n, i)| (i.target.to_ascii_lowercase(), n))
+                .collect();
+            for (reason, target, detail) in found {
+                let key = target.to_ascii_lowercase();
+                if let Some(&n) = recorded.get(&key) {
+                    // What the check found in the folder outranks the Source Set lacking the game: it is the folder's.
+                    let item = &mut out.items[n];
+                    if item.reason == IncompleteReason::NoSource {
+                        item.reason = reason;
+                        item.detail = detail;
+                        item.available = None;
+                    }
+                    continue;
+                }
+                let Some(planned) = planned.get(&key) else {
+                    continue;
+                };
+                recorded.insert(key, out.items.len());
+                out.items.push(IncompleteItem {
+                    reason,
+                    group: planned.group.clone(),
+                    game: planned.game.clone(),
+                    target,
+                    detail,
+                    available: None,
+                });
             }
-            let Some((group, game)) = group_of(&target) else {
-                continue;
-            };
-            out.items.push(IncompleteItem {
-                reason,
-                group,
-                game,
-                target,
-                detail,
-            });
         }
     }
     if !record_by_id(c, selection)?.pruned {
@@ -491,6 +521,7 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
                         discs::disc(title).map_or_else(|| title.clone(), |d| d.release),
                         group.group
                     )),
+                    available: None,
                 });
             }
         }

@@ -1254,6 +1254,54 @@ impl<'a> Sources<'a> {
     }
 }
 
+/// Whether the latest Audit read, with its payload, a source for every ROM Game `title` needs, as a plan would build
+/// it: for an Arcade DAT, self-contained, with its Disks. It trusts the Audit: naming a Game that isn't built opens,
+/// stats and ranks no file.
+fn sourced_whole(
+    sources: &mut Sources,
+    dat: &Dat,
+    games: &HashMap<&str, usize>,
+    arcade: bool,
+    title: &str,
+) -> bool {
+    let Some(&g) = games.get(title) else {
+        return false;
+    };
+    // A DAT lists each Game's ROMs together, Game by Game, in order.
+    let own =
+        dat.roms.partition_point(|rom| rom.game < g)..dat.roms.partition_point(|rom| rom.game <= g);
+    let held: Vec<usize> = match arcade {
+        true => {
+            let mut held = dat.self_contained(g);
+            held.extend(own.filter(|&r| dat.roms[r].disk));
+            for &r in &held {
+                let rom = &dat.roms[r];
+                let root = &dat.roms[dat.shared_root(r)];
+                let mut keys = vec![(dat.games[rom.game].clone(), rom.name.clone())];
+                let shared = (dat.games[root.game].clone(), root.name.clone());
+                if !keys.contains(&shared) {
+                    keys.push(shared);
+                }
+                sources
+                    .keys
+                    .entry((title.to_owned(), rom.name.clone()))
+                    .or_insert(keys);
+            }
+            held
+        }
+        false => own.collect(),
+    };
+    let needed: Vec<ExpectedRom> = held
+        .into_iter()
+        .filter(|&r| dat.roms[r].needed())
+        .map(|r| dat.expected(&dat.roms[r]))
+        .collect();
+    !needed.is_empty()
+        && needed
+            .iter()
+            .all(|rom| !sources.entries_of(title, &rom.name).is_empty())
+}
+
 /// Matched over Misnamed or Conflicting; a source that can be copied as it is; then path order.
 fn rank<'a>(c: &Candidate<'a>) -> (bool, bool, &'a str, Option<&'a str>) {
     (
@@ -1641,6 +1689,18 @@ fn plan_items(
                 .insert(((*title).to_owned(), rom.name.clone()), keys);
         }
     }
+    // Each group's clones, any of which the Operator could choose for it in the Selection; and whether the latest
+    // Audit read a source for each clone asked about.
+    let clones_of: HashMap<&str, Vec<&str>> = inputs
+        .selection
+        .groups
+        .iter()
+        .map(|g| {
+            let clones = g.clones.iter().map(|c| c.title.as_str()).collect();
+            (g.group.as_str(), clones)
+        })
+        .collect();
+    let mut sourced: HashMap<&str, bool> = HashMap::new();
     let mut items = Vec::new();
     // The files of selected Games with nothing to build there: no item writes them.
     let mut unbuilt: HashSet<String> = HashSet::new();
@@ -1727,6 +1787,7 @@ fn plan_items(
             changes_source_set: false,
             disk: arcade && chd,
             missing_dependencies: Vec::new(),
+            available: None,
         };
         if addition.is_none() && unresolved.contains(group) {
             item.kind = ItemKind::Unresolved;
@@ -1959,6 +2020,20 @@ fn plan_items(
                         missing.join(", ")
                     )
                 });
+                // A clone the Source Set holds is named, never built in its place: the Selection stays as it is.
+                if item.missing_dependencies.is_empty() {
+                    item.available = clones_of
+                        .get(group)
+                        .into_iter()
+                        .flatten()
+                        .copied()
+                        .find(|&clone| {
+                            *sourced.entry(clone).or_insert_with(|| {
+                                sourced_whole(&mut sources, dat, &games, arcade, clone)
+                            })
+                        })
+                        .map(str::to_owned);
+                }
                 unkeep(&mut item);
             }
             Ok(chosen) => {
@@ -2482,6 +2557,7 @@ fn generate(
         changes_source_set: false,
         disk: false,
         missing_dependencies: Vec::new(),
+        available: None,
     };
     let what = match item.generated.as_ref().map(|g| g.kind) {
         Some(GeneratedKind::Sbi) => "its disc",

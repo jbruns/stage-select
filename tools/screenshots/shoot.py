@@ -24,17 +24,18 @@ checksums match them. It never reads a real DAT, a ROM or the Host. It seeds, al
 target/screenshots/.work/<label>/:
 
 - roots: `sets` (read-only, but repairs may write to the Game Boy source set), `play` (writable) and `drop` (ingest);
-- four DATs and four source sets: Atari - 2600, complete; Nintendo - Game Boy, with a misnamed file, a missing game,
-  a file of wrong content and an unknown file, given a full audit and a repair proposal; Sega - Mega Drive - Genesis,
-  missing two games, holding one of a two-ROM game's ROMs, so that game is incomplete, and an unknown file, so it
-  needs review; NEC - PC Engine - TurboGrafx-16, audited once, then its folder removed and audited again, so
-  Activity lists a failed job;
+- four DATs and four source sets: Atari - 2600, complete; Nintendo - Game Boy, with a misnamed file, two missing
+  games, one a parent whose clone it holds, a file of wrong content and an unknown file, given a full audit and a
+  repair proposal; Sega - Mega Drive - Genesis, missing two games, holding one of a two-ROM game's ROMs, so that game
+  is incomplete, and an unknown file, so it needs review; NEC - PC Engine - TurboGrafx-16, audited once, then its
+  folder removed and audited again, so Activity lists a failed job;
 - a selection profile, Everyday, with a selection of the Atari and the Game Boy source sets, and a choice for a game
   group the Atari DAT lacks, so the Atari selection has a stale choice;
-- three library folders: play/atari-2600, its plan approved and built (so READY shows), then one built file changed and
+- four library folders: play/atari-2600, its plan approved and built (so READY shows), then one built file changed and
   a stray file added and the folder checked, so its drift tab has drift; play/game-boy, its plan waiting for
-  approval; and play/atari-2600-cleanup, built, then given a stray file and checked, and a cleanup planned
-  that sets the stray file aside, so its plan tab shows a cleanup plan;
+  approval; play/game-boy-built, built, so its overview lists the games its source set lacks; and
+  play/atari-2600-cleanup, built, then given a stray file and checked, and a cleanup planned that sets the stray file
+  aside, so its plan tab shows a cleanup plan;
 - the ingest folder `drop`, scanned, holding a file that a source set is missing and one nobody knows;
 - the root `additions`, of kind additions, with one Game Boy addition added from `drop` through an approved plan;
 - kept files: play/atari-2600-spare, built, then two strays set aside from it by an approved cleanup, with a plan to
@@ -109,6 +110,7 @@ SCREENS = {
     "libraries": "/libraries",
     "library": "/libraries/{library}",
     "library-plan": "/libraries/{library}?tab=plan",
+    "library-no-source": "/libraries/{no_source_library}",
     "library-pending-plan": "/libraries/{pending_library}?tab=plan",
     "library-drift": "/libraries/{library}?tab=drift",
     "library-kept": "/libraries/{kept_library}?tab=kept",
@@ -386,6 +388,8 @@ SYSTEMS = {
 # The Game Boy source set's flaws, and the Mega Drive one's missing games.
 GB_MISNAMED = "Tile Tumbler (World)"
 GB_MISSING = "Pocket Ranger 2 (USA)"
+# A game group's parent the Game Boy source set lacks, though it holds the group's clone.
+GB_LACKED = "Pocket Ranger (USA)"
 GB_WRONG = "Deep Current (Japan)"
 # A choice of the profile for a game group no DAT has, and an ingest folder file kept as an addition.
 STALE_GROUP = "Vanished Racer"
@@ -440,7 +444,9 @@ def write_set(folder, system):
     folder.mkdir(parents=True, exist_ok=True)
     for game, _ in games:
         rom = roms(system, game)[0]
-        if (system, game) == (GAME_BOY, GB_MISSING) or (system == MEGA_DRIVE and game in MD_MISSING):
+        if (system, game) in ((GAME_BOY, GB_MISSING), (GAME_BOY, GB_LACKED)) or (
+            system == MEGA_DRIVE and game in MD_MISSING
+        ):
             continue
         content, name = payload(rom), game
         if (system, game) == (GAME_BOY, GB_MISNAMED):
@@ -596,6 +602,10 @@ def seed(api, data):
     pending = step("library folder play/game-boy, planned", lambda: library(GAME_BOY, "game-boy", False))
     if pending:
         made["pending_library"] = pending[0]
+
+    lacking = step("library folder play/game-boy-built, built", lambda: library(GAME_BOY, "game-boy-built", True))
+    if lacking:
+        made["no_source_library"] = lacking[0]
 
     def cleanup():
         folder, _ = library(ATARI, "atari-2600-cleanup", True)

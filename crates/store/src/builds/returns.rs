@@ -221,6 +221,7 @@ fn output_item(f: &ReturnFile) -> PlanItem {
         changes_source_set: true,
         disk: false,
         missing_dependencies: Vec::new(),
+        available: None,
     }
 }
 
