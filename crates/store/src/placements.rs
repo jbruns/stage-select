@@ -9,6 +9,7 @@ use rustix::fs::Stat;
 use stage_select_api::build::{FileStat, PlacedFile};
 use stage_select_api::paths::relative_path;
 use stage_select_api::storage::is_reserved_name;
+use stage_select_engine::FileStamp;
 use stage_select_engine::meter::Tally;
 
 use crate::builds::sha256_of;
@@ -752,21 +753,30 @@ pub(crate) fn check_no_audit_reading(c: &Connection, folder: i64) -> Result<()> 
 }
 
 /// Records, in Source Set `set`'s Audit `audit`, that its file `from`, found as `was`, is now its Placed Game's file
-/// `to`, as Audits name it ([`stage_select_api::storage::placed_path`]), statted as `now`: moved by a Build that
-/// didn't change it, renamed or copied and read back. Its Entries follow it with their Evidence, and so does the
-/// payload read an Incremental Audit reuses, but only while it was of the file as `was` found it.
+/// `to`, as Audits name it ([`stage_select_api::storage::placed_path`]): moved by a Build that didn't change it,
+/// renamed or copied and read back. Its Entries follow it with their Evidence. Statted as `now`, known to be the file
+/// as moved, its stamps follow it ([`carry_stamps`]), and so does the payload read an Incremental Audit reuses, but only
+/// while it was of the file as `was` found it. With `now` unknown, as when recovery finds a rename done after a stop,
+/// its stamps and payload read are forgotten, so that it looks changed until it is audited again.
 pub(crate) fn moved_entries(
     tx: &Transaction,
     (set, audit): (i64, i64),
     from: &str,
     to: &str,
     was: &stage_select_api::build::PlacedOriginal,
-    now: &Stat,
+    now: Option<&Stat>,
 ) -> Result<()> {
     tx.execute(
         "UPDATE audit_entries SET path = ?3 WHERE audit_id = ?1 AND path = ?2",
         params![audit, from, to],
     )?;
+    let Some(now) = now else {
+        tx.execute(
+            "DELETE FROM payload_reads WHERE source_set_id = ?1 AND path = ?2",
+            params![set, from],
+        )?;
+        return carry_stamps(tx, audit, &[(from, original_stamp(was))], &[(to, None)]);
+    };
     let (file, identity) = (file_stat(now), Identity::of(now));
     tx.execute(
         "UPDATE OR REPLACE payload_reads SET path = ?8, dev = ?9, ino = ?10, size = ?11, mtime_ns = ?12, ctime_ns = ?13
@@ -791,6 +801,155 @@ pub(crate) fn moved_entries(
     tx.execute(
         "DELETE FROM payload_reads WHERE source_set_id = ?1 AND path = ?2",
         params![set, from],
+    )?;
+    carry_stamps(
+        tx,
+        audit,
+        &[(from, original_stamp(was))],
+        &[(to, Some(now))],
+    )
+}
+
+/// A file's stamp, as statted as `st`.
+fn stamp_of(st: &Stat) -> FileStamp {
+    let (file, identity) = (file_stat(st), Identity::of(st));
+    FileStamp {
+        dev: identity.dev,
+        ino: identity.ino,
+        size: file.size,
+        mtime_ns: file.mtime_ns,
+        ctime_ns: ctime_ns(st),
+    }
+}
+
+/// The stamp of a Source Set's file a placement consumes, as its plan found it.
+fn original_stamp(o: &stage_select_api::build::PlacedOriginal) -> FileStamp {
+    FileStamp {
+        dev: o.identity.dev,
+        ino: o.identity.ino,
+        size: o.file.size,
+        mtime_ns: o.file.mtime_ns,
+        ctime_ns: o.ctime_ns,
+    }
+}
+
+/// How an Audit stamped a file, by the weakest of several: not at all, or not as a Build found it; by a quick
+/// inventory's claim; or by reading it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Stamped {
+    No,
+    Claim,
+    Read,
+}
+
+/// The stamp Audit `audit` recorded of the file at `path` in `table`, if any.
+fn stamp_at(c: &Connection, table: &str, audit: i64, path: &str) -> Result<Option<FileStamp>> {
+    let unreadable = match table {
+        "audit_stamps" => " AND unreadable = 0",
+        _ => "",
+    };
+    Ok(c.query_row(
+        &format!(
+            "SELECT dev, ino, size, mtime_ns, ctime_ns FROM {table} WHERE audit_id = ?1 AND path = ?2{unreadable}"
+        ),
+        params![audit, path],
+        |r| {
+            Ok(FileStamp {
+                dev: r.get::<_, i64>(0)? as u64,
+                ino: r.get::<_, i64>(1)? as u64,
+                size: r.get::<_, i64>(2)? as u64,
+                mtime_ns: r.get::<_, i64>(3)? as i128,
+                ctime_ns: r.get::<_, i64>(4)? as i128,
+            })
+        },
+    )
+    .optional()?)
+}
+
+/// Carries Audit `audit`'s stamps of the files `from`, each as the Build found it, over to the files `to` it moved,
+/// copied or wrote them as, each statted as the Build found it holding what it was to hold: so that a stat walk finds
+/// them as the Audit's, unchanged, and finds a later edit. One not known to hold it, `None`, gets no stamp, and looks
+/// changed until it is audited again. The stamps of `from`, no longer there, are forgotten.
+fn carry_stamps(
+    tx: &Transaction,
+    audit: i64,
+    from: &[(&str, FileStamp)],
+    to: &[(&str, Option<&Stat>)],
+) -> Result<()> {
+    let stamped = stamped(tx, audit, from)?;
+    forget_stamps(tx, audit, from.iter().map(|(path, _)| *path))?;
+    for (path, now) in to {
+        match now {
+            Some(now) => stamp(tx, audit, path, now, stamped)?,
+            None => forget_stamps(tx, audit, [*path])?,
+        }
+    }
+    Ok(())
+}
+
+/// How Audit `audit` stamped every file of `from`, each as a Build found it: by reading each, by claiming or reading
+/// each, or else not.
+fn stamped(c: &Connection, audit: i64, from: &[(&str, FileStamp)]) -> Result<Stamped> {
+    let mut stamped = match from {
+        [] => Stamped::No,
+        _ => Stamped::Read,
+    };
+    for (path, found) in from {
+        // A read's stamp wins over a claim's, as a stat walk compares them.
+        let was = match stamp_at(c, "audit_stamps", audit, path)? {
+            Some(read) => (read == *found).then_some(Stamped::Read),
+            None => stamp_at(c, "audit_claim_stamps", audit, path)?
+                .and_then(|claim| (claim == *found).then_some(Stamped::Claim)),
+        };
+        stamped = stamped.min(was.unwrap_or(Stamped::No));
+    }
+    Ok(stamped)
+}
+
+/// Forgets every stamp Audit `audit` recorded of the files at `paths`.
+fn forget_stamps<'p>(
+    tx: &Transaction,
+    audit: i64,
+    paths: impl IntoIterator<Item = &'p str>,
+) -> Result<()> {
+    for path in paths {
+        for table in ["audit_stamps", "audit_claim_stamps"] {
+            tx.execute(
+                &format!("DELETE FROM {table} WHERE audit_id = ?1 AND path = ?2"),
+                params![audit, path],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Records, as Audit `audit`'s, the file at `path` statted as `now`, stamped as `stamped`: as read, as claimed, or,
+/// with no stamp, as a file that looks changed until the next Audit, as what it was written from did.
+fn stamp(tx: &Transaction, audit: i64, path: &str, now: &Stat, stamped: Stamped) -> Result<()> {
+    forget_stamps(tx, audit, [path])?;
+    let insert = match stamped {
+        Stamped::No => return Ok(()),
+        Stamped::Claim => {
+            "INSERT INTO audit_claim_stamps (audit_id, path, dev, ino, size, mtime_ns, ctime_ns)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+        }
+        Stamped::Read => {
+            "INSERT INTO audit_stamps (audit_id, path, unreadable, dev, ino, size, mtime_ns, ctime_ns)
+             VALUES (?1, ?2, 0, ?3, ?4, ?5, ?6, ?7)"
+        }
+    };
+    let st = stamp_of(now);
+    tx.execute(
+        insert,
+        params![
+            audit,
+            path,
+            st.dev as i64,
+            st.ino as i64,
+            st.size as i64,
+            st.mtime_ns as i64,
+            st.ctime_ns as i64
+        ],
     )?;
     Ok(())
 }
@@ -926,19 +1085,21 @@ pub(crate) fn rewritten(
     Ok(Ok(out))
 }
 
-/// Records, in Source Set `set`'s Audit `audit`, that its Game `game`'s files `from` were converted into, or are
-/// stood in for by, its Placed Game's file `to`, holding `roms` loose or as a TorrentZip and checked to hold exactly
-/// them: each ROM's Entry is now of `to`, with the ROMs and the Evidence of the Entry it was written from, and the
-/// payload reads of `from` are forgotten, so that an Incremental Audit reads `to`. A ROM whose Entry can't be carried
-/// over fails it, changing nothing: [`rewritten`] says so before anything is placed.
+/// Records, in Source Set `set`'s Audit `audit`, that its Game `game`'s files `from`, as the plan found them, were
+/// converted into, or are stood in for by, its Placed Game's file `to`, statted as `now`, holding `roms` loose or as a
+/// TorrentZip and checked to hold exactly them: each ROM's Entry is now of `to`, with the ROMs and the Evidence of the
+/// Entry it was written from, and the payload reads of `from` are forgotten, so that an Incremental Audit reads `to`.
+/// The stamps of `from` wait, and `to` has none, until [`checked_rewrites`] finds what `to` holds. A ROM whose Entry can't be carried over fails it, changing
+/// nothing: [`rewritten`] says so before anything is placed.
 pub(crate) fn rewritten_entries(
     tx: &Transaction,
     (set, audit): (i64, i64),
-    from: &[&str],
+    from: &[&stage_select_api::build::PlacedOriginal],
     to: &[Rewritten],
 ) -> Result<()> {
-    let carried = rewritten(tx, audit, from, to)?.map_err(Error::Io)?;
-    for path in from {
+    let paths: Vec<&str> = from.iter().map(|o| o.path.as_str()).collect();
+    let carried = rewritten(tx, audit, &paths, to)?.map_err(Error::Io)?;
+    for path in &paths {
         tx.execute(
             "DELETE FROM audit_entries WHERE audit_id = ?1 AND path = ?2",
             params![audit, path],
@@ -948,7 +1109,40 @@ pub(crate) fn rewritten_entries(
             params![set, path],
         )?;
     }
-    insert_carried(tx, audit, &carried)
+    insert_carried(tx, audit, &carried)?;
+    forget_stamps(tx, audit, to.iter().map(|t| t.path))
+}
+
+/// Whether Audit `audit` still keeps a stamp of one of the files `from` that [`rewritten_entries`] wrote others from,
+/// for [`checked_rewrites`] to carry.
+pub(crate) fn rewrites_unchecked(
+    c: &Connection,
+    audit: i64,
+    from: &[&stage_select_api::build::PlacedOriginal],
+) -> Result<bool> {
+    for o in from {
+        for table in ["audit_stamps", "audit_claim_stamps"] {
+            if stamp_at(c, table, audit, &o.path)?.is_some() {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// Carries Audit `audit`'s stamps of the files `from` over to the files `to` [`rewritten_entries`] wrote from them
+/// ([`carry_stamps`]): each statted as it was read back as what the Build wrote, or `None` when it no longer reads so.
+pub(crate) fn checked_rewrites(
+    tx: &Transaction,
+    audit: i64,
+    from: &[&stage_select_api::build::PlacedOriginal],
+    to: &[(&str, Option<&Stat>)],
+) -> Result<()> {
+    let from: Vec<(&str, FileStamp)> = from
+        .iter()
+        .map(|o| (o.path.as_str(), original_stamp(o)))
+        .collect();
+    carry_stamps(tx, audit, &from, to)
 }
 
 /// The Entries Audit `audit` gets for each file the return `r` writes home from the ROMs of the release placed in
@@ -982,19 +1176,50 @@ pub(crate) fn returned(
 }
 
 /// Records, in Source Set `set`'s Audit `audit`, that the release `r` placed in Library Folder `folder` is back in the
-/// Source Set's folder as its files: each file put home whole takes the Entries of the placed file it is, with their
-/// Evidence; each written from the ROMs gets an Entry for each ROM, with the ROMs and the Evidence of the placed Entry
-/// it was written from. Every other Entry, and every payload read, of the placed files is forgotten, so that an
-/// Incremental Audit reads the files home. A ROM whose Entry can't be carried home fails it, changing nothing:
-/// [`returned`] says so before anything is written.
+/// Source Set's folder as its files, statted as `now`: each file put home whole takes the Entries of the placed file it
+/// is, with their Evidence; each written from the ROMs gets an Entry for each ROM, with the ROMs and the Evidence of the
+/// placed Entry it was written from. Each takes the stamps of what it was put home from ([`carry_stamps`]). Every
+/// other Entry, and every payload read, of the placed files is forgotten, so that an Incremental Audit reads the files
+/// home. A ROM whose Entry can't be carried home fails it, changing nothing: [`returned`] says so before anything is
+/// written.
 pub(crate) fn returned_entries(
     tx: &Transaction,
     (set, audit): (i64, i64),
     folder: i64,
     r: &stage_select_api::build::PlanReturn,
+    now: &[&Stat],
 ) -> Result<()> {
     use stage_select_api::storage::placed_path;
     let carried = returned(tx, audit, folder, r)?.map_err(Error::Io)?;
+    let placed: Vec<(String, FileStamp)> = (r.placed.iter())
+        .map(|p| {
+            let stamp = FileStamp {
+                dev: p.identity.dev,
+                ino: p.identity.ino,
+                size: p.file.size,
+                mtime_ns: p.file.mtime_ns,
+                ctime_ns: p.ctime_ns,
+            };
+            (placed_path(folder, &p.path), stamp)
+        })
+        .collect();
+    let all: Vec<(&str, FileStamp)> = placed.iter().map(|(p, st)| (p.as_str(), *st)).collect();
+    // Each file put home whole is stamped as its placed file was; each written from the ROMs, as the release's were.
+    let mut stamps = Vec::new();
+    for f in &r.files {
+        let from = match &f.from {
+            Some(whole) => {
+                let whole = placed_path(folder, whole);
+                all.iter().filter(|(p, _)| *p == whole).copied().collect()
+            }
+            None => all.clone(),
+        };
+        stamps.push(stamped(tx, audit, &from)?);
+    }
+    forget_stamps(tx, audit, all.iter().map(|(p, _)| *p))?;
+    for ((f, now), stamped) in r.files.iter().zip(now).zip(stamps) {
+        stamp(tx, audit, &f.path, now, stamped)?;
+    }
     for f in &r.files {
         if let Some(whole) = &f.from {
             tx.execute(

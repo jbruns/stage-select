@@ -77,6 +77,9 @@ pub(crate) trait Intents {
     /// Called once the original is set aside to delete and read back, just before its published copy is checked a
     /// last time: a point a test can change the copy at.
     fn verifying(&self) {}
+    /// Called once the published copy is read back as recorded, with its stat as held for that read: the content of
+    /// the file it stats, whose change time held still across the read.
+    fn verified(&self, _now: &Stat) {}
     /// Whether the folder the copy was published in is still the one at its registered path, checked last, once the
     /// copy holds: why not, otherwise, and the original is then not deleted.
     fn in_place(&self) -> Result<std::result::Result<(), String>> {
@@ -246,6 +249,11 @@ impl Held {
         Ok(Ok(Held { file, st }))
     }
 
+    /// The file's stat as it was opened.
+    pub(crate) fn stat(&self) -> &Stat {
+        &self.st
+    }
+
     /// Whether this is still the file at `name` in `dir`, unchanged since it was opened, and reads, through its own
     /// descriptor, as the SHA-256 `sha` recorded, counted to `tally`. Returns why not.
     ///
@@ -313,7 +321,13 @@ fn published_holds_as(
         return Ok(Err("no copy of it is recorded".into()));
     };
     Ok(match open_published(d, &intent)? {
-        Ok(held) => still_holds(d, &held, published.unwrap_or(sha))?,
+        Ok(held) => {
+            let holds = still_holds(d, &held, published.unwrap_or(sha))?;
+            if holds.is_ok() {
+                intents.verified(held.stat());
+            }
+            holds
+        }
         Err(why) => Err(why),
     })
 }
@@ -441,7 +455,10 @@ pub(crate) fn dispose_as(
         (Ok(held), true) => {
             intents.verifying();
             match still_holds(d, held, published.unwrap_or(&sha))? {
-                Ok(()) => intents.in_place()?,
+                Ok(()) => {
+                    intents.verified(held.stat());
+                    intents.in_place()?
+                }
                 Err(why) => Err(why),
             }
         }
