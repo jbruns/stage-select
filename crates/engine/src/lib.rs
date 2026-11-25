@@ -720,6 +720,8 @@ enum CountsFor {
 struct Stray {
     file: String,
     roms: Vec<usize>,
+    /// The one Game of every ROM whose checksums the Entry has, whatever its name; none when they are of several.
+    single: Option<usize>,
     held: Held,
 }
 
@@ -811,6 +813,8 @@ impl Scan<'_> {
             })
             .map(|_| NOT_DUMPED.to_owned());
         let matching = matching_roms(self.dat, known);
+        // Decided by checksums alone: a name can give one Game's ROM where another Game's has the same payload.
+        let single = one_game(self.dat, &matching);
         // A file whose name gives a nodump ROM ([`Holders::nodump_named`]) is that ROM's, which no file can match
         // (ADR 0025): it never counts by its checksums for another ROM, of the Game whose file holds it or of any
         // other in the family, as a repair leaves it where it is by default. It still counts for a ROM it is named
@@ -876,6 +880,7 @@ impl Scan<'_> {
             Some(file) if !counted.is_empty() => self.strays.push(Stray {
                 file: file.to_owned(),
                 roms: counted,
+                single,
                 held,
             }),
             Some(_) => {}
@@ -943,13 +948,9 @@ impl Scan<'_> {
         // For each file, the one Game its Entries single out, or None once they single out more than one.
         let mut single: HashMap<&str, Option<usize>> = HashMap::new();
         for s in &strays {
-            let mut games = s.roms.iter().map(|r| self.dat.roms[*r].game);
-            let Some(first) = games.next() else {
+            let Some(first) = s.single else {
                 continue;
             };
-            if games.any(|g| g != first) {
-                continue;
-            }
             single
                 .entry(s.file.as_str())
                 .and_modify(|one| {
@@ -999,7 +1000,8 @@ impl Scan<'_> {
             needed[rom.game] += 1;
         }
         let entries = &self.entries;
-        let file = |e: usize| file_of(&entries[e].path, entries[e].member.is_some());
+        let holders = &self.holders;
+        let file = |e: usize| file_of(holders, &entries[e].path, entries[e].member.as_deref());
         // Each needed ROM of a Game that a Matched Entry of a file named for the Game counts for, by file and Game.
         let mut held: HashMap<(&str, usize), HashSet<usize>> = HashMap::new();
         for &(e, r, container) in &self.matched {
@@ -1199,18 +1201,30 @@ fn rom_ref(dat: &Dat, r: usize) -> RomRef {
 }
 
 /// The file, named for no Game, that holds the Entry at `path`, `member` of it when `in_archive`: the ZIP, or else the
-/// folder the loose file is in. None for a loose file in the Source Set's own folder.
+/// outermost folder the loose file is in, with every folder inside it, as a Game's folder holds its subfolders'
+/// files ([`Holders::container`]). None for a loose file in the Source Set's own folder, or a Placed Game's.
 fn stray_file(path: &str, in_archive: bool) -> Option<&str> {
-    match in_archive {
-        true => Some(path),
-        false => path.rsplit_once(['/', '\\']).map(|(folder, _)| folder),
+    if in_archive {
+        return Some(path);
     }
+    let rel = stage_select_api::storage::split_placed(path).map_or(path, |(_, rel)| rel);
+    let folder = rel.find(['/', '\\'])?;
+    Some(&path[..path.len() - rel.len() + folder])
 }
 
-/// The file that holds the Entry at `path`, `member` of it when `in_archive`: the ZIP, or else the folder the loose file
-/// is in, or the loose file itself in the Source Set's own folder.
-fn file_of(path: &str, in_archive: bool) -> &str {
-    stray_file(path, in_archive).unwrap_or(path)
+/// The file that holds the Entry at `path`, `member` of it in a ZIP: the ZIP or folder named for the Game that holds
+/// it ([`Holders::container_file`]), or else the file named for no Game ([`stray_file`]), or else the loose file.
+fn file_of<'a>(holders: &Holders, path: &'a str, member: Option<&str>) -> &'a str {
+    (holders.container_file(path, member).map(|(_, file)| file))
+        .or_else(|| stray_file(path, member.is_some()))
+        .unwrap_or(path)
+}
+
+/// The one Game of all of `roms`; none when they are of several Games, or there are none.
+fn one_game(dat: &Dat, roms: &[usize]) -> Option<usize> {
+    let mut games = roms.iter().map(|r| dat.roms[*r].game);
+    let first = games.next()?;
+    games.all(|g| g == first).then_some(first)
 }
 
 /// The name of the Entry at `path`, `member` of it in a ZIP: its file name, less any folders.
@@ -1244,17 +1258,40 @@ impl<'d> Holders<'d> {
     /// in its Library Folder), `member` of it in a ZIP: the nearest of the ZIP, by its name less `.zip`, and the
     /// folders above it or the loose file that is named for a Game. None when none is.
     pub fn container(&self, path: &str, member: Option<&str>) -> Option<usize> {
+        self.container_file(path, member).map(|(game, _)| game)
+    }
+
+    /// [`Holders::container`], with the ZIP or folder named for it: a prefix of `path`.
+    pub fn container_file<'a>(
+        &self,
+        path: &'a str,
+        member: Option<&str>,
+    ) -> Option<(usize, &'a str)> {
         // A Placed Game's file is held as it is in its Library Folder.
-        let path = stage_select_api::storage::split_placed(path).map_or(path, |(_, rel)| rel);
-        let mut parts = path.split(['/', '\\']).rev();
-        let file = parts.next()?;
+        let rel = stage_select_api::storage::split_placed(path).map_or(path, |(_, rel)| rel);
+        let base = path.len() - rel.len();
+        let (mut folder, file) = match rel.rsplit_once(['/', '\\']) {
+            Some((folder, file)) => (Some(folder), file),
+            None => (None, rel),
+        };
         let zip = member.and_then(|_| {
             let (stem, ext) = file.rsplit_once('.')?;
             ext.eq_ignore_ascii_case("zip").then_some(stem)
         });
-        zip.into_iter()
-            .chain(parts)
-            .find_map(|name| self.dat.game_index(name))
+        if let Some(game) = zip.and_then(|stem| self.dat.game_index(stem)) {
+            return Some((game, path));
+        }
+        while let Some(f) = folder {
+            let (above, name) = match f.rsplit_once(['/', '\\']) {
+                Some((above, name)) => (Some(above), name),
+                None => (None, f),
+            };
+            if let Some(game) = self.dat.game_index(name) {
+                return Some((game, &path[..base + f.len()]));
+            }
+            folder = above;
+        }
+        None
     }
 
     /// What the Game `container`, whose ZIP or folder holds an Entry, is to `game`; none when it is none of that

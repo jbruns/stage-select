@@ -824,6 +824,103 @@ fn a_zip_named_for_no_game_whose_entries_single_out_two_games_counts_each_for_ev
     );
 }
 
+#[test]
+fn a_name_alone_never_singles_out_a_game_whose_payload_another_game_shares() {
+    let f = Fixture::new();
+    // Two Games whose tracks have the same payloads under different names.
+    let dat = f.dat(&[
+        (
+            "Twin A (USA)",
+            vec![
+                rom("Twin A (USA) (Track 1).bin", b"twin data"),
+                rom("Twin A (USA) (Track 2).bin", b"twin audio"),
+            ],
+        ),
+        (
+            "Twin B (Europe)",
+            vec![
+                rom("Twin B (Europe) (Track 1).bin", b"twin data"),
+                rom("Twin B (Europe) (Track 2).bin", b"twin audio"),
+            ],
+        ),
+    ]);
+    // Its first track is named for A, but its payload is B's too: nothing in the ZIP singles out one Game.
+    write_zip(
+        &f.set_path("Twins (Old).zip"),
+        &[
+            ("Twin A (USA) (Track 1).bin", b"twin data"),
+            ("Track 02.bin", b"twin audio"),
+        ],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(status_of(&report, "Twin A (USA)"), GameStatus::Complete);
+    assert_eq!(
+        status_of(&report, "Twin B (Europe)"),
+        GameStatus::Incomplete
+    );
+}
+
+#[test]
+fn a_folder_named_for_no_game_counts_its_nested_files_together() {
+    let f = Fixture::new();
+    let dat = common_track_dat(&f);
+    write_file(&f.set_path("old names/Track 01.bin"), b"qb data");
+    write_file(&f.set_path("old names/audio/Track 02.bin"), b"common audio");
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(
+        status_of(&report, "Quarterback '97 (USA)"),
+        GameStatus::Complete
+    );
+    for game in ["House (Europe)", "Rally (Japan)"] {
+        assert_eq!(status_of(&report, game), GameStatus::Missing, "{game}");
+    }
+}
+
+#[test]
+fn a_duplicate_names_a_game_folder_complete_with_files_in_its_subfolders() {
+    let f = Fixture::new();
+    let dat = common_track_dat(&f);
+    write_file(
+        &f.set_path("Quarterback '97 (USA)/Quarterback '97 (USA) (Track 1).bin"),
+        b"qb data",
+    );
+    write_file(
+        &f.set_path("Quarterback '97 (USA)/audio/Quarterback '97 (USA) (Track 2).bin"),
+        b"common audio",
+    );
+    write_zip(
+        &f.set_path("Quarterback 97 (USA).zip"),
+        &[
+            ("Quarterback 97 (USA) (Track 1).bin", b"qb data"),
+            ("Quarterback 97 (USA) (Track 2).bin", b"common audio"),
+        ],
+    );
+
+    let report = audit(&dat, f.set.path()).unwrap();
+
+    assert_eq!(
+        status_of(&report, "Quarterback '97 (USA)"),
+        GameStatus::Complete
+    );
+    let named = CompleteIn {
+        game: "Quarterback '97 (USA)".into(),
+        path: "Quarterback '97 (USA)".into(),
+    };
+    for entry in &report.entries {
+        let duplicate = entry.path == "Quarterback 97 (USA).zip";
+        assert_eq!(entry.finding == Finding::Misnamed, duplicate, "{entry:?}");
+        assert_eq!(
+            entry.complete_in,
+            duplicate.then(|| named.clone()),
+            "{entry:?}"
+        );
+    }
+}
+
 /// A parent, its clone sharing one ROM with it and having one of its own, and an unrelated Game sharing the parent's
 /// other ROM.
 fn parent_and_clone_dat(f: &Fixture) -> std::path::PathBuf {

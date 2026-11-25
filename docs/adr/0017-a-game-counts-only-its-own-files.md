@@ -31,8 +31,11 @@ Game. Each of its Entries counted towards every ROM its payload matched, so its 
 Games Incomplete, though nothing of those Games was there.
 
 - An Entry inside a ZIP or folder named for no Game counts towards the ROMs its Finding gives, of one Game alone, when
-  that file's Entries single out one Game: the Games of the Entries whose ROMs are all of one Game are that one Game.
-  In the example, Track 1 matches only the renamed Game, so Track 2 counts only for it.
+  that file's Entries single out one Game: the Games of the Entries whose checksums match ROMs of one Game alone are
+  that one Game. Checksums decide, never a name: an Entry named for one Game's ROM whose payload another Game's ROM
+  has too singles out neither. A folder named for no Game is the outermost such folder under the Source Set's own,
+  with every folder in it, as a Game's folder holds its subfolders' files. In the example, Track 1 matches only the
+  renamed Game, so Track 2 counts only for it.
 - When they single out no Game, or more than one, each Entry counts towards every ROM its Finding gives, as before.
 - A loose file in the Source Set's own folder keeps counting towards every ROM its Finding gives: it has no other
   Entries to tell its Game by.
@@ -46,7 +49,7 @@ A Repair sets such a duplicate aside by default when every ROM it holds is also 
 is, and nothing in the Repair reads it; see ADR 0026's amendment of the same date.
 
 An Entry that counts towards one Game alone names, in `complete_in`, the Game and the other file named for it whose
-Matched Entries alone make it Complete: the ZIP, the folder of loose files, or the loose file in the Source Set's own
-folder. Of several such files, it names the first counted. Its Finding stays as it is (Misnamed, for the duplicate in
+Matched Entries alone make it Complete: the ZIP, the folder of loose files with every folder in it, or the loose file
+in the Source Set's own folder. Of several such files, it names the first counted. Its Finding stays as it is (Misnamed, for the duplicate in
 the example); `complete_in` is extra evidence that the Entry is a duplicate. An Entry that counts towards several Games,
 or towards a Game no other such file makes Complete, names none.

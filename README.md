@@ -281,10 +281,11 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   `<game>/`. An entry in `<other game>.zip` or `<other game>/` doesn't count towards this game, even when its `roms`
   name one of this game's ROMs, as a track two discs share often does when it is stored under an old title. A loose
   file, or a member of a ZIP, in nothing named for a game still counts, misnamed or not. In a ZIP or folder named for
-  no game, such as a duplicate of a game under an older name, when the entries that match one game's ROMs alone all
-  match the same game, every entry of it counts towards that game alone: a track many discs share counts only for the
-  game the rest of the ZIP is. Its `roms` still name every ROM it matches. A loose file in the source set's own folder
-  counts towards every ROM it matches.
+  no game, such as a duplicate of a game under an older name, when the entries whose checksums match one game's ROMs
+  alone all match the same game, every entry of it counts towards that game alone: a track many discs share counts
+  only for the game the rest of the ZIP is. A name never decides this, only checksums. Such a folder includes the
+  folders in it. Its `roms` still name every ROM it matches. A loose file in the source set's own folder counts
+  towards every ROM it matches.
 - A game's ancestors' ZIPs and folders count as its own: its parent's (`cloneof`), and each one up its `romof` chain
   to its BIOS, because merged and split sets keep a family's shared files there. In its own and its ancestors' ZIPs
   and folders, an entry counts towards a ROM by its name or, failing that, by its checksums under another name, as
@@ -312,7 +313,8 @@ An audit against a DAT that names a header rule, here an Atari 7800 DAT, adds th
   delta CHD's entry gives its parent's SHA-1 in `parent_sha1`.
 - An entry that counts towards one game alone, when another file named for that game makes it complete by its matched
   entries alone, gives that game and file in `complete_in`, `{"game", "path"}`: the entry is a duplicate. The file is
-  a ZIP, a folder of loose files, or a loose file, its path relative to the source set's root as an entry's `path`.
+  a ZIP, a folder of loose files with the folders in it, or a loose file, its path relative to the source set's root
+  as an entry's `path`.
 - `available_elsewhere` lists a game's missing ROMs whose checksums an entry in another game's ZIP or folder has, with
   the games whose ZIP or folder holds each, whatever that entry's name. They are still in `missing_roms`. A repair can
   fill the game from such an entry, such as a track stored under an old title, unless the entry is named for the other
