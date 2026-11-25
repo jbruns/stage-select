@@ -438,8 +438,17 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
                 .and_then(|p| p.available.clone());
         }
         if let Some(check) = check {
+            // A kept Game's files are where its Build's plan laid them out by the storage policy: loose, as CHD or in
+            // a disc layout, not only `<game>.zip`.
             let selected = selected_targets(c, selection)?;
-            let is_selected = |target: &str| selected.contains_key(&target.to_lowercase());
+            let kept: std::collections::HashSet<&str> =
+                selected.values().map(String::as_str).collect();
+            let is_selected = |target: &str| {
+                selected.contains_key(&target.to_lowercase())
+                    || planned
+                        .get(&target.to_ascii_lowercase())
+                        .is_some_and(|p| kept.contains(p.game.as_str()))
+            };
             let mut found = Vec::new();
             for f in check.files.iter().filter(|f| is_selected(&f.target)) {
                 let reason = match f.outcome {

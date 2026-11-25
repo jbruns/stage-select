@@ -2774,33 +2774,46 @@ fn naming_a_clone_the_source_set_has_trusts_the_audit_and_reads_no_file() {
 
 #[test]
 fn a_file_a_check_finds_at_a_game_with_no_source_still_makes_the_folder_incomplete() {
-    let env = Env::new();
-    env.audit();
-    let id = env.record(&selection(
-        &env.sha256,
-        vec![group("Missing (USA)"), group("Yars (USA)")],
-    ));
-    let folder = env.folder("atari2600");
-    env.build(&env.plan(&folder, id));
-    let dir = env.play().join("atari2600");
-    write_file(&dir.join("Missing (USA).zip"), b"theirs");
+    // Whatever the storage policy names the game's file: a ZIP, or its one ROM stored loose.
+    for (loose, target) in [(false, "Missing (USA).zip"), (true, "Missing (USA).a26")] {
+        let env = Env::new();
+        if loose {
+            set_play_policy(&env, StorageFormat::Loose, None, false);
+        }
+        env.audit();
+        let id = env.record(&selection(
+            &env.sha256,
+            vec![group("Missing (USA)"), group("Yars (USA)")],
+        ));
+        let folder = env.folder("atari2600");
+        let plan = env.plan(&folder, id);
+        let planned = plan
+            .content
+            .items
+            .iter()
+            .find(|i| i.game == "Missing (USA)")
+            .unwrap();
+        assert_eq!(planned.target, target);
+        env.build(&plan);
+        write_file(&env.play().join("atari2600").join(target), b"theirs");
 
-    check(&env, &folder);
+        check(&env, &folder);
 
-    let incomplete = env.store.incomplete(folder.id).unwrap();
-    let found: Vec<_> = incomplete
-        .items
-        .iter()
-        .map(|i| (i.reason, i.target.as_str()))
-        .collect();
-    assert_eq!(found, [(IncompleteReason::Conflict, "Missing (USA).zip")]);
-    let counts = env
-        .store
-        .library_folder(folder.id)
-        .unwrap()
-        .incomplete
-        .unwrap();
-    assert!(counts.makes_incomplete(), "{counts:?}");
+        let incomplete = env.store.incomplete(folder.id).unwrap();
+        let found: Vec<_> = incomplete
+            .items
+            .iter()
+            .map(|i| (i.reason, i.target.as_str()))
+            .collect();
+        assert_eq!(found, [(IncompleteReason::Conflict, target)]);
+        let counts = env
+            .store
+            .library_folder(folder.id)
+            .unwrap()
+            .incomplete
+            .unwrap();
+        assert!(counts.makes_incomplete(), "{counts:?}");
+    }
 }
 
 #[test]
