@@ -1468,9 +1468,10 @@ fn a_mismatched_entry_is_replaced_from_ingest_and_kept() {
     let env = Env::new();
     env.put("Yars (USA).a26", b"bad dump");
     env.audit(AuditEvidence::Full);
-    assert!(
-        env.plan().content.steps.is_empty(),
-        "without an ingest item nothing is proposed"
+    assert_eq!(
+        item(&env.plan(), "file:Yars (USA).a26").default,
+        RepairChoice::KeepAside,
+        "without an ingest item it is set aside"
     );
     env.ingest("yars.a26", |p| write_file(p, b"yars"));
 
@@ -1478,6 +1479,15 @@ fn a_mismatched_entry_is_replaced_from_ingest_and_kept() {
     let yars = item(&plan, "game:Yars (USA)");
     assert_eq!(yars.kind, RepairKind::Replace);
     assert_eq!(yars.default, RepairChoice::Apply);
+    assert!(
+        !plan
+            .content
+            .items
+            .iter()
+            .any(|i| i.key.starts_with("file:")),
+        "{:#?}",
+        plan.content.items
+    );
     env.approve(&plan);
 
     assert_eq!(
@@ -1489,6 +1499,154 @@ fn a_mismatched_entry_is_replaced_from_ingest_and_kept() {
         ]
     );
     assert!(env.ingest_listing().is_empty());
+}
+
+fn crc32(bytes: &[u8]) -> String {
+    format!("{:08x}", crc32fast::hash(bytes))
+}
+
+fn sha1(bytes: &[u8]) -> String {
+    use sha1::Digest;
+    sha1::Sha1::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+#[test]
+fn a_mismatched_file_no_ingest_item_replaces_is_set_aside_by_default_and_its_game_is_then_missing()
+{
+    let env = Env::new();
+    env.put("Yars (USA).a26", b"bad dump");
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let yars = item(&plan, "file:Yars (USA).a26");
+    assert_eq!(yars.kind, RepairKind::KeepAside);
+    assert_eq!(yars.default, RepairChoice::KeepAside);
+    assert_eq!(yars.choices, [RepairChoice::KeepAside, RepairChoice::Leave]);
+    for shown in [
+        "Yars (USA).a26 of Yars (USA)".to_owned(),
+        format!(
+            "8 bytes, CRC32 {}, SHA-1 {}",
+            crc32(b"bad dump"),
+            sha1(b"bad dump")
+        ),
+        format!(
+            "the DAT gives 4 bytes, CRC32 {}, SHA-1 {}",
+            crc32(b"yars"),
+            sha1(b"yars")
+        ),
+    ] {
+        assert!(yars.summary.contains(&shown), "{shown} in {}", yars.summary);
+    }
+    let done = env.approve(&plan);
+
+    assert_eq!(
+        env.listing(),
+        [
+            ".stage-select/marker",
+            ".stage-select/retained/1/Yars (USA).a26.kept"
+        ]
+    );
+    let kept = env.store.source_kept_files("Alpha").unwrap();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    env.run_queued_audit(&done);
+    assert_eq!(status_of(&env, "Yars (USA)"), GameStatus::Missing);
+}
+
+#[test]
+fn a_mismatched_files_checksums_read_under_another_header_rule_are_not_shown() {
+    let env = Env::new();
+    env.put("Yars (USA).a26", b"bad dump");
+    env.audit(AuditEvidence::Full);
+    // As a later Audit against a revision naming a Header Rule does when it reads the unchanged file and stops before
+    // it finishes: its read, leaving out a Header, replaces this Audit's.
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
+    let changed = db
+        .execute(
+            "UPDATE payload_reads SET header_rule = 'atari7800',
+                    members = replace(members, ?1, ?2)
+             WHERE path = 'Yars (USA).a26'",
+            [crc32(b"bad dump"), crc32(b"dump")],
+        )
+        .unwrap();
+    assert_eq!(changed, 1);
+
+    let plan = env.plan();
+    let yars = item(&plan, "file:Yars (USA).a26");
+
+    assert!(
+        yars.summary.contains("its checksums aren't on record"),
+        "{}",
+        yars.summary
+    );
+    assert!(!yars.summary.contains(&crc32(b"dump")), "{}", yars.summary);
+    assert_eq!(yars.default, RepairChoice::KeepAside);
+}
+
+#[test]
+fn a_mismatched_file_under_a_nodump_roms_name_is_left_by_default() {
+    let env = Env::new();
+    let revision = import_adventure_with_a_nodump_manual(&env);
+    env.put("Adventure (USA).txt", b"a manual");
+    env.store
+        .audit_source_set("Alpha", Some(&revision), AuditEvidence::Full)
+        .unwrap();
+
+    let plan = env.plan();
+    let manual = item(&plan, "file:Adventure (USA).txt");
+    assert_eq!(manual.default, RepairChoice::Leave, "{manual:#?}");
+    assert!(manual.choices.contains(&RepairChoice::KeepAside));
+    assert!(
+        manual
+            .note
+            .as_deref()
+            .is_some_and(|n| n.contains("no good dump known")),
+        "{manual:#?}"
+    );
+    assert!(plan.content.steps.is_empty(), "{:#?}", plan.content.steps);
+}
+
+#[test]
+fn a_zip_holding_a_mismatched_member_beside_matched_ones_is_only_left() {
+    let env = Env::new();
+    write_zip(
+        &env.set().join("Adventure (USA).zip"),
+        &[
+            ("Adventure (USA).a26", b"adventure"),
+            ("Adventure (USA).txt", b"not the manual"),
+        ],
+    );
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let zip = item(&plan, "file:Adventure (USA).zip");
+    assert_eq!(zip.choices, [RepairChoice::Leave]);
+    assert_eq!(zip.default, RepairChoice::Leave);
+    assert!(
+        zip.note
+            .as_deref()
+            .is_some_and(|n| n.contains("also holds ROMs the audit matched")),
+        "{zip:#?}"
+    );
+    assert!(
+        zip.summary
+            .contains("Adventure (USA).zip (Adventure (USA).txt)"),
+        "{zip:#?}"
+    );
+    let refused = env.store.plan_repair(
+        "Alpha",
+        &PlanRepair {
+            choices: [(
+                "file:Adventure (USA).zip".to_owned(),
+                RepairChoice::KeepAside,
+            )]
+            .into(),
+            additions: Default::default(),
+        },
+    );
+    assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
 }
 
 #[test]
@@ -4742,6 +4900,34 @@ fn a_mismatched_track_is_replaced_from_ingest_and_kept_aside() {
     );
     env.run_queued_audit(&done);
     assert_eq!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
+}
+
+#[test]
+fn a_loose_folders_mismatched_track_is_set_aside_alone() {
+    let env = Env::with("Redump", &disc_games());
+    let quest = disc_of("Quest (USA)");
+    write_loose_folder(&env.set(), "Quest (USA)", &quest);
+    let track = format!("Quest (USA)/{}", quest[1].name);
+    env.put(&track, b"not the track");
+    env.audit(AuditEvidence::Full);
+
+    let plan = env.plan();
+    let aside = item(&plan, &format!("file:{track}"));
+    assert_eq!(aside.default, RepairChoice::KeepAside, "{aside:#?}");
+    let done = env.approve(&plan);
+
+    assert!(!env.set().join(&track).exists());
+    for rom in [&quest[0], &quest[2]] {
+        let path = env.set().join("Quest (USA)").join(rom.name);
+        assert_eq!(std::fs::read(path).unwrap(), rom.payload);
+    }
+    let kept = env.store.source_kept_files("Alpha").unwrap();
+    assert!(
+        kept.iter().any(|k| k.name.ends_with(quest[1].name)),
+        "{kept:?}"
+    );
+    env.run_queued_audit(&done);
+    assert_ne!(status_of(&env, "Quest (USA)"), GameStatus::Complete);
 }
 
 /// A Redump DAT where `Ball (USA) (Canada)`, renamed since it was dumped, shares its second track's payload with

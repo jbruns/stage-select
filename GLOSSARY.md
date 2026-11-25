@@ -258,11 +258,11 @@ a Build under Single Copy also approves the Placements it changes.
 **Repair**:
 Applying an approved Change Plan to a Source Set, proposed from its latest Audit's payload Evidence and from items
 assessed in Ingest Folders: renaming Entries to the DAT's names, repacking Games, filling Missing Games, replacing
-Mismatched or Unreadable Entries, and setting aside what no Game needs. Each item has a default the Operator can change
-before approving. Approving queues it as a Job, which the Operator can cancel between its steps. While a Repair of a
-Source Set is queued, running or owes its follow-up Audit, no Audit or Build reads that Source Set, and the reverse. A
-Repair deletes nothing but an original it converted, and only when Delete Originals After Conversion says so: what it
-replaces or sets aside becomes a Kept File.
+Mismatched or Unreadable Entries, and setting aside what no Game needs, a Mismatched Entry nothing replaces among it.
+Each item has a default the Operator can change before approving. Approving queues it as a Job, which the Operator can
+cancel between its steps. While a Repair of a Source Set is queued, running or owes its follow-up Audit, no Audit or
+Build reads that Source Set, and the reverse. A Repair deletes nothing but an original it converted, and only when
+Delete Originals After Conversion says so: what it replaces or sets aside becomes a Kept File.
 _Avoid_: Fix, rebuild, quarantine
 
 **Build**:

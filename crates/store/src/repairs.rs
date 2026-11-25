@@ -905,6 +905,24 @@ impl Store {
         let (fingerprint, files) = walk_with_placed(self, roots, set.id, &dir)?;
         let stamps = self.read(|c| audit_stamps(c, audit.id, false))?;
         let unreadable = self.read(|c| audit_stamps(c, audit.id, true))?;
+        // The checksums the Audit read of each file holding a Mismatched Entry, which its item shows beside the DAT's.
+        let mismatched: BTreeSet<&str> = (report.entries.iter())
+            .filter(|e| e.finding == stage_select_api::Finding::Mismatched)
+            .map(|e| e.path.as_str())
+            .collect();
+        let payloads = self.read(|c| {
+            crate::audits::payloads_as_stamped(
+                c,
+                set.id,
+                mismatched.iter().copied(),
+                &stamps,
+                report
+                    .dat_revision
+                    .header_rule
+                    .as_ref()
+                    .and_then(|h| h.rule),
+            )
+        })?;
         let candidates =
             self.read(|c| fill_candidates(c, &record.name, &report.dat_revision.sha256))?;
         // Where each Placed Game is, while the Audit found a file of it there: one whose every file is gone is
@@ -982,6 +1000,7 @@ impl Store {
             files: &files,
             stamps: &stamps,
             unreadable: &unreadable,
+            payloads: &payloads,
             torrentzip: &torrentzip,
             candidates: &candidates,
             choices: &request.choices,

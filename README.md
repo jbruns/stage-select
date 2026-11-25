@@ -1911,6 +1911,13 @@ approving approves the plan as it was made, so it waits while you have changes y
 - a missing game is filled from an ingest folder item whose payload matches it: on by default when there is one;
 - a game with a mismatched or unreadable entry is replaced from an ingest folder item that matches it, keeping the
   original: on by default when there is one;
+- a mismatched entry nothing replaces, a file under a ROM's name whose bytes match no ROM, is set aside by default,
+  as unmatched entries are: the item shows its size, CRC32 and SHA-1 beside the DAT's, so you can spot a header
+  difference or a dump from another DAT revision before you approve. Its game then counts as missing, or incomplete,
+  and a later ingest fills it. It is left by default when it has the name of a ROM with no good dump known, or of a
+  game outside your coverage. A loose folder's mismatched track is set aside alone; a ZIP that also holds ROMs the
+  audit matched is only left, as setting it aside would set them aside too. A game placed in a library folder is left
+  as it is;
 - a missing `.cue` sheet of a disc game is filled, and a mismatched one replaced, keeping the original, from a cue
   pack imported for the source set's DAT whose sheet matches every checksum the DAT gives: on by default when there
   is one;

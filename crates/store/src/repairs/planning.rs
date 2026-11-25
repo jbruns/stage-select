@@ -18,6 +18,7 @@ use stage_select_engine::payload::Checksums;
 use stage_select_engine::{FileStamp, Holders, entry_name};
 
 use super::{as_read, seen_file};
+use crate::audits::MemberSums;
 use crate::checks::Seen;
 use crate::ingest::FillCandidate;
 use crate::kept::name_key;
@@ -31,6 +32,9 @@ pub(super) struct Inputs<'a> {
     pub stamps: &'a HashMap<String, FileStamp>,
     /// The stamp of each file the Audit could not read every payload of, when it could stat it.
     pub unreadable: &'a HashMap<String, FileStamp>,
+    /// The checksums of each payload the Audit read, by member (none for a loose file), of each file holding a
+    /// Mismatched Entry, while the read on record is the one that Audit stamped.
+    pub payloads: &'a HashMap<String, MemberSums>,
     /// Whether the file at a path is stored as TorrentZip.
     pub torrentzip: &'a dyn Fn(&str) -> bool,
     pub candidates: &'a [FillCandidate],
@@ -1478,6 +1482,151 @@ fn left_for_nodump<'a>(
          emulator may still load it, so choose whether to {choose}.",
         entry_label(entry),
     ))
+}
+
+/// The item for a file in the Source Set's folder holding a Mismatched Entry no item replaces: set aside by default,
+/// as a file holding nothing a Game needs is, since the DAT says its bytes are no ROM. It is left by default when an
+/// Entry has a nodump ROM's name, or the name of a Game outside the Coverage; and only ever left when the file also
+/// holds an Entry the Audit matched, which setting it aside whole would set aside too.
+fn mismatched_aside(
+    i: &Inputs,
+    holders: &Holders,
+    layout_index: &LayoutIndex,
+    dat_roms: &HashMap<RomKey, &Rom>,
+    path: &str,
+    file: &Usable,
+) -> Result<Proposed> {
+    let key = format!("file:{path}");
+    let whole = (file.entries.iter())
+        .all(|e| matches!(e.finding, Finding::Mismatched | Finding::Unmatched));
+    let outside: BTreeSet<&str> = (file.entries.iter())
+        .filter(|e| e.finding == Finding::Mismatched)
+        .filter_map(|e| e.named_rom.as_ref())
+        .map(|r| r.game.as_str())
+        .filter(|game| !(i.covers)(game))
+        .collect();
+    let (choices, default, note) = if !whole {
+        (
+            vec![RepairChoice::Leave],
+            RepairChoice::Leave,
+            Some(format!(
+                "left as it is: {path} also holds ROMs the audit matched, and setting it aside would set them \
+                 aside too"
+            )),
+        )
+    } else if let Some(why) =
+        left_for_nodump(i.dat, holders, layout_index, [file], IfChosen::KeepAside)
+    {
+        (
+            vec![RepairChoice::KeepAside, RepairChoice::Leave],
+            RepairChoice::Leave,
+            Some(why),
+        )
+    } else if !outside.is_empty() {
+        let games: Vec<&str> = outside.into_iter().collect();
+        (
+            vec![RepairChoice::KeepAside, RepairChoice::Leave],
+            RepairChoice::Leave,
+            Some(format!(
+                "left as it is by default: {} {} outside your coverage, and a repair changes a game outside it only \
+                 by renaming or repacking it. Choose whether to set it aside.",
+                games.join(", "),
+                if games.len() == 1 { "is" } else { "are" },
+            )),
+        )
+    } else {
+        (
+            vec![RepairChoice::KeepAside, RepairChoice::Leave],
+            RepairChoice::KeepAside,
+            None,
+        )
+    };
+    let chosen = i.choices.get(&key).copied().unwrap_or(default);
+    if !choices.contains(&chosen) {
+        return Err(Error::Refused(format!(
+            "{key} cannot be set to {}",
+            chosen.label()
+        )));
+    }
+    if i.additions.contains_key(&key) {
+        return Err(Error::Refused(format!(
+            "{key} is not chosen to be added as an addition"
+        )));
+    }
+    let read = i.payloads.get(path);
+    let summary = (file.entries.iter())
+        .filter(|e| e.finding == Finding::Mismatched)
+        .map(|e| {
+            let sums = read.and_then(|members| {
+                (members.iter())
+                    .find(|(member, _)| member.as_deref() == e.member.as_deref())
+                    .map(|(_, sums)| sums)
+            });
+            let rom = (e.named_rom.as_ref())
+                .and_then(|r| dat_roms.get(&(r.game.clone(), r.name.clone())))
+                .copied();
+            let named = (e.named_rom.as_ref())
+                .map(|r| format!("{} of {}", r.name, r.game))
+                .unwrap_or_else(|| "a ROM".into());
+            format!(
+                "{} has the name of {named}, but its bytes match no ROM: {}",
+                entry_label(e),
+                mismatch_evidence(sums, rom)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    Ok(Proposed {
+        item: RepairItem {
+            key,
+            kind: RepairKind::KeepAside,
+            game: None,
+            path: Some(path.to_owned()),
+            member: None,
+            summary: summary.clone(),
+            choices,
+            default,
+            chosen,
+            note,
+            addition: None,
+            addition_rom: None,
+            addition_target: None,
+        },
+        proposal: None,
+        displaces: vec![(path.to_owned(), summary)],
+        produces: None,
+        checked: false,
+        target: None,
+        converts: Vec::new(),
+        release: None,
+    })
+}
+
+/// A Mismatched Entry's size and checksums, as the Audit read them, against those the DAT gives the ROM it is named
+/// for: what tells a Header the DAT leaves out, or another revision's dump, from a damaged file.
+fn mismatch_evidence(read: Option<&Checksums>, rom: Option<&Rom>) -> String {
+    let ours = match read {
+        Some(c) => format!(
+            "it is {} bytes, CRC32 {}, SHA-1 {}{}",
+            c.size,
+            c.crc,
+            c.sha1,
+            c.header
+                .map(|n| format!(", leaving out a {n}-byte header"))
+                .unwrap_or_default()
+        ),
+        None => "its checksums aren't on record; audit it again to see them".into(),
+    };
+    let dat = match rom {
+        Some(r) if r.crc.is_some() || r.sha1.is_some() => format!(
+            "the DAT gives {} bytes, CRC32 {}, SHA-1 {}",
+            r.size,
+            r.crc.as_deref().unwrap_or("none"),
+            r.sha1.as_deref().unwrap_or("none")
+        ),
+        _ => "the DAT gives no checksums for it".into(),
+    };
+    format!("{ours}, where {dat}")
 }
 
 fn roms_of(dat: &Dat, game: usize) -> Vec<ExpectedRom> {
@@ -2932,6 +3081,25 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             continue;
         }
         let source = scopes.file(path) == Scope::Source;
+        // A file holding a Mismatched Entry that no item replaces: in the Source Set's folder, set aside like one
+        // holding nothing a Game needs, as the DAT says its bytes are no ROM. A Placed Game's file is left as it is.
+        if file
+            .entries
+            .iter()
+            .any(|e| e.finding == Finding::Mismatched)
+        {
+            if source {
+                aside.push(mismatched_aside(
+                    i,
+                    &holders,
+                    &layout_index,
+                    &dat_roms,
+                    path,
+                    file,
+                )?);
+            }
+            continue;
+        }
         let spare = file.entries.iter().all(|e| match e.finding {
             Finding::Unmatched => true,
             Finding::Matched | Finding::Misnamed => {

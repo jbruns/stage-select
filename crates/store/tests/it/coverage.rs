@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::common::*;
 use stage_select_api::ingest::{ItemState, Need, Proposal};
-use stage_select_api::repair::{PlanRepair, RepairKind, RepairPlan};
+use stage_select_api::repair::{PlanRepair, RepairChoice, RepairKind, RepairPlan};
 use stage_select_api::{AuditEvidence, GameStatus, JobState, Workers};
 use stage_select_engine::dat::Dat;
 use stage_select_store::{Error, FixdatScope, Store};
@@ -393,6 +393,39 @@ fn a_covered_game_is_built_from_a_rom_an_uncovered_game_shares_and_the_uncovered
     assert_eq!(env.status("Alpha (Europe)"), GameStatus::Complete);
     assert_eq!(env.status("Beta (USA)"), GameStatus::Incomplete);
     assert!(env.set().join("Beta (USA).zip").is_file());
+}
+
+#[test]
+fn a_mismatched_file_named_for_a_game_outside_the_coverage_is_left_by_default() {
+    let env = Env::with(&games());
+    env.put("Pong (USA).a26", b"bad dump");
+    env.put("Pong (Europe).a26", b"bad dump");
+    env.audit();
+    env.cover(&["Europe"]);
+
+    let plan = env.plan();
+    let outside = plan
+        .content
+        .items
+        .iter()
+        .find(|i| i.key == "file:Pong (USA).a26")
+        .unwrap();
+    assert_eq!(outside.default, RepairChoice::Leave, "{outside:#?}");
+    assert!(outside.choices.contains(&RepairChoice::KeepAside));
+    assert!(
+        outside
+            .note
+            .as_deref()
+            .is_some_and(|n| n.contains("Pong (USA) is outside your coverage")),
+        "{outside:#?}"
+    );
+    let inside = plan
+        .content
+        .items
+        .iter()
+        .find(|i| i.key == "file:Pong (Europe).a26")
+        .unwrap();
+    assert_eq!(inside.default, RepairChoice::KeepAside, "{inside:#?}");
 }
 
 #[test]

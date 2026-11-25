@@ -33,7 +33,7 @@ pub enum RepairKind {
     Replace,
     /// An Entry whose payload is one ROM while its name gives another.
     Conflict,
-    /// A file holding nothing a Game needs: Unmatched Entries or duplicates.
+    /// A file holding nothing a Game needs: Unmatched Entries or duplicates; or a Mismatched Entry no item replaces.
     KeepAside,
     /// A Game's file, exactly its ROMs, stored in the format the Storage Policy no longer gives it: rewritten in the
     /// one it does.
