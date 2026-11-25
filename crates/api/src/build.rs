@@ -595,6 +595,10 @@ pub struct PlanItem {
     /// that the folder is Incomplete for lacking them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub missing_dependencies: Vec<String>,
+    /// For an item with no source: a clone in its Game Group that the latest Audit found a payload-verified source
+    /// for, which the Operator may choose for the group in the Selection. The Selection itself never depends on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available: Option<String>,
 }
 
 /// How a Game is placed.
@@ -1229,6 +1233,12 @@ impl IncompleteReason {
     pub fn parse(s: &str) -> Option<IncompleteReason> {
         IncompleteReason::ALL.into_iter().find(|k| k.as_str() == s)
     }
+
+    /// Whether it makes the Library Folder Incomplete. A game with no source is the Source Set's gap, which its Audit
+    /// shows as Missing: the folder holds everything its Build could place, so it only lists the game.
+    pub fn makes_incomplete(self) -> bool {
+        self != IncompleteReason::NoSource
+    }
 }
 
 /// How many selected games a Library Folder lacks, by reason.
@@ -1274,6 +1284,13 @@ impl IncompleteCounts {
     pub fn total(&self) -> u64 {
         IncompleteReason::ALL.into_iter().map(|r| self.get(r)).sum()
     }
+
+    /// Whether any game is lacking for a reason that makes the Library Folder Incomplete.
+    pub fn makes_incomplete(&self) -> bool {
+        IncompleteReason::ALL
+            .into_iter()
+            .any(|r| r.makes_incomplete() && self.get(r) > 0)
+    }
 }
 
 /// One selected game a Library Folder lacks, and why.
@@ -1286,6 +1303,10 @@ pub struct IncompleteItem {
     /// The error of a failed file, or why the item was skipped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// For a game with no source: the clone in its group its build plan named as available
+    /// ([`PlanItem::available`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available: Option<String>,
 }
 
 /// What a Library Folder lacks: what its current build recorded, and the conflicts and missing files its latest

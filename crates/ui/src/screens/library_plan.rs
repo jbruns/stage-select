@@ -20,7 +20,7 @@ use stage_select_api::build::{
 use crate::api;
 use crate::app::{Loading, navigator};
 use crate::build_model::{
-    self, Built, ConflictChoice, Placing, approve_label, cause_label, item_change,
+    self, Built, ConflictChoice, Placing, approve_label, available_line, cause_label, item_change,
     keep_reason_label, place_facts, plan_kinds, return_facts, return_games, space_lines,
     with_conflict_choices,
 };
@@ -472,6 +472,7 @@ fn plan_rows(content: &PlanContent, chooser: Option<Choosing<ConflictChoice>>) -
             current,
             ..ItemRow::new(&i.target, &i.game, proposed)
                 .fact("Why", i.reason.clone())
+                .fact("Instead", i.available.as_deref().map(available_line))
                 .fact(
                     "Set aside first",
                     i.keep

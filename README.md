@@ -1634,9 +1634,11 @@ cleanup needs a current build, whose selection and DAT revision it uses; only on
 advances the folder's generation. A cleanup never counts as a build: a build that stopped stays reported until a
 build finishes.
 
-A folder is incomplete when its current build lacks some of its selection: unresolved game groups left out, games with no
-source, files that failed, conflicts and blocked games, built files a check found missing, or a disc of a selected
-multi-disc game that no selected version has. The store records this
+A folder is incomplete when its current build lacks some of its selection: unresolved game groups left out, files that
+failed, conflicts and blocked games, built files a check found missing, or a disc of a selected multi-disc game that no
+selected version has. A selected game your source set has no file for doesn't make the folder incomplete: your source
+set's audit shows it as missing, and the folder's page lists it under **Not in your source set**, naming any game in
+the same game group your source set has a file for, so you can choose it in the selection. The store records this
 for each build, with counts and items by reason; it is never written to the marker. A build cut off by a stop or a
 failure shows as an interrupted or failed build, with how many files were applied and how many are uncertain, from
 the store's record, straight after a restart. Planning again finishes it: the files already built are unchanged.
@@ -1687,8 +1689,8 @@ A library folder of a MAME ListXML holds each selected game ready to play, as MA
   is put in place. A clone's disks go in the clone's own folder.
 
 A game whose own ROMs are all there, but not every ROM of a dependency, such as a device's, isn't built: its plan item
-has no source and names the dependency, and the folder is incomplete as **missing dependency**. So is one lacking a
-disk: its disk's item has no source. The folder's page shows the MAME version its selection was made for, from the
+has no source and names the dependency, and the folder is incomplete as **missing dependency**. A disk your source set
+has no file for is listed with the games not in your source set: its disk's item has no source. The folder's page shows the MAME version its selection was made for, from the
 ListXML's build: only that version of MAME runs what it holds. Choose which MAME you keep and play by which ListXML
 your source set follows.
 

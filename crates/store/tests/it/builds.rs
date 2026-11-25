@@ -2693,6 +2693,58 @@ fn registration_needs_a_writable_root_and_an_empty_folder_and_a_plan_checks_the_
 }
 
 #[test]
+fn a_kept_game_with_no_source_names_a_clone_of_its_group_the_audit_read_a_source_for() {
+    let env = Env::new();
+    // A quick inventory reads loose files' payloads, and only claims what a ZIP holds: Combat's file is a ZIP.
+    env.store
+        .audit_source_set(SET, None, stage_select_engine::AuditEvidence::Quick)
+        .unwrap();
+    let mut missing = group("Missing (USA)");
+    missing.clones = ["Combat (USA)", "Pong (USA)"]
+        .map(|title| CloneGame {
+            title: title.into(),
+            clone_of: "Missing (USA)".into(),
+            rule: rule("Clone"),
+        })
+        .into();
+    missing.left_out.push(LeftOutGame {
+        title: "Breakout (USA)".into(),
+        rule: rule("Region"),
+        reason: "Region".into(),
+    });
+    let id = env.record(&selection(&env.sha256, vec![missing, group("Yars (USA)")]));
+    let folder = env.folder("atari2600");
+
+    let plan = env.plan(&folder, id);
+
+    let item = plan
+        .content
+        .items
+        .iter()
+        .find(|i| i.game == "Missing (USA)")
+        .unwrap();
+    assert_eq!(item.kind, ItemKind::NoSource);
+    assert_eq!(item.available.as_deref(), Some("Pong (USA)"));
+
+    env.build(&plan);
+
+    let incomplete = env.store.incomplete(folder.id).unwrap();
+    let found: Vec<_> = incomplete
+        .items
+        .iter()
+        .map(|i| (i.reason, i.game.as_str(), i.available.as_deref()))
+        .collect();
+    assert_eq!(
+        found,
+        [(
+            IncompleteReason::NoSource,
+            "Missing (USA)",
+            Some("Pong (USA)")
+        )]
+    );
+}
+
+#[test]
 fn a_quick_inventorys_claims_are_never_build_sources() {
     let env = Env::new();
     // Ōkami's ZIP: its directory claims the right CRC32, but its payload is corrupt.

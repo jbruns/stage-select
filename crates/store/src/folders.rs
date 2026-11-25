@@ -411,9 +411,29 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
             game: r.get(2)?,
             target: r.get(3)?,
             detail: r.get(4)?,
+            available: None,
         })
     })?;
     out.items = rows.collect::<Result<_, _>>()?;
+    // A game with no source names the clone its plan found available; the plan keeps it, so the record needn't.
+    if out
+        .items
+        .iter()
+        .any(|i| i.reason == IncompleteReason::NoSource)
+    {
+        let content = build_plan(c, build)?;
+        for item in out
+            .items
+            .iter_mut()
+            .filter(|i| i.reason == IncompleteReason::NoSource)
+        {
+            item.available = content
+                .items
+                .iter()
+                .find(|p| p.target == item.target)
+                .and_then(|p| p.available.clone());
+        }
+    }
     let selection: i64 = c.query_row(
         "SELECT selection_id FROM builds WHERE id = ?1",
         [build],
@@ -468,6 +488,7 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
                 game,
                 target,
                 detail,
+                available: None,
             });
         }
     }
@@ -491,6 +512,7 @@ pub(super) fn incomplete(c: &Connection, row: &FolderRow) -> Result<Incomplete> 
                         discs::disc(title).map_or_else(|| title.clone(), |d| d.release),
                         group.group
                     )),
+                    available: None,
                 });
             }
         }
