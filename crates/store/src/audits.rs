@@ -359,6 +359,52 @@ fn counts_from(row: &Row, first: usize) -> rusqlite::Result<Counts> {
     Ok((findings, games))
 }
 
+/// The checksums of each payload of a file as last read, by member: none for a loose file.
+pub(crate) type MemberSums = Vec<(Option<String>, Checksums)>;
+
+/// The checksums of each payload of each of `paths` in Source Set `set`, by member (none for a loose file), as last
+/// read: only where that read's stamp is `stamps`' for the path, the one the Audit a repair is planned from recorded.
+pub(crate) fn payloads_as_stamped<'p>(
+    c: &Connection,
+    set: i64,
+    paths: impl IntoIterator<Item = &'p str>,
+    stamps: &std::collections::HashMap<String, FileStamp>,
+) -> Result<std::collections::HashMap<String, MemberSums>> {
+    let mut stmt = c.prepare(
+        "SELECT dev, ino, size, mtime_ns, ctime_ns, members FROM payload_reads
+         WHERE source_set_id = ?1 AND path = ?2",
+    )?;
+    let mut found = std::collections::HashMap::new();
+    for path in paths {
+        let Some(stamp) = stamps.get(path) else {
+            continue;
+        };
+        let row = stmt
+            .query_row(params![set, path], |r| {
+                Ok((
+                    FileStamp {
+                        dev: r.get::<_, i64>(0)? as u64,
+                        ino: r.get::<_, i64>(1)? as u64,
+                        size: r.get::<_, i64>(2)? as u64,
+                        mtime_ns: r.get::<_, i64>(3)? as i128,
+                        ctime_ns: r.get::<_, i64>(4)? as i128,
+                    },
+                    r.get::<_, String>(5)?,
+                ))
+            })
+            .optional()?;
+        if let Some((read, members)) = row
+            && read == *stamp
+        {
+            found.insert(
+                path.to_owned(),
+                serde_json::from_str(&members).map_err(corrupt)?,
+            );
+        }
+    }
+    Ok(found)
+}
+
 fn corrupt(what: impl std::fmt::Display) -> Error {
     Error::Io(format!("unexpected stored value: {what}"))
 }
