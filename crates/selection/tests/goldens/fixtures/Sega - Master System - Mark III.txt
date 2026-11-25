@@ -260,6 +260,8 @@ rule r48: Superset parent selection REF0119: Group after good dump/production/re
      alternative to Astro Warrior & Pit Pot (Europe) [11]
    .   .   .   .   .   .   .   .   a2  .   a2  .   .   .   .   a2  | Fushigi no Oshiro Pit Pot (Japan)
      alternative to Astro Warrior & Pit Pot (Europe) [9,11]
+   .   .   .   .   .   .   .   .   a36 .   a36 .   .   .   .   .   | Fushigi no Oshiro Pit Pot (Japan) (Beta)
+     alternative to Astro Warrior & Pit Pot (Europe) [9,11]
    .   .   .   .   .   .   .   .   a9  .   a9  .   .   .   .   a9  | Hang On & Astro Warrior (USA)
      alternative to Astro Warrior & Pit Pot (Europe) [9,11]
 == aventuras da tv colosso, as
@@ -703,25 +705,26 @@ rule r48: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w46 w46 w46 x33 x29 w46 x28 w46 .   .   .   .   .   .   .   .   | Haja no Fuuin (Japan)
 == hang on
+   g   g   g   g   g   g   g   g   .   g   g   g   g   .   g   g   |
    .   .   .   .   .   .   .   .   .   .   a12 .   .   .   .   .   | Hang On & Safari Hunt (USA)
    .   .   .   .   .   .   .   .   .   .   a10 .   .   .   .   .   | Hang On & Safari Hunt (USA) (Beta)
    w46 w46 w46 x33 x29 w46 x28 w46 .   a45 w9  x33 x29 .   x28 .   | Hang On (Europe)
-   w46 w46 w46 x33 x29 w46 x28 x24 a36 a36 a36 x33 x29 a36 x28 x24 | Hang On (Europe) (Beta)
-     alternative to Hang On & Astro Warrior (USA) [14]
-     alternative to Hang On & Safari Hunt (USA) [9]
-   w46 w46 w46 x33 x29 w46 x28 w46 a45 w8  a45 x33 x29 a45 x28 a45 | Hang On (Japan)
-     alternative to Hang On & Astro Warrior (USA) [14]
-     alternative to Hang On & Safari Hunt (USA) [9,16]
+   w46 w46 w46 x33 x29 w46 x28 x24 .   a36 a36 x33 x29 .   x28 x24 | Hang On (Europe) (Beta)
+   w46 w46 w46 x33 x29 w46 x28 w46 .   w8  a45 x33 x29 .   x28 .   | Hang On (Japan)
 == hang on & astro warrior
    g   g   g   g   g   g   g   g   .   .   .   g   .   g   g   .   |
    w46 w46 w46 x33 w46 w46 x28 w46 .   .   .   x33 .   w6  x28 .   | Hang On & Astro Warrior (USA)
    .   .   .   .   .   .   .   .   .   .   .   .   .   a10 .   .   | Hang On & Safari Hunt (USA) (Beta)
    .   .   .   .   .   .   .   .   .   .   .   .   .   a11 .   .   | Hang On (Europe)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a36 .   .   | Hang On (Europe) (Beta)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a45 .   .   | Hang On (Japan)
 == hang on & safari hunt
    g   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   |
    w46 w46 w46 x33 w46 w46 x28 w46 w9  w8  .   x33 w10 w6  x28 w9  | Hang On & Safari Hunt (USA)
    w46 w46 w46 x33 w46 w46 x28 x24 a10 a10 .   x33 a10 .   x28 x24 | Hang On & Safari Hunt (USA) (Beta)
    .   .   .   .   .   .   .   .   a11 .   .   .   .   .   .   a11 | Hang On (Europe)
+   .   .   .   .   .   .   .   .   a36 .   .   .   .   .   .   .   | Hang On (Europe) (Beta)
+   .   .   .   .   .   .   .   .   a45 .   .   .   .   .   .   a45 | Hang On (Japan)
    .   .   .   .   .   .   .   .   a7  a8  .   .   .   a6  .   a7  | Marksman Shooting & Trap Shooting & Safari Hunt (Europe)
 == heavyweight champ
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
@@ -1014,10 +1017,9 @@ rule r48: Superset parent selection REF0119: Group after good dump/production/re
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w46 w46 x32 x33 x29 w46 x28 x25 w43 w43 x32 x33 x29 w43 x28 x25 | Pigu-Wang 7 Hap - Jaemiiss-neun Game Mo-eumjip (Korea) (Unl)
 == pit pot
-   .   .   .   .   .   .   .   .   g   g   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   .   g   .   g   g   g   g   g   |
    .   .   .   .   .   .   .   .   .   w36 .   x33 x29 w36 x28 .   | Fushigi no Oshiro Pit Pot (Japan)
-   .   .   .   .   .   .   .   .   a36 a36 a36 x33 x29 a36 x28 x24 | Fushigi no Oshiro Pit Pot (Japan) (Beta)
-     alternative to Astro Warrior & Pit Pot (Europe) [9,11]
+   .   .   .   .   .   .   .   .   .   a36 .   x33 x29 a36 x28 x24 | Fushigi no Oshiro Pit Pot (Japan) (Beta)
 == pit-fighter
    w46 w46 w46 x33 x29 w46 x28 w46 a41 a41 a41 x33 x29 a41 x28 a41 | Pit-Fighter (Brazil) (En)
    w46 w46 w46 x33 x29 w46 x28 w46 w41 w41 w41 x33 x29 w41 x28 w41 | Pit-Fighter (Europe)

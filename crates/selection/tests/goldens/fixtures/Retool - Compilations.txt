@@ -40,10 +40,8 @@ rule r15: Superset parent selection REF0076: Group after choosing superset title
 == Test Title 5 + 6 (USA)
    .   .   .   .   .   .   .   .   gd  gd  .   .   gd  gd  .   gd  |
    .   .   .   .   .   .   .   .   w7  w7  .   .   w7  w7  .   w7  | Test Title 5 + 6 (USA)
-== Test Title 6 + 7 + 8 (USA)
-   .   .   .   .   .   .   .   .   gd  gd  .   .   gd  gd  .   gd  |
+   .   .   .   .   .   .   .   .   a3  a3  .   .   .   a3  .   a3  | Test Title 6 (Europe)
    .   .   .   .   .   .   .   .   a8  a8  .   .   a8  a8  .   a8  | Test Title 6 + 7 + 8 (USA)
-     alternative to Test Title 5 + 6 (USA) [9-10,13-14,16]
 == test title 0
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w14 w14 w14 x12 w14 w14 w14 w14 w13 w13 w13 x12 w13 w13 w13 w13 | Test Title 0 (USA)
@@ -104,9 +102,8 @@ rule r15: Superset parent selection REF0076: Group after choosing superset title
    .   .   .   .   .   .   .   .   .   .   .   .   .   .   a3  .   | Test Title 6 (Europe)
    .   .   .   .   .   .   .   .   .   .   .   .   .   .   a8  .   | Test Title 6 + 7 + 8 (USA)
 == test title 6
-   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  |
-   w14 w14 w14 x12 x11 w14 x10 w14 a3  a3  w13 x12 x11 a3  .   a3  | Test Title 6 (Europe)
-     alternative to Test Title 5 + 6 (USA) [9-10,14,16]
+   gd  gd  gd  gd  gd  gd  gd  gd  .   .   gd  gd  gd  .   .   .   |
+   w14 w14 w14 x12 x11 w14 x10 w14 .   .   w13 x12 x11 .   .   .   | Test Title 6 (Europe)
    .   .   .   .   .   .   .   .   .   .   a8  .   .   .   .   .   | Test Title 6 + 7 + 8 (USA)
 == test title 6 + 7 + 8
    gd  gd  gd  gd  gd  gd  gd  gd  .   .   .   gd  .   .   .   .   |

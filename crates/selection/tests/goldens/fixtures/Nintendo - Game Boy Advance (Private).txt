@@ -87,40 +87,27 @@ rule r60: Parent selection: No other release competed
    w60 w60 w60 w60 w60 w60 x38 w60 w58 a58 w58 w57 w57 w58 x38 w58 | 007 - Everything or Nothing (USA, Europe) (En,Fr,De)
 == 007 - nightfire
    w60 w60 w60 w60 w60 w60 x38 w60 w57 w57 w57 w57 w57 w57 x38 w57 | 007 - NightFire (USA, Europe) (En,Fr,De)
-== 2 Games in 1 - Columns Crown + ChuChu Rocket! (Europe) (En+En,Ja,Fr,De,Es)
-   .   .   .   .   .   .   .   .   .   .   .   g   .   g   .   .   |
-   .   .   .   .   .   .   .   .   .   .   .   a1  .   a18 .   .   | 2 Games in 1 - Columns Crown + ChuChu Rocket! (Europe) (En+En,Ja,Fr,De,Es)
-     alternative to 2 Games in 1 - Sonic Battle + ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es,It+En,Ja,Fr,De,Es) [14]
-     alternative to 2 Games in 1 - Sonic Pinball Party + Columns Crown (Europe) (En,Ja,Fr,De,Es,It+En) [12]
-== 2 Games in 1 - Sonic Advance + ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es)
-   .   .   .   .   .   .   .   .   .   .   .   .   .   g   .   .   |
-   .   .   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   | 2 Games in 1 - Sonic Advance + ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es)
-     alternative to 2 Games in 1 - Sonic Battle + ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es,It+En,Ja,Fr,De,Es) [14]
-== 2 Games in 1 - Sonic Advance + Sonic Battle (Europe) (En,Ja,Fr,De,Es+En,Ja,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   .   .   .   g   .   .   |
-   .   .   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   | 2 Games in 1 - Sonic Advance + Sonic Battle (Europe) (En,Ja,Fr,De,Es+En,Ja,Fr,De,Es,It)
-     alternative to 2 Games in 1 - Sonic Battle + ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es,It+En,Ja,Fr,De,Es) [14]
-== 2 Games in 1 - Sonic Advance + Sonic Pinball Party (Europe) (En,Ja,Fr,De,Es+En,Ja,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   .   g   .   .   .   .   |
-   .   .   .   .   .   .   .   .   .   .   .   a16 .   .   .   .   | 2 Games in 1 - Sonic Advance + Sonic Pinball Party (Europe) (En,Ja,Fr,De,Es+En,Ja,Fr,De,Es,It)
-     alternative to 2 Games in 1 - Sonic Pinball Party + Columns Crown (Europe) (En,Ja,Fr,De,Es,It+En) [12]
 == 2 Games in 1 - Sonic Battle + ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es,It+En,Ja,Fr,De,Es)
    .   .   .   .   .   .   .   .   .   .   .   .   .   g   .   .   |
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a18 .   .   | 2 Games in 1 - Columns Crown + ChuChu Rocket! (Europe) (En+En,Ja,Fr,De,Es)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   | 2 Games in 1 - Sonic Advance + ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   | 2 Games in 1 - Sonic Advance + Sonic Battle (Europe) (En,Ja,Fr,De,Es+En,Ja,Fr,De,Es,It)
    .   .   .   .   .   .   .   .   .   .   .   .   .   w8  .   .   | 2 Games in 1 - Sonic Battle + ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es,It+En,Ja,Fr,De,Es)
-== 2 Games in 1 - Sonic Battle + Sonic Pinball Party (Europe) (En,Ja,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   .   g   .   g   .   .   |
-   .   .   .   .   .   .   .   .   .   .   .   a16 .   a6  .   .   | 2 Games in 1 - Sonic Battle + Sonic Pinball Party (Europe) (En,Ja,Fr,De,Es,It)
-     alternative to 2 Games in 1 - Sonic Battle + ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es,It+En,Ja,Fr,De,Es) [14]
-     alternative to 2 Games in 1 - Sonic Pinball Party + Columns Crown (Europe) (En,Ja,Fr,De,Es,It+En) [12]
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   | 2 Games in 1 - Sonic Battle + Sonic Pinball Party (Europe) (En,Ja,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   | Double Pack - Sonic Advance & ChuChu Rocket! (Japan) (En,Ja,Fr,De,Es)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   | Double Pack - Sonic Battle & Sonic Advance (Japan) (En,Ja,Fr,De,Es+En,Ja)
+   .   .   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   | Double Pack - Sonic Pinball Party & Sonic Battle (Japan) (En,Ja+En,Ja,Fr,De,Es,It)
 == 2 Games in 1 - Sonic Pinball Party + Columns Crown (Europe) (En,Ja,Fr,De,Es,It+En)
    .   .   .   .   .   .   .   .   .   .   .   g   .   .   .   .   |
+   .   .   .   .   .   .   .   .   .   .   .   a1  .   .   .   .   | 2 Games in 1 - Columns Crown + ChuChu Rocket! (Europe) (En+En,Ja,Fr,De,Es)
+   .   .   .   .   .   .   .   .   .   .   .   a16 .   .   .   .   | 2 Games in 1 - Sonic Advance + Sonic Pinball Party (Europe) (En,Ja,Fr,De,Es+En,Ja,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   .   .   a16 .   .   .   .   | 2 Games in 1 - Sonic Battle + Sonic Pinball Party (Europe) (En,Ja,Fr,De,Es,It)
    .   .   .   .   .   .   .   .   .   .   .   w12 .   .   .   .   | 2 Games in 1 - Sonic Pinball Party + Columns Crown (Europe) (En,Ja,Fr,De,Es,It+En)
-== 2 Games in 1 - SpongeBob SquarePants - Battle for Bikini Bottom + Jimmy Neutron Boy Genius (Europe) (En,Fr,De+En,Fr,De,Es)
-   .   .   .   .   .   .   .   .   .   .   .   g   .   .   .   .   |
-   .   .   .   .   .   .   .   .   .   .   .   a16 .   .   .   .   | 2 Games in 1 - SpongeBob SquarePants - Battle for Bikini Bottom + Jimmy Neutron Boy Genius (Europe) (En,Fr,De+En,Fr,De,Es)
-     alternative to 2 Games in 1 - SpongeBob SquarePants - SuperSponge + SpongeBob SquarePants - Battle for Bikini Bottom (Europe) (En+En,Fr,De) [12]
+   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   .   .   | Combo Pack - Sonic Advance + Sonic Pinball Party (USA) (En,Ja,Fr,De,Es+En,Ja,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   .   .   | Double Pack - Sonic Pinball Party & Sonic Battle (Japan) (En,Ja+En,Ja,Fr,De,Es,It)
 == 2 Games in 1 - SpongeBob SquarePants - SuperSponge + SpongeBob SquarePants - Battle for Bikini Bottom (Europe) (En+En,Fr,De)
    .   .   .   .   .   .   .   .   .   .   .   g   .   .   .   .   |
+   .   .   .   .   .   .   .   .   .   .   .   a16 .   .   .   .   | 2 Games in 1 - SpongeBob SquarePants - Battle for Bikini Bottom + Jimmy Neutron Boy Genius (Europe) (En,Fr,De+En,Fr,De,Es)
    .   .   .   .   .   .   .   .   .   .   .   w14 .   .   .   .   | 2 Games in 1 - SpongeBob SquarePants - SuperSponge + SpongeBob SquarePants - Battle for Bikini Bottom (Europe) (En+En,Fr,De)
 == 2 disney games - disney sports - football + disney sports - skateboarding
    g   g   g   g   g   g   g   g   .   .   .   .   g   .   g   .   |
@@ -427,23 +414,6 @@ rule r60: Parent selection: No other release competed
    w60 w60 w60 w60 w60 w60 x38 w60 .   .   .   w13 .   .   x38 .   | 4 Games on One Game Pak (Racing) (USA) (En,Fr,De,Es,It)
 == 4x4 off-roaders
    w60 w60 w60 x44 x39 w60 x38 x31 w57 w57 w57 x44 x39 w57 x38 x31 | 4x4 Off-Roaders (Europe) (Proto)
-== Combo Pack - Sonic Advance + Sonic Pinball Party (USA) (En,Ja,Fr,De,Es+En,Ja,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   .   g   .   .   .   .   |
-   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   .   .   | Combo Pack - Sonic Advance + Sonic Pinball Party (USA) (En,Ja,Fr,De,Es+En,Ja,Fr,De,Es,It)
-     alternative to 2 Games in 1 - Sonic Pinball Party + Columns Crown (Europe) (En,Ja,Fr,De,Es,It+En) [12]
-== Double Pack - Sonic Advance & ChuChu Rocket! (Japan) (En,Ja,Fr,De,Es)
-   .   .   .   .   .   .   .   .   .   .   .   .   .   g   .   .   |
-   .   .   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   | Double Pack - Sonic Advance & ChuChu Rocket! (Japan) (En,Ja,Fr,De,Es)
-     alternative to 2 Games in 1 - Sonic Battle + ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es,It+En,Ja,Fr,De,Es) [14]
-== Double Pack - Sonic Battle & Sonic Advance (Japan) (En,Ja,Fr,De,Es+En,Ja)
-   .   .   .   .   .   .   .   .   .   .   .   .   .   g   .   .   |
-   .   .   .   .   .   .   .   .   .   .   .   .   .   a6  .   .   | Double Pack - Sonic Battle & Sonic Advance (Japan) (En,Ja,Fr,De,Es+En,Ja)
-     alternative to 2 Games in 1 - Sonic Battle + ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es,It+En,Ja,Fr,De,Es) [14]
-== Double Pack - Sonic Pinball Party & Sonic Battle (Japan) (En,Ja+En,Ja,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   .   g   .   g   .   .   |
-   .   .   .   .   .   .   .   .   .   .   .   a6  .   a6  .   .   | Double Pack - Sonic Pinball Party & Sonic Battle (Japan) (En,Ja+En,Ja,Fr,De,Es,It)
-     alternative to 2 Games in 1 - Sonic Battle + ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es,It+En,Ja,Fr,De,Es) [14]
-     alternative to 2 Games in 1 - Sonic Pinball Party + Columns Crown (Europe) (En,Ja,Fr,De,Es,It+En) [12]
 == [bios] game boy advance
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
    w60 w60 w60 x44 w60 w60 x38 x30 w57 w57 w57 x44 w57 w57 x38 x30 | [BIOS] Game Boy Advance (GBC Mode) (World)

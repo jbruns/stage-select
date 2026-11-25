@@ -600,10 +600,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 x41 x43 w65 .   .   .   .   .   .   .   .   | Action in New York (Europe)
 == adam & eve
-   gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
+   gd  gd  gd  gd  gd  gd  gd  gd  .   gd  .   gd  gd  .   gd  gd  |
    w65 w65 w65 x46 x44 x41 x43 x38 .   w7  .   x46 x44 .   x43 x38 | Adam & Eve (Asia) (En) (Mega Soft) (Unl)
-   w65 w65 w65 x46 x44 x41 x43 x38 a56 a56 a56 x46 x44 .   x43 x38 | Adam & Eve (Spain) (En) (NTDEC) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
+   w65 w65 w65 x46 x44 x41 x43 x38 .   a56 .   x46 x44 .   x43 x38 | Adam & Eve (Spain) (En) (NTDEC) (Unl)
    .   .   .   .   .   .   .   .   .   a15 .   .   .   .   .   .   | Caltron - 6 in 1 (USA) (Unl)
    .   .   .   .   .   .   .   .   .   a15 .   .   .   .   .   .   | HES 6-Pak - Real Player's Pak (Australia) (Unl)
 == addams family, the
@@ -1211,20 +1210,29 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 w65 x41 x43 x32 w60 w60 w60 x46 w60 .   x43 x32 | Artix (World) (Beta) (Aftermarket) (Unl)
 == asder - 20 in 1
-   g   g   g   g   g   g   g   g   gd  g   g   g   g   .   g   g   |
+   g   g   g   g   g   g   g   g   gd  g   gd  g   g   .   g   g   |
    .   .   .   .   .   .   .   .   a3  .   a3  .   .   .   .   .   | Adam & Eve (Asia) (En) (Mega Soft) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   a56 .   .   .   .   .   | Adam & Eve (Spain) (En) (NTDEC) (Unl)
    w65 w65 w65 x46 w65 x41 x43 x38 w6  w7  w4  x46 w5  .   x43 x38 | Asder - 20 in 1 (USA) (Unl)
    .   .   .   .   .   .   .   .   a3  .   .   .   .   .   .   .   | Balloon Monster (Europe, Asia) (En) (Mega Soft) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   a56 .   .   .   .   .   | Booky Man (Brazil) (En) (Mega Soft) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   a56 .   .   .   .   .   | Booky Man (Spain) (En) (NTDEC) (Unl)
    .   .   .   .   .   .   .   .   a3  .   a3  .   .   .   .   .   | Brush Roller (Asia) (En) (Hwang Shinwei) (Unl)
    .   .   .   .   .   .   .   .   a13 .   a13 .   a13 .   .   .   | Caltron - 6 in 1 (USA) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   a56 .   .   .   .   .   | Corre Benny (Spain) (En) (NTDEC) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   .   .   .   .   .   .   | Cosmos Cop (Asia) (En) (Mega Soft) (Unl)
    .   .   .   .   .   .   .   .   a3  .   .   .   .   .   .   .   | Cosmos Cop (Europe, Asia) (En) (Caltron) (Unl)
+   .   .   .   .   .   .   .   .   a55 .   a55 .   .   .   .   .   | Dream Fighter (Asia) (En) (Asder) (Unl)
    .   .   .   .   .   .   .   .   a14 .   a14 .   .   .   .   .   | Dream Fighter (Asia) (En) (Caltron) (Unl)
    .   .   .   .   .   .   .   .   a14 .   a14 .   .   .   .   .   | Go! Benny! (Asia) (En) (Mega Soft) (Unl)
    .   .   .   .   .   .   .   .   a3  .   a3  .   .   .   .   .   | HES 6-Pak - Real Player's Pak (Australia) (Unl)
    .   .   .   .   .   .   .   .   a1  .   a1  .   .   .   .   .   | Master Shooter (Asia) (Ja) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   .   .   .   .   .   .   | Monstruo de los Globos, El (Spain) (En) (Caltron) (Unl)
    .   .   .   .   .   .   .   .   a3  .   a3  .   .   .   .   .   | Porter (Asia) (En) (Unl)
    .   .   .   .   .   .   .   .   a14 .   .   .   .   .   .   .   | Skate Boy (Europe, Asia) (En) (Unl)
+   .   .   .   .   .   .   .   .   a55 .   a55 .   .   .   .   .   | Tank (Asia) (En) (Asder) (Unl)
    .   .   .   .   .   .   .   .   a14 .   a14 .   .   .   .   .   | Tank (Asia) (En) (Caltron) (Unl)
+   .   .   .   .   .   .   .   .   a56 .   a56 .   .   .   .   .   | Tanque (Spain) (En) (NTDEC) (Unl)
 == ashen house
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 x41 x43 x31 w60 w60 w60 x46 w60 .   x43 x31 | Ashen House (World) (v0.2) (Demo) (Aftermarket) (Unl)
@@ -1447,10 +1455,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 w65 w56 a56 a56 x46 w49 .   x43 w56 | Balloon Fight (USA)
    w65 w65 w65 x46 w65 w65 x43 w65 a49 a49 a49 x46 a49 .   x43 a49 | Balloon Fight (USA) (e-Reader Edition)
 == balloon monster
-   gd  gd  gd  gd  gd  gd  gd  gd  g   gd  gd  gd  gd  .   gd  gd  |
+   gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  gd  gd  .   gd  gd  |
    w65 w65 w65 x46 x44 w65 x43 x38 .   w7  w4  x46 x44 .   x43 x38 | Balloon Monster (Europe, Asia) (En) (Mega Soft) (Unl)
-   .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Monstruo de los Globos, El (Spain) (En) (Caltron) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9]
+   .   .   .   .   .   .   .   .   .   a56 a56 x46 x44 .   x43 x38 | Monstruo de los Globos, El (Spain) (En) (Caltron) (Unl)
 == balloon stand
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 w65 w65 x43 x38 w60 w60 w60 x46 w60 .   x43 x38 | Balloon Stand (World) (Aftermarket) (Unl)
@@ -2204,11 +2211,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x32 w60 w60 w60 x46 w60 .   x43 x32 | Brony Blaster (World) (Proto) (Aftermarket) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x32 w60 w60 w60 x46 w60 .   x43 x32 | Brony Blaster (World) (Proto) (NESWorld) (Aftermarket) (Unl)
 == brush roller
-   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Booky Man (Brazil) (En) (Mega Soft) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
-   .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Booky Man (Spain) (En) (NTDEC) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   g   |
+   .   .   .   .   .   .   .   .   .   a56 .   x46 x44 .   x43 x38 | Booky Man (Brazil) (En) (Mega Soft) (Unl)
+   .   .   .   .   .   .   .   .   .   a56 .   x46 x44 .   x43 x38 | Booky Man (Spain) (En) (NTDEC) (Unl)
    w65 w65 w65 x46 x44 w65 x43 x38 .   w7  .   x46 x44 .   x43 x38 | Brush Roller (Asia) (En) (Hwang Shinwei) (Unl)
 == bubble bath babes
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
@@ -3124,9 +3129,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Cosmo Police Galivan (Japan)
 == cosmos cop
-   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a56 a52 a56 x46 x44 .   x43 x38 | Cosmos Cop (Asia) (En) (Mega Soft) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9]
+   g   g   g   g   g   g   g   g   .   g   g   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 .   a52 a56 x46 x44 .   x43 x38 | Cosmos Cop (Asia) (En) (Mega Soft) (Unl)
    w65 w65 w65 x46 x44 w65 x43 x38 .   w7  w4  x46 x44 .   x43 x38 | Cosmos Cop (Europe, Asia) (En) (Caltron) (Unl)
 == cowboy kid
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
@@ -4110,9 +4114,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 w65 w65 x43 x38 a51 a51 a51 x46 a51 .   x43 x38 | Dream Dog Dilemma (World) (Ludum Dare 49) (Aftermarket) (Unl)
    w65 w65 w65 x46 w65 w65 x43 x38 w51 w51 w51 x46 w51 .   x43 x38 | Dream Dog Dilemma (World) (v1.1) (Aftermarket) (Unl)
 == dream fighter
-   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a55 a55 a55 x46 x44 .   x43 x38 | Dream Fighter (Asia) (En) (Asder) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 .   a55 .   x46 x44 .   x43 x38 | Dream Fighter (Asia) (En) (Asder) (Unl)
    w65 w65 w65 x46 x44 w65 x43 x38 .   w7  .   x46 x44 .   x43 x38 | Dream Fighter (Asia) (En) (Caltron) (Unl)
 == dream master, the
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
@@ -5526,9 +5529,8 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x38 .   .   .   .   .   .   .   .   | Gluk the Thunder Warrior (Spain) (En) (Micro Genius) (Unl)
 == go! benny!
-   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Corre Benny (Spain) (En) (NTDEC) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   g   |
+   .   .   .   .   .   .   .   .   .   a56 .   x46 x44 .   x43 x38 | Corre Benny (Spain) (En) (NTDEC) (Unl)
    w65 w65 w65 x46 x44 w65 x43 x38 .   w7  .   x46 x44 .   x43 x38 | Go! Benny! (Asia) (En) (Mega Soft) (Unl)
 == go! dizzy go!
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
@@ -8112,10 +8114,9 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    w65 w65 w65 x46 x44 w65 x43 w65 .   .   .   .   .   .   .   .   | Magical Kid's Doropie (Japan)
    w65 w65 w65 x46 x44 w65 x43 x35 .   .   .   .   .   .   .   .   | Magical Kid's Doropie (Japan) (Beta)
 == magical mathematics
-   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 x38 .   a50 .   x46 x44 .   x43 x38 | Magical Mathematics (Asia) (En) (NTSC) (Unl)
-   w65 w65 w65 x46 x44 w65 x43 x38 a50 w50 a50 x46 x44 .   x43 x38 | Magical Mathematics (Asia) (Ja) (PAL) (Unl)
-     alternative to Mindblower Pak (Australia) (Unl) [9,11]
+   w65 w65 w65 x46 x44 w65 x43 x38 .   w50 .   x46 x44 .   x43 x38 | Magical Mathematics (Asia) (Ja) (PAL) (Unl)
 == magical taruruuto-kun - fantastic world!!
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 a51 a51 a51 x46 x44 .   x43 a51 | Magical Taruruuto-kun - Fantastic World!! (Japan)
@@ -8793,6 +8794,7 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
 == mindblower pak
    g   g   g   g   g   g   g   g   g   .   g   g   g   .   g   g   |
    .   .   .   .   .   .   .   .   a14 .   a14 .   .   .   .   .   | Magical Mathematics (Asia) (En) (NTSC) (Unl)
+   .   .   .   .   .   .   .   .   a50 .   a50 .   .   .   .   .   | Magical Mathematics (Asia) (Ja) (PAL) (Unl)
    w65 w65 w65 x46 x44 w65 x43 x38 w8  .   w8  x46 x44 .   x43 x38 | Mindblower Pak (Australia) (Unl)
 == mindkids 114-in-1
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  .   gd  gd  |
@@ -13892,12 +13894,10 @@ rule r79: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
    w65 w65 w65 x46 x44 w65 x43 w65 w60 w60 w60 x46 x44 .   x43 w60 | Tanigawa Kouji no Shougi Shinan III (Japan)
 == tank
-   g   g   g   g   g   g   g   g   g   g   g   g   g   .   g   g   |
-   w65 w65 w65 x46 x44 w65 x43 x38 a55 a55 a55 x46 x44 .   x43 x38 | Tank (Asia) (En) (Asder) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   g   |
+   w65 w65 w65 x46 x44 w65 x43 x38 .   a55 .   x46 x44 .   x43 x38 | Tank (Asia) (En) (Asder) (Unl)
    w65 w65 w65 x46 x44 w65 x43 x38 .   w7  .   x46 x44 .   x43 x38 | Tank (Asia) (En) (Caltron) (Unl)
-   .   .   .   .   .   .   .   .   a56 a56 a56 x46 x44 .   x43 x38 | Tanque (Spain) (En) (NTDEC) (Unl)
-     alternative to Asder - 20 in 1 (USA) (Unl) [9,11]
+   .   .   .   .   .   .   .   .   .   a56 .   x46 x44 .   x43 x38 | Tanque (Spain) (En) (NTDEC) (Unl)
 == tank 1990
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w65 w65 w65 x46 x44 w65 x43 x37 .   .   .   .   .   .   .   .   | Tank 1990 (Asia) (En) (Pirate)

@@ -7139,6 +7139,8 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == tom clancy's rainbow six - vegas + tom clancy's splinter cell - double agent
    g   g   g   g   g   g   g   g   .   g   .   .   g   .   g   .   |
    w55 w55 w55 w55 x36 w55 x35 w55 .   w21 .   .   x36 .   x35 .   | Tom Clancy's Rainbow Six - Vegas + Tom Clancy's Splinter Cell - Double Agent (Europe, Asia) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   a47 .   .   .   .   .   .   | Tom Clancy's Splinter Cell - Double Agent (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   .   a44 .   .   .   .   .   .   | Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v01.02)
    .   .   .   .   .   .   .   .   .   a25 .   .   .   .   .   .   | Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v02.02)
 == tom clancy's rainbow six - vegas 1 + 2
    g   g   g   g   g   g   g   g   .   .   .   g   g   .   g   .   |
@@ -7171,10 +7173,9 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w55 w55 x39 x40 x36 w55 x35 w55 a53 a53 x39 x40 x36 a53 x35 a53 | Tom Clancy's Splinter Cell - Blacklist (Russia)
    w55 w55 w55 w55 w55 w55 x35 w55 w47 a53 a47 a47 w50 w47 x35 w47 | Tom Clancy's Splinter Cell - Blacklist (USA) (En,Fr,Es,Pt)
 == tom clancy's splinter cell - double agent
-   w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w47 w47 x36 a47 x35 a47 | Tom Clancy's Splinter Cell - Double Agent (Europe) (En,Fr,De,Es,It)
-     alternative to Tom Clancy's Rainbow Six - Vegas + Tom Clancy's Splinter Cell - Double Agent (Europe, Asia) (En,Fr,De,Es,It) [10]
-   w55 w55 w55 w55 w55 w55 x35 w55 a44 a44 a44 a44 a44 a44 x35 a44 | Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v01.02)
-     alternative to Tom Clancy's Rainbow Six - Vegas + Tom Clancy's Splinter Cell - Double Agent (Europe, Asia) (En,Fr,De,Es,It) [10]
+   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
+   w55 w55 w55 w55 x36 w55 x35 w55 a47 .   w47 w47 x36 a47 x35 a47 | Tom Clancy's Splinter Cell - Double Agent (Europe) (En,Fr,De,Es,It)
+   w55 w55 w55 w55 w55 w55 x35 w55 a44 .   a44 a44 a44 a44 x35 a44 | Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v01.02)
    w55 w55 w55 w55 w55 w55 x35 w55 w47 .   a47 a47 w44 w47 x35 w47 | Tom Clancy's Splinter Cell - Double Agent (USA) (En,Fr,De,Es,It) (v02.02)
 == tom clancy's splinter cell trilogy
    w55 w55 w55 w55 x36 w55 x35 w55 a47 a47 w47 w47 x36 a47 x35 a47 | Tom Clancy's Splinter Cell Trilogy (Europe) (En,Fr,De,Es,It)

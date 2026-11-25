@@ -5,7 +5,7 @@
 //! pairing followed Python's set iteration order in Retool, so rows are derived from snapshots wherever one names the
 //! release, and from actions only as a fallback.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use serde::Deserialize;
 use stage_select_api::selection::{
@@ -246,9 +246,8 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
 
     // Retool's compilation step moves every title in contention with a compilation into synthetic groups, which its
     // DAT output never shows. A Selection shows each in its own Game Group instead: a parent in a group that also
-    // keeps it, else in the group the trace last placed it in; a clone in its parent's group; and a title the trace
-    // never placed in a group named after it. Rules still come from the synthetic group, so the compilation step
-    // explains them, and each game shows once in a group.
+    // keeps it, else in the group the trace last placed it in, else in a group named after it. Rules still come from
+    // the synthetic group, so the compilation step explains them, and each game shows once in a group.
     let home = homes(&steps);
     let mut kept_in: HashMap<&str, &str> = HashMap::new();
     for (group, parents, _) in finals.iter().filter(|f| !is_compilation_group(&f.0)) {
@@ -263,12 +262,13 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
             .unwrap_or(title)
             .to_owned()
     };
-    // Retool also lists a standalone release that lost to a compilation as a clone in its own group; it shows in its
-    // winner's group.
-    let compilation_clones: BTreeSet<(&str, &str)> = finals
+    // A clone lives in the group of the title it is a clone of. Retool lists a standalone release that lost to a
+    // compilation both in its own group and as a discard, and points other regional releases at the winner without
+    // listing them as discards: each follows its winner, once.
+    let winners: HashSet<&str> = finals
         .iter()
         .filter(|(group, _, _)| is_compilation_group(group))
-        .flat_map(|(_, _, clones)| clones.iter().map(|(c, p)| (c.as_str(), p.as_str())))
+        .flat_map(|(_, parents, _)| parents.iter().map(String::as_str))
         .collect();
 
     let mut rows: BTreeMap<String, SelectionGroup> = BTreeMap::new();
@@ -294,11 +294,9 @@ pub(crate) fn derive(trace: &str) -> Result<Derived, Error> {
             });
         }
         for (clone, parent) in clones {
-            if !compilation && compilation_clones.contains(&(clone.as_str(), parent.as_str())) {
-                continue;
-            }
-            let at = match compilation {
-                true => placed(parent).map_or_else(|| own_group(clone), str::to_owned),
+            let follows_winner = winners.contains(parent.as_str()) && !parents.contains(parent);
+            let at = match compilation || follows_winner {
+                true => own_group(parent),
                 false => group.clone(),
             };
             let row = row(&mut rows, &at);
@@ -883,6 +881,35 @@ mod tests {
         let derived = derive(&lines.join("\n")).unwrap();
         assert_eq!(names(&derived), ["2 in 1 (USA)"]);
         assert_eq!(derived.groups[0].kept[0].title, "2 in 1 (USA)");
+    }
+
+    #[test]
+    fn a_release_beaten_by_a_winner_with_no_group_joins_the_winners_group() {
+        let groups = [
+            group("retool_compilations_discards", &[], &[(B_US, COMPILATION)]),
+            group("retool_compilations_winners", &[COMPILATION], &[]),
+        ];
+        let derived = derive(&trace(&[], &groups)).unwrap();
+        assert_eq!(names(&derived), [COMPILATION]);
+        assert_eq!(derived.groups[0].clones[0].title, B_US);
+    }
+
+    #[test]
+    fn a_regional_release_pointed_at_a_compilation_follows_it_to_its_group() {
+        let groups = [
+            group("a", &[], &[(A_EU, COMPILATION)]),
+            group("retool_compilations_discards", &[], &[(A_US, COMPILATION)]),
+            group("retool_compilations_winners", &[COMPILATION], &[]),
+        ];
+        let derived = derive(&trace(&[], &groups)).unwrap();
+        assert_eq!(names(&derived), [COMPILATION]);
+        let mut clones: Vec<_> = derived.groups[0]
+            .clones
+            .iter()
+            .map(|c| c.title.as_str())
+            .collect();
+        clones.sort_unstable();
+        assert_eq!(clones, [A_EU, A_US]);
     }
 
     #[test]

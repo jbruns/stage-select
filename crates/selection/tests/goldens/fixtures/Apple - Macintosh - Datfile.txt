@@ -61,12 +61,13 @@ rule r33: Superset parent selection REF0119: Group after good dump/production/re
    w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | 11th Hour, The (USA) (Disc 3)
    w29 w29 w29 x18 w29 w29 x14 w29 w26 w26 w26 x18 w26 w26 x14 w26 | 11th Hour, The (USA) (Disc 4)
 == 3-d ultra pinball
+   g   g   g   g   g   g   g   g   .   g   g   g   g   .   g   .   |
    w29 w29 w29 x18 x15 w29 x14 w29 .   a24 w24 x18 x15 .   x14 .   | 3-D Ultra Pinball (Europe)
-   w29 w29 w29 x18 x15 w29 x14 w29 a24 w24 a24 x18 x15 a24 x14 a24 | 3-D Ultra Pinball (Japan)
-     alternative to 3-D Ultra Pinball & Trophy Bass (USA) [9,14,16]
+   w29 w29 w29 x18 x15 w29 x14 w29 .   w24 a24 x18 x15 .   x14 .   | 3-D Ultra Pinball (Japan)
 == 3-d ultra pinball & trophy bass
    w29 w29 w29 x18 w29 w29 x14 w29 w1  w1  w1  x18 w1  w1  x14 w1  | 3-D Ultra Pinball & Trophy Bass (USA)
    .   .   .   .   .   .   .   .   a2  .   .   .   .   a2  .   a2  | 3-D Ultra Pinball (Europe)
+   .   .   .   .   .   .   .   .   a24 .   .   .   .   a24 .   a24 | 3-D Ultra Pinball (Japan)
 == 3-d ultra pinball - creep night
    w29 w29 w29 x18 x15 w29 x14 w29 w26 w26 w26 x18 x15 w26 x14 w26 | 3-D Ultra Pinball - Creep Night (France)
 == 3do content library, the

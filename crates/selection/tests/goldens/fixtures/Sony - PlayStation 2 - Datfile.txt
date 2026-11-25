@@ -10636,21 +10636,21 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a54 w59 a54 w57 x39 a54 x38 a54 | NeoGeo Online Collection Vol. 10 - The King of Fighters '98 - Ultimate Match (Japan) (En,Ja,Es,Pt)
 == king of fighters 2000, the
    gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  gd  |
-   w60 w60 w60 x44 x39 w60 x38 w60 a59 w4  a59 x44 x39 a59 x38 a59 | King of Fighters 2000, The (Japan)
-     alternative to King of Fighters 2000-2001, The (Europe) [11]
+   w60 w60 w60 x44 x39 w60 x38 w60 a59 w4  .   x44 x39 a59 x38 a59 | King of Fighters 2000, The (Japan)
    w60 w60 x43 x44 x39 w60 x38 w60 a59 a59 x43 x44 x39 a59 x38 a59 | King of Fighters 2000, The (Korea)
    w60 w60 w60 x44 w60 w60 x38 w60 w59 a59 .   x44 w57 w59 x38 w59 | King of Fighters 2000, The (USA)
    .   .   .   .   .   .   .   .   a15 a4  .   .   .   a15 .   a15 | King of Fighters 2000-2001, The (Europe)
    .   .   .   .   .   .   .   .   a15 a11 .   .   .   a15 .   a15 | NeoGeo Online Collection Vol. 7 - The King of Fighters - Nests (Japan) (En,Ja,Es,Pt)
 == king of fighters 2000-2001, the
    g   g   g   g   g   g   g   g   .   .   g   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   .   a59 .   .   .   .   .   | King of Fighters 2000, The (Japan)
    .   .   .   .   .   .   .   .   .   .   a14 .   .   .   .   .   | King of Fighters 2000, The (USA)
    w60 w60 w60 x44 x39 w60 x38 w60 .   .   w3  x44 x39 .   x38 .   | King of Fighters 2000-2001, The (Europe)
+   .   .   .   .   .   .   .   .   .   .   a59 .   .   .   .   .   | King of Fighters 2001, The (Japan)
    .   .   .   .   .   .   .   .   .   .   a14 .   .   .   .   .   | King of Fighters 2001, The (USA)
    .   .   .   .   .   .   .   .   .   .   a15 .   .   .   .   .   | NeoGeo Online Collection Vol. 7 - The King of Fighters - Nests (Japan) (En,Ja,Es,Pt)
 == king of fighters 2001, the
-   w60 w60 w60 x44 x39 w60 x38 w60 a59 w4  a59 x44 x39 a59 x38 a59 | King of Fighters 2001, The (Japan)
-     alternative to King of Fighters 2000-2001, The (Europe) [11]
+   w60 w60 w60 x44 x39 w60 x38 w60 a59 w4  .   x44 x39 a59 x38 a59 | King of Fighters 2001, The (Japan)
    w60 w60 x43 x44 x39 w60 x38 w60 a59 a59 x43 x44 x39 a59 x38 a59 | King of Fighters 2001, The (Korea)
    w60 w60 w60 x44 w60 w60 x38 w60 w59 a59 .   x44 w57 w59 x38 w59 | King of Fighters 2001, The (USA)
 == king of fighters 2002, the
@@ -12467,11 +12467,10 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
 == metal slug
    w60 w60 w60 x44 x39 w60 x38 w60 w57 w57 w57 x44 x39 w57 x38 w57 | Metal Slug (Japan)
 == metal slug 3
+   g   g   g   g   g   g   g   g   .   g   g   g   g   .   g   .   |
    w60 w60 w60 w60 x39 w60 x38 w60 .   a59 w6  w57 x39 .   x38 .   | Metal Slug 3 (Europe) (En,Fr,De,Es,It)
-   w60 w60 w60 x44 x39 w60 x38 w60 a59 w7  a59 x44 x39 a59 x38 a59 | Metal Slug 3 (Japan)
-     alternative to Metal Slug Anthology (USA) [9,14,16]
-   w60 w60 x43 x44 x39 w60 x38 w60 a59 a59 x43 x44 x39 a59 x38 a59 | Metal Slug 3 (Korea)
-     alternative to Metal Slug Anthology (USA) [9,14,16]
+   w60 w60 w60 x44 x39 w60 x38 w60 .   w7  a59 x44 x39 .   x38 .   | Metal Slug 3 (Japan)
+   w60 w60 x43 x44 x39 w60 x38 w60 .   a59 x43 x44 x39 .   x38 .   | Metal Slug 3 (Korea)
    .   .   .   .   .   .   .   .   .   a4  .   .   .   .   .   .   | Metal Slug Anthology (Europe)
    .   .   .   .   .   .   .   .   .   a4  a5  .   .   .   .   .   | Metal Slug Anthology (USA)
    .   .   .   .   .   .   .   .   .   .   a5  .   .   .   .   .   | Metal Slug Complete (Japan) (En,Ja)
@@ -12491,6 +12490,8 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
 == metal slug anthology
    g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
    .   .   .   .   .   .   .   .   a14 .   .   .   .   a14 .   a14 | Metal Slug 3 (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a59 .   .   .   .   a59 .   a59 | Metal Slug 3 (Japan)
+   .   .   .   .   .   .   .   .   a59 .   .   .   .   a59 .   a59 | Metal Slug 3 (Korea)
    .   .   .   .   .   .   .   .   a4  .   a4  .   .   a4  .   a4  | Metal Slug 6 (Japan)
    w60 w60 w60 x44 x39 w60 x38 w60 .   .   w6  x44 x39 .   x38 .   | Metal Slug Anthology (Europe)
    w60 w60 w60 x44 w60 w60 x38 w60 w8  .   .   x44 w3  w8  x38 w8  | Metal Slug Anthology (USA)
@@ -17690,10 +17691,11 @@ rule r84: Superset parent selection REF0119: Group after good dump/production/re
    w60 w60 w60 x44 w60 w60 x38 w60 w5  .   a5  x44 w3  w5  x38 w5  | Samurai Shodown Anthology (USA)
    .   .   .   .   .   .   .   .   a14 .   .   .   .   a14 .   a14 | Samurai Shodown V (Europe)
    .   .   .   .   .   .   .   .   a1  .   a1  .   .   a1  .   a1  | Samurai Spirits - Tenka-ichi Kenkakuden (Japan)
+   .   .   .   .   .   .   .   .   a59 .   .   .   .   a59 .   a59 | Samurai Spirits Zero (Japan)
 == samurai shodown v
+   g   g   g   g   g   g   g   g   .   g   g   g   g   .   g   .   |
    w60 w60 w60 x44 x39 w60 x38 w60 .   a59 w9  x44 x39 .   x38 .   | Samurai Shodown V (Europe)
-   .   .   .   .   .   .   .   .   a59 w10 a59 x44 x39 a59 x38 a59 | Samurai Spirits Zero (Japan)
-     alternative to Samurai Shodown Anthology (USA) [9,14,16]
+   .   .   .   .   .   .   .   .   .   w10 a59 x44 x39 .   x38 .   | Samurai Spirits Zero (Japan)
 == samurai shodown vi
    .   .   .   .   .   .   .   .   .   g   .   g   g   .   g   .   |
    .   .   .   .   .   .   .   .   .   w10 .   x44 x39 .   x38 .   | Samurai Spirits - Tenka-ichi Kenkakuden (Japan)

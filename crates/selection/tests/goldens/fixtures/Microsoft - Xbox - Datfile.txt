@@ -3899,21 +3899,22 @@ rule r45: Superset parent selection REF0119: Group after good dump/production/re
 == star wars - starfighter special edition
    w36 w36 w36 x22 w36 w36 x16 w36 w33 w33 w33 x22 w33 w33 x16 w33 | Star Wars - Starfighter Special Edition (USA)
 == star wars - the clone wars
-   .   .   .   .   .   .   .   .   a35 a35 a35 a35 x17 a35 x16 a35 | Star Wars - La Guerra dei Cloni (Italy)
-     alternative to Star Wars - The Clone Wars + Tetris Worlds (Asia) [10]
-   .   .   .   .   .   .   .   .   a35 a35 x21 w35 x17 a35 x16 a35 | Star Wars - Las Guerras Clon (Spain)
-     alternative to Star Wars - The Clone Wars + Tetris Worlds (Asia) [10]
-   w36 w36 w36 x22 x17 w36 x16 w36 a30 a30 w30 x22 x17 a30 x16 a30 | Star Wars - The Clone Wars (Europe)
-     alternative to Star Wars - The Clone Wars + Tetris Worlds (Asia) [10]
-   w36 w36 w36 x22 x17 w36 x16 w36 a35 a35 a35 x22 x17 a35 x16 a35 | Star Wars - The Clone Wars (France)
-     alternative to Star Wars - The Clone Wars + Tetris Worlds (Asia) [10]
-   w36 w36 w36 w36 x17 w36 x16 w36 a35 a35 a35 a35 x17 a35 x16 a35 | Star Wars - The Clone Wars (Germany)
-     alternative to Star Wars - The Clone Wars + Tetris Worlds (Asia) [10]
+   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a35 .   a35 a35 x17 a35 x16 a35 | Star Wars - La Guerra dei Cloni (Italy)
+   .   .   .   .   .   .   .   .   a35 .   x21 w35 x17 a35 x16 a35 | Star Wars - Las Guerras Clon (Spain)
+   w36 w36 w36 x22 x17 w36 x16 w36 a30 .   w30 x22 x17 a30 x16 a30 | Star Wars - The Clone Wars (Europe)
+   w36 w36 w36 x22 x17 w36 x16 w36 a35 .   a35 x22 x17 a35 x16 a35 | Star Wars - The Clone Wars (France)
+   w36 w36 w36 w36 x17 w36 x16 w36 a35 .   a35 a35 x17 a35 x16 a35 | Star Wars - The Clone Wars (Germany)
    w36 w36 w36 x22 w36 w36 x16 w36 w4  .   a30 x22 w33 w4  x16 w4  | Star Wars - The Clone Wars (USA)
    .   .   .   .   .   .   .   .   a4  .   a7  .   .   a4  .   a4  | Star Wars - The Clone Wars + Tetris Worlds (Asia)
    .   .   .   .   .   .   .   .   a5  .   a7  .   a5  a5  .   a5  | Star Wars - The Clone Wars + Tetris Worlds (USA)
 == star wars - the clone wars + tetris worlds
    g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   a35 .   .   .   .   .   .   | Star Wars - La Guerra dei Cloni (Italy)
+   .   .   .   .   .   .   .   .   .   a35 .   .   .   .   .   .   | Star Wars - Las Guerras Clon (Spain)
+   .   .   .   .   .   .   .   .   .   a30 .   .   .   .   .   .   | Star Wars - The Clone Wars (Europe)
+   .   .   .   .   .   .   .   .   .   a35 .   .   .   .   .   .   | Star Wars - The Clone Wars (France)
+   .   .   .   .   .   .   .   .   .   a35 .   .   .   .   .   .   | Star Wars - The Clone Wars (Germany)
    .   .   .   .   .   .   .   .   .   a6  .   .   .   .   .   .   | Star Wars - The Clone Wars (USA)
    w36 w36 w36 x22 x17 w36 x16 w36 .   w2  .   x22 x17 .   x16 .   | Star Wars - The Clone Wars + Tetris Worlds (Asia)
    w36 w36 w36 x22 w36 w36 x16 w36 .   a1  .   x22 .   .   x16 .   | Star Wars - The Clone Wars + Tetris Worlds (USA)

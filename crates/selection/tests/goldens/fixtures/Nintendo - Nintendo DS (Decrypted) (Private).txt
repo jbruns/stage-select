@@ -223,6 +223,9 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It)
    .   .   .   .   .   .   .   .   g   g   g   .   .   g   .   g   |
    .   .   .   .   .   .   .   .   w12 w12 w12 .   .   w12 .   w12 | 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It)
+   .   .   .   .   .   .   .   .   a25 a25 a21 .   .   a25 .   a25 | 3 in 1 - Horses (Europe) (En,Fr,De)
+   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | 3 in 1 - My Riding Stables + My Pet School + My Western Horse (Europe) (Fr,De,It)
+   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | 3 in 1 - My Riding Stables - Life with Horses + My Pet Hotel 2 & + My Pet School (Europe) (Fr,De,It)
 == 2 in 1 - My Riding Stables + My Western Horse (Europe) (En,Fr,De)
    .   .   .   .   .   .   .   .   g   g   g   .   .   g   .   g   |
    .   .   .   .   .   .   .   .   w12 w12 w12 .   .   w12 .   w12 | 2 in 1 - My Riding Stables + My Western Horse (Europe) (En,Fr,De)
@@ -285,18 +288,6 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == 3 game pack! - uno + skip-bo + uno free fall
    .   .   .   .   .   .   .   .   a54 a54 w54 w57 x42 a54 x41 a54 | 3 Game Pack! - Uno & Skip-Bo & Uno Free Fall (Europe) (En,Fr,De,Es,It)
    w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | 3 Game Pack! - Uno + Skip-Bo + Uno Free Fall (USA)
-== 3 in 1 - Horses (Europe) (En,Fr,De)
-   .   .   .   .   .   .   .   .   g   g   g   .   .   g   .   g   |
-   .   .   .   .   .   .   .   .   a25 a25 a21 .   .   a25 .   a25 | 3 in 1 - Horses (Europe) (En,Fr,De)
-     alternative to 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It) [9-11,14,16]
-== 3 in 1 - My Riding Stables + My Pet School + My Western Horse (Europe) (Fr,De,It)
-   .   .   .   .   .   .   .   .   g   g   g   .   .   g   .   g   |
-   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | 3 in 1 - My Riding Stables + My Pet School + My Western Horse (Europe) (Fr,De,It)
-     alternative to 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It) [9-11,14,16]
-== 3 in 1 - My Riding Stables - Life with Horses + My Pet Hotel 2 & + My Pet School (Europe) (Fr,De,It)
-   .   .   .   .   .   .   .   .   g   g   g   .   .   g   .   g   |
-   .   .   .   .   .   .   .   .   a6  a6  a6  .   .   a6  .   a6  | 3 in 1 - My Riding Stables - Life with Horses + My Pet Hotel 2 & + My Pet School (Europe) (Fr,De,It)
-     alternative to 2 in 1 - My Riding Stables + My Riding Stables - Life with Horses (Europe) (En,Fr,De,Es,It) [9-11,14,16]
 == 3 in 1 - animals
    .   .   .   .   .   .   .   .   a25 a25 a21 a4  .   a25 .   a25 | 2 in 1 - My Pet School + Best Friends - My Horse (Europe) (En,Fr,De)
    w61 w61 w61 w61 x42 w61 x41 w61 w12 w12 w12 w11 x42 w12 x41 w12 | 3 in 1 - Animals (Europe) (En,Fr,De)
@@ -316,8 +307,10 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   g   g   g   .   g   .   |
    .   .   .   .   .   .   .   .   .   .   a21 a21 .   .   .   .   | 2 in 1 - My Vet Practice + My Pet Hotel 2 (Europe) (En,Fr,De,Es,It)
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   w19 w19 x42 .   x41 .   | 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It)
-   .   .   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   | Meine Tierarztpraxis in Australien (Germany)
+   .   .   .   .   .   .   .   .   .   .   a60 a9  .   .   .   .   | Meine Tierarztpraxis in Australien (Germany)
+   .   .   .   .   .   .   .   .   .   .   a60 a60 .   .   .   .   | My Vet Practice - In Australia (Europe) (En,Fr,De,Es,It) [b]
    .   .   .   .   .   .   .   .   .   .   a24 .   .   .   .   .   | Paws & Claws - Pet Vet - Australian Adventures (USA)
+   .   .   .   .   .   .   .   .   .   .   a60 .   .   .   .   .   | Real Stories - Veterinaire - Mission Australie (France) [b]
 == 3 in 1 - solitaire, mahjong & tangram
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | 3 in 1 - Solitaire, Mahjong & Tangram (Europe) (En,Fr,De,Es,It)
@@ -6352,8 +6345,8 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Jewel Quest - Solitaire - 3 Tolle Solitaire-Spiele (Germany)
 == jewel quest - solitaire - solitaire with a twist!
-   .   .   .   .   .   .   .   .   a60 a60 a60 x46 x42 a60 x41 x38 | Jewel Quest - Solitaire (France) [b]
-     alternative to Quest Trio, The - Jewels, Cards and Tiles (USA) [9-10,14]
+   g   g   g   g   g   g   g   g   .   .   g   g   g   .   g   g   |
+   .   .   .   .   .   .   .   .   .   .   a60 x46 x42 .   x41 x38 | Jewel Quest - Solitaire (France) [b]
    w61 w61 w61 x46 x42 w61 x41 w61 .   .   w7  x46 x42 .   x41 .   | Jewel Quest - Solitaire - Solitaire with a Twist! (Europe)
 == jewel quest - solitaire trio
    .   .   .   .   .   .   .   .   a60 a60 a60 w57 x42 a60 x41 a60 | Jewel Quest - Solitaire - 3 Tolle Solitaire-Spiele (Germany)
@@ -10084,8 +10077,8 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
 == ni no kuni - shikkoku no madoushi
    w61 w61 w61 x46 x42 w61 x41 w61 w57 w57 w57 x46 x42 w57 x41 w57 | Ni no Kuni - Shikkoku no Madoushi (Japan)
 == nickelodeon dora and friends' - fantastic flight
-   .   .   .   .   .   .   .   .   a55 a55 a55 x46 x42 a55 x41 a55 | Dora & Friends' - Fantastic Flight (Europe)
-     alternative to Nickelodeon Team Umizoomi and Dora's Fantastic Flight (USA) [9-10,14,16]
+   g   g   g   g   g   g   g   g   .   .   g   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   .   a55 x46 x42 .   x41 .   | Dora & Friends' - Fantastic Flight (Europe)
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   w55 w57 x42 .   x41 .   | Nickelodeon Dora and Friends' - Fantastic Flight (Europe) (En,Fr,Es,Nl)
    .   .   .   .   .   .   .   .   .   .   a9  .   .   .   .   .   | Nickelodeon Team Umizoomi and Dora's Fantastic Flight (USA)
 == nickelodeon team - umizoomi
@@ -10093,6 +10086,7 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 x46 w61 w61 x41 w61 w20 w20 a54 x46 w20 w20 x41 w20 | Nickelodeon Team - Umizoomi (USA)
 == nickelodeon team umizoomi and dora's fantastic flight
    g   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a55 a55 .   .   .   a55 .   a55 | Dora & Friends' - Fantastic Flight (Europe)
    .   .   .   .   .   .   .   .   a24 a24 .   .   .   a24 .   a24 | Nickelodeon Dora and Friends' - Fantastic Flight (Europe) (En,Fr,Es,Nl)
    w61 w61 w61 x46 w61 w61 x41 w61 w20 w20 .   x46 w20 w20 x41 w20 | Nickelodeon Team Umizoomi and Dora's Fantastic Flight (USA)
 == nicktoons - attack of the toybots
@@ -10680,13 +10674,11 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    .   .   .   .   .   .   .   .   a55 a55 w19 a51 x42 a55 x41 a55 | Pawly Pets - My Vet Practice (Europe) (En,Fr,De)
    w61 w61 w61 x46 w61 w61 x41 w61 w54 w54 a54 x46 w57 w54 x41 w54 | Paws & Claws - Pet Vet (USA)
 == paws & claws - pet vet - australian adventures
-   .   .   .   .   .   .   .   .   a60 a60 a60 .   x42 a60 x41 a60 | Meine Tierarztpraxis in Australien (Germany)
-     alternative to 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It) [11]
-   .   .   .   .   .   .   .   .   a60 a60 a60 a60 x42 a60 x41 x38 | My Vet Practice - In Australia (Europe) (En,Fr,De,Es,It) [b]
-     alternative to 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It) [11-12]
+   g   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a60 a60 .   .   x42 a60 x41 a60 | Meine Tierarztpraxis in Australien (Germany)
+   .   .   .   .   .   .   .   .   a60 a60 .   .   x42 a60 x41 x38 | My Vet Practice - In Australia (Europe) (En,Fr,De,Es,It) [b]
    w61 w61 w61 x46 w61 w61 x41 w61 w60 w60 .   x46 w57 w60 x41 w60 | Paws & Claws - Pet Vet - Australian Adventures (USA)
-   .   .   .   .   .   .   .   .   a60 a60 a60 x46 x42 a60 x41 x38 | Real Stories - Veterinaire - Mission Australie (France) [b]
-     alternative to 3 in 1 - My Vet Practice & Riding Star & My Vet Practice in Australia (Europe) (En,Fr,De,Es,It) [11]
+   .   .   .   .   .   .   .   .   a60 a60 .   x46 x42 a60 x41 x38 | Real Stories - Veterinaire - Mission Australie (France) [b]
 == paws & claws - pet vet 2
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
    w61 w61 w61 x46 w61 w61 x41 w61 .   .   .   .   .   .   .   .   | Paws & Claws - Pet Vet 2 (USA)
@@ -12359,6 +12351,7 @@ rule r69: Superset parent selection REF0119: Group after good dump/production/re
    w61 w61 w61 w61 x42 w61 x41 w61 .   .   .   .   .   .   .   .   | Quest Trio, The (Germany)
 == quest trio, the - jewels, cards and tiles
    g   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a60 a60 .   .   .   a60 .   .   | Jewel Quest - Solitaire (France) [b]
    .   .   .   .   .   .   .   .   a24 a24 .   .   .   a24 .   a24 | Jewel Quest - Solitaire - Solitaire with a Twist! (Europe)
    .   .   .   .   .   .   .   .   .   .   .   x46 x42 .   x41 .   | Quest Trio, The (Europe)
    .   .   .   .   .   .   .   .   .   .   .   w13 x42 .   x41 .   | Quest Trio, The (Germany)

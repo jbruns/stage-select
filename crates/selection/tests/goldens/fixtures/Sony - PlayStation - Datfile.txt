@@ -1666,10 +1666,9 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == battle formation
    w53 w53 w53 x38 x33 w53 x32 w53 w50 w50 w50 x38 x33 w50 x32 w50 | Battle Formation (Japan)
 == battle hunter
-   w53 w53 w53 x38 w53 w53 x32 w53 w47 a52 a47 x38 w50 w47 x32 w47 | Battle Hunter (USA)
-     alternative to SuperLite 3in1 Series - Board Game-shuu (Japan) [10]
-   .   .   .   .   .   .   .   .   a47 a52 w47 x38 x33 a47 x32 a47 | Hunter, The (Europe)
-     alternative to SuperLite 3in1 Series - Board Game-shuu (Japan) [10]
+   g   g   g   g   g   g   g   g   g   .   g   g   g   g   g   g   |
+   w53 w53 w53 x38 w53 w53 x32 w53 w47 .   a47 x38 w50 w47 x32 w47 | Battle Hunter (USA)
+   .   .   .   .   .   .   .   .   a47 .   w47 x38 x33 a47 x32 a47 | Hunter, The (Europe)
    .   .   .   .   .   .   .   .   a52 .   a52 x38 x33 a52 x32 a52 | SuperLite 1500 Series - Battle Sugoroku the Hunter - A.R.0062 (Japan)
    .   .   .   .   .   .   .   .   a7  .   .   .   .   a7  .   a7  | SuperLite 3in1 Series - Board Game-shuu (Japan)
 == battle konchuuden
@@ -7447,10 +7446,9 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w53 w53 w53 x38 x33 w53 x32 w53 a47 w47 a47 x38 x33 a47 x32 a47 | Final Doom (Japan)
    w53 w53 w53 x38 w53 w53 x32 w53 w47 a47 a47 x38 w50 w47 x32 w47 | Final Doom (USA)
 == final fantasy
-   w53 w53 w53 x38 x33 w53 x32 w53 a39 a39 a39 x38 x33 a39 x32 a39 | Final Fantasy (Japan)
-     alternative to Final Fantasy Origins (USA) (Rev 1) [9,14,16]
-   w53 w53 w53 x38 x33 w53 x32 w53 a52 w52 a52 x38 x33 a52 x32 a52 | Final Fantasy (Japan) (Premium Package)
-     alternative to Final Fantasy Origins (USA) (Rev 1) [9,14,16]
+   g   g   g   g   g   g   g   g   .   g   g   g   g   .   g   .   |
+   w53 w53 w53 x38 x33 w53 x32 w53 .   a39 a39 x38 x33 .   x32 .   | Final Fantasy (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 .   w52 a52 x38 x33 .   x32 .   | Final Fantasy (Japan) (Premium Package)
    .   .   .   .   .   .   .   .   .   a3  a9  .   .   .   .   .   | Final Fantasy Origins (USA)
    .   .   .   .   .   .   .   .   .   a3  a9  .   .   .   .   .   | Final Fantasy Origins (USA) (Rev 1)
    .   .   .   .   .   .   .   .   .   a52 w52 x38 x33 .   x32 .   | Final Fantasy Origins - Final Fantasy (Europe)
@@ -7484,10 +7482,9 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
 == final fantasy extra collection
    w53 w53 w53 x38 x33 w53 x32 x15 w50 w50 w50 x38 x33 w50 x32 x15 | Final Fantasy Extra Collection (Japan)
 == final fantasy ii
-   w53 w53 w53 x38 x33 w53 x32 w53 a39 a39 a39 x38 x33 a39 x32 a39 | Final Fantasy II (Japan)
-     alternative to Final Fantasy Origins (USA) (Rev 1) [9,14,16]
-   w53 w53 w53 x38 x33 w53 x32 w53 a52 w52 a52 x38 x33 a52 x32 a52 | Final Fantasy II (Japan) (Premium Package)
-     alternative to Final Fantasy Origins (USA) (Rev 1) [9,14,16]
+   g   g   g   g   g   g   g   g   .   g   g   g   g   .   g   .   |
+   w53 w53 w53 x38 x33 w53 x32 w53 .   a39 a39 x38 x33 .   x32 .   | Final Fantasy II (Japan)
+   w53 w53 w53 x38 x33 w53 x32 w53 .   w52 a52 x38 x33 .   x32 .   | Final Fantasy II (Japan) (Premium Package)
    .   .   .   .   .   .   .   .   .   a52 w52 x38 x33 .   x32 .   | Final Fantasy Origins - Final Fantasy II (Europe)
 == final fantasy iv
    g   g   g   g   g   g   g   g   .   .   .   .   .   .   .   .   |
@@ -7615,6 +7612,10 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
      alternative to Final Fantasy IX (Japan, Asia) (Disc 4) [10]
 == final fantasy origins
    g   g   g   g   g   g   g   g   g   .   .   g   g   g   g   g   |
+   .   .   .   .   .   .   .   .   a39 .   .   .   .   a39 .   a39 | Final Fantasy (Japan)
+   .   .   .   .   .   .   .   .   a52 .   .   .   .   a52 .   a52 | Final Fantasy (Japan) (Premium Package)
+   .   .   .   .   .   .   .   .   a39 .   .   .   .   a39 .   a39 | Final Fantasy II (Japan)
+   .   .   .   .   .   .   .   .   a52 .   .   .   .   a52 .   a52 | Final Fantasy II (Japan) (Premium Package)
    w53 w53 w53 x38 w53 w53 x32 w53 a10 .   .   x38 a10 a10 x32 a10 | Final Fantasy Origins (USA)
    w53 w53 w53 x38 w53 w53 x32 w53 w10 .   .   x38 w10 w10 x32 w10 | Final Fantasy Origins (USA) (Rev 1)
    .   .   .   .   .   .   .   .   a8  .   .   .   .   a8  .   a8  | Final Fantasy Origins - Final Fantasy (Europe)
@@ -11812,10 +11813,11 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w53 w53 w53 x38 w53 w53 x32 w53 w4  .   w4  x38 w4  w4  x32 w4  | Lode Runner (USA)
    .   .   .   .   .   .   .   .   a8  .   a8  .   .   a8  .   a8  | Lode Runner - The Legend Returns (Japan)
    .   .   .   .   .   .   .   .   a8  .   a8  .   .   a8  .   a8  | Lode Runner Extra (Japan)
+   .   .   .   .   .   .   .   .   a41 .   a41 .   .   a41 .   a41 | SuperLite 1500 Series - Lode Runner - The Legend Returns (Japan)
 == lode runner - the legend returns
+   g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
    w53 w53 w53 x38 x33 w53 x32 w53 .   a41 .   x38 x33 .   x32 .   | Lode Runner - The Legend Returns (Japan)
-   .   .   .   .   .   .   .   .   a41 w41 a41 x38 x33 a41 x32 a41 | SuperLite 1500 Series - Lode Runner - The Legend Returns (Japan)
-     alternative to Lode Runner (USA) [9,11,14,16]
+   .   .   .   .   .   .   .   .   .   w41 .   x38 x33 .   x32 .   | SuperLite 1500 Series - Lode Runner - The Legend Returns (Japan)
 == lode runner extra
    g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
    .   .   .   .   .   .   .   .   .   a3  .   .   .   .   .   .   | Lode Runner (USA)
@@ -20160,6 +20162,8 @@ rule r70: Superset parent selection REF0119: Group after good dump/production/re
    w53 w53 w53 x38 x33 w53 x32 w53 .   .   .   x38 x33 .   x32 .   | SuperLite 3in1 Series - Arcade Classic-shuu (Japan)
 == superlite 3in1 series - board game-shuu
    g   g   g   g   g   g   g   g   .   g   .   g   g   .   g   .   |
+   .   .   .   .   .   .   .   .   .   a52 .   .   .   .   .   .   | Battle Hunter (USA)
+   .   .   .   .   .   .   .   .   .   a52 .   .   .   .   .   .   | Hunter, The (Europe)
    .   .   .   .   .   .   .   .   .   a1  .   .   .   .   .   .   | SuperLite 1500 Series - Battle Sugoroku the Hunter - A.R.0062 (Japan)
    w53 w53 w53 x38 x33 w53 x32 w53 .   w6  .   x38 x33 .   x32 .   | SuperLite 3in1 Series - Board Game-shuu (Japan)
 == superlite 3in1 series - card game-shuu
