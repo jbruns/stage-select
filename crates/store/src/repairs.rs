@@ -21,6 +21,7 @@ use rustix::fs::{Access, AtFlags, FileType};
 use stage_select_api::build::{Approval, ExpectedRom, FileStat, MARKER, Marker, kept_name};
 use stage_select_api::ingest::FolderEntry;
 use stage_select_api::lifecycle::RegistrationKind;
+use stage_select_api::planning::PlanStep;
 use stage_select_api::repair::{
     KeptFileReviewed, PlanRepair, PlannedStep, RepairChoice, RepairOutcome, RepairPlan,
     RepairPlanContent, RepairRom, RepairStep, SeenFile, SourceSetMarker,
@@ -49,6 +50,7 @@ use crate::ingest::fill_candidates;
 use crate::ingest::moves::{Destination, Move};
 use crate::jobs::{finish_running, job_by_id};
 use crate::kept::{Scope, name_key, open_area_deleting, open_retention, settle_dir_temps, unique};
+use crate::plan_meter::PlanMeter;
 use crate::plans::returns::{bytes, rounded};
 use crate::plans::{json, to_json};
 use crate::sets::{set_by_id, set_by_name};
@@ -152,14 +154,19 @@ pub(crate) fn open_repairable(
 }
 
 /// Every entry under `dir` but Stage Select's own, by path relative to it, and the regular files among them as seen.
+/// `walked` is called as each regular file is seen.
 // `st_nlink` is narrower than u64 on some platforms.
 #[allow(clippy::unnecessary_cast)]
-fn walk(dir: &FolderDir) -> io::Result<(Vec<FolderEntry>, BTreeMap<String, Seen>)> {
+fn walk(
+    dir: &FolderDir,
+    walked: &dyn Fn(),
+) -> io::Result<(Vec<FolderEntry>, BTreeMap<String, Seen>)> {
     fn visit(
         dir: &FolderDir,
         prefix: &str,
         entries: &mut Vec<FolderEntry>,
         files: &mut BTreeMap<String, Seen>,
+        walked: &dyn Fn(),
     ) -> io::Result<()> {
         for (name, _) in dir.entries()? {
             if stage_select_engine::is_own_entry(&name) {
@@ -179,22 +186,26 @@ fn walk(dir: &FolderDir) -> io::Result<(Vec<FolderEntry>, BTreeMap<String, Seen>
             });
             match FolderDir::kind(&st) {
                 FileType::RegularFile => {
+                    walked();
                     files.insert(rel, seen);
                 }
-                FileType::Directory => visit(&dir.sub(&name)?, &format!("{rel}/"), entries, files)?,
+                FileType::Directory => {
+                    visit(&dir.sub(&name)?, &format!("{rel}/"), entries, files, walked)?
+                }
                 _ => {}
             }
         }
         Ok(())
     }
     let (mut entries, mut files) = (Vec::new(), BTreeMap::new());
-    visit(dir, "", &mut entries, &mut files)?;
+    visit(dir, "", &mut entries, &mut files, walked)?;
     entries.sort_by(|a, b| a.name.cmp(&b.name));
     Ok((entries, files))
 }
 
 /// [`walk`] of Source Set `set`'s folder `dir`, with each recorded file of its Placed Games still there, as seen in
-/// the Library Folder holding it and named by its path in the Source Set's Audits.
+/// the Library Folder holding it and named by its path in the Source Set's Audits. `walked` is called as each regular
+/// file is seen.
 // `st_nlink` is narrower than u64 on some platforms.
 #[allow(clippy::unnecessary_cast)]
 fn walk_with_placed(
@@ -202,8 +213,9 @@ fn walk_with_placed(
     roots: &crate::roots::Roots,
     set: i64,
     dir: &FolderDir,
+    walked: &dyn Fn(),
 ) -> Result<(Vec<FolderEntry>, BTreeMap<String, Seen>)> {
-    let (mut entries, mut files) = walk(dir).map_err(io_err)?;
+    let (mut entries, mut files) = walk(dir, walked).map_err(io_err)?;
     let placed = store.read(|c| crate::placements::placed_files_of(c, set))?;
     let mut dirs = BTreeMap::new();
     for file in placed {
@@ -233,6 +245,7 @@ fn walk_with_placed(
             nlink: st.st_nlink as u64,
         });
         if FolderDir::kind(&st) == FileType::RegularFile {
+            walked();
             files.insert(name, seen);
         }
     }
@@ -852,6 +865,17 @@ impl Store {
     /// the choices `request` makes in place of the defaults. Refused unless the Source Set's Root lets a repair write
     /// to it. Changes nothing in the Source Set.
     pub fn plan_repair(&self, name: &str, request: &PlanRepair) -> Result<RepairPlan> {
+        self.plan_repair_metered(name, request, &PlanMeter::default())
+    }
+
+    /// [`Store::plan_repair`], counting in `meter` how far it has got: the files walked, then the DAT's Games
+    /// planned.
+    pub fn plan_repair_metered(
+        &self,
+        name: &str,
+        request: &PlanRepair,
+        meter: &PlanMeter,
+    ) -> Result<RepairPlan> {
         let roots = &*self.roots();
         let set = self.read(|c| set_by_name(c, name))?;
         let record = &set.record;
@@ -902,7 +926,10 @@ impl Store {
             .map_err(|e| Error::Io(e.to_string()))?;
         let dir = FolderDir::open(&root.path, &record.path).map_err(io_err)?;
         let folder = dir.identity().map_err(io_err)?;
-        let (fingerprint, files) = walk_with_placed(self, roots, set.id, &dir)?;
+        let reported: HashSet<&str> = report.entries.iter().map(|e| e.path.as_str()).collect();
+        // The files the Audit read are as good a guess as any of how many there are now.
+        meter.start(PlanStep::Walking, reported.len() as u64);
+        let (fingerprint, files) = walk_with_placed(self, roots, set.id, &dir, &|| meter.tick())?;
         let stamps = self.read(|c| audit_stamps(c, audit.id, false))?;
         let unreadable = self.read(|c| audit_stamps(c, audit.id, true))?;
         // The checksums the Audit read of each file holding a Mismatched Entry, which its item shows beside the DAT's.
@@ -928,7 +955,6 @@ impl Store {
         // Where each Placed Game is, while the Audit found a file of it there: one whose every file is gone is
         // filled, or written, in the Source Set's folder, as any missing Game is. Each placed file is a source for
         // its own Game only.
-        let reported: HashSet<&str> = report.entries.iter().map(|e| e.path.as_str()).collect();
         let mut placed = HashMap::new();
         let mut placed_files = HashMap::new();
         let mut placed_chds = HashSet::new();
@@ -1012,6 +1038,7 @@ impl Store {
             placed_files: &placed_files,
             placed_chds: &placed_chds,
             beside: &beside,
+            meter,
         })?;
         let mut planned = planned;
         // Each file added as an Addition is read now, through a descriptor held on it while it is the file
@@ -1133,7 +1160,7 @@ impl Store {
         match recorded {
             Some(plan) => Ok(plan),
             // A cue pack it reads was deleted as it was made, and stays deleted until imported again, so planning
-            // again reads only the packs still kept.
+            // again reads only the packs still kept. The meter stays as it was, finishing, rather than go back.
             None => self.plan_repair(name, request),
         }
     }
@@ -1168,7 +1195,7 @@ impl Store {
         let report = self.report(audit.id)?;
         let dir = FolderDir::open(&root.path, &record.path).map_err(io_err)?;
         let folder = dir.identity().map_err(io_err)?;
-        let (fingerprint, files) = walk(&dir).map_err(io_err)?;
+        let (fingerprint, files) = walk(&dir, &|| {}).map_err(io_err)?;
         if files.is_empty() {
             return Err(Error::Refused(format!(
                 "source set {name} holds no file to set aside; unregister it instead"
@@ -1392,7 +1419,7 @@ impl Store {
         for folder in placed_folders(content) {
             open_placed(self, roots, folder)?.map_err(Error::Refused)?;
         }
-        let (fingerprint, _) = walk_with_placed(self, roots, content.set_id, &dir)?;
+        let (fingerprint, _) = walk_with_placed(self, roots, content.set_id, &dir, &|| {})?;
         if Identity::from(content.folder) != dir.identity().map_err(io_err)?
             || fingerprint != content.fingerprint
         {

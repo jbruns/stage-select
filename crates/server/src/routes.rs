@@ -60,6 +60,7 @@ use crate::selections::{Previews, UNAVAILABLE};
 
 pub(crate) mod coverage;
 mod lifecycle;
+pub(crate) mod plannings;
 
 /// The largest DAT file an upload may carry.
 pub const UPLOAD_LIMIT: usize = 512 * 1024 * 1024;
@@ -76,6 +77,8 @@ pub struct AppState {
     pub previews: Arc<Previews>,
     pub fetcher: Arc<Fetcher>,
     pub coverage: Arc<coverage::Tallies>,
+    /// The repair and build plans being made in the background.
+    pub plannings: Arc<plannings::Plannings>,
     /// The mount points whose folders are suggested as Roots.
     pub mount_points: Arc<[std::path::PathBuf]>,
 }
@@ -281,6 +284,7 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/events", get(all_events))
         .merge(lifecycle::routes())
         .merge(coverage::routes())
+        .merge(plannings::routes())
         .layer(middleware::from_fn_with_state(auth, require_operator));
     let api = Router::new()
         .route("/health", get(health))
@@ -2744,6 +2748,7 @@ mod tests {
                 "http://127.0.0.1:9",
             ))),
             coverage: Arc::default(),
+            plannings: Arc::default(),
             mount_points: Arc::new([]),
         }
     }

@@ -6866,3 +6866,39 @@ fn a_library_root_keeps_its_path_and_kind_while_approved_builds_write_there() {
     assert!(queued(here_job) && queued(there_job));
     assert!(env.store.roots().root("play").unwrap().writable);
 }
+
+#[test]
+fn a_build_plan_counts_the_files_it_finds_then_each_selected_file_it_plans() {
+    let env = Env::new();
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+    std::fs::write(env.play().join("atari2600/notes.txt"), b"mine").unwrap();
+    let meter = stage_select_store::PlanMeter::default();
+    let request = PlanBuild {
+        selection: id,
+        choices: PlanChoices::default(),
+    };
+
+    let metered = env
+        .store
+        .plan_build_metered(folder.id, &request, &meter)
+        .unwrap();
+
+    use stage_select_api::planning::{PlanProgress, PlanStep};
+    let step = |step, done, total| PlanProgress { step, done, total };
+    assert_eq!(
+        meter.ended(),
+        [
+            step(PlanStep::Reading, 0, 0),
+            step(PlanStep::Walking, 1, 1),
+            step(PlanStep::Planning, 7, 7),
+        ]
+    );
+    assert_eq!(meter.progress(), step(PlanStep::Finishing, 0, 0));
+    assert_eq!(
+        metered.digest,
+        env.plan(&folder, id).digest,
+        "counting changes nothing planned"
+    );
+}

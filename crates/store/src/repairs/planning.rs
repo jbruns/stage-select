@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use stage_select_api::additions::NewAddition;
 use stage_select_api::build::{ExpectedRom, invalid_name, kept_name};
+use stage_select_api::planning::PlanStep;
 use stage_select_api::repair::{
     PlannedStep, RepairChoice, RepairItem, RepairKind, RepairRom, RepairStep, SeenFile,
 };
@@ -22,6 +23,7 @@ use crate::audits::MemberSums;
 use crate::checks::Seen;
 use crate::ingest::FillCandidate;
 use crate::kept::name_key;
+use crate::plan_meter::PlanMeter;
 use crate::{Error, Result};
 
 pub(super) struct Inputs<'a> {
@@ -57,6 +59,8 @@ pub(super) struct Inputs<'a> {
     /// The files a build laid out beside each release's placed CHDs, such as its `.m3u`, by release: each by its path
     /// as the Audit would name it, as seen now. A release is released with them.
     pub beside: &'a BTreeMap<String, Vec<(String, Seen)>>,
+    /// Counts each Game planned, and the steps around them.
+    pub meter: &'a PlanMeter,
 }
 
 /// Where a file, or a Game's files, are: a Library Folder, by its id, and the folder in it holding them (empty for
@@ -2110,7 +2114,9 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 _ => false,
             }
     });
+    i.meter.start(PlanStep::Planning, i.dat.games.len() as u64);
     for (index, game) in i.dat.games.iter().enumerate() {
+        i.meter.tick();
         let roms = &wanted[index];
         // The Game and name of each of `roms`: one of another Game where the layout puts it here.
         let keys: Vec<(&str, &str)> = owners[index].iter().map(|&r| layout_index.key(r)).collect();
@@ -2915,6 +2921,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
             checked: true,
         });
     }
+    i.meter.start(PlanStep::Finishing, 0);
 
     keep_uncovered(i, &by_path, &reported, &mut proposed, &mut notes);
 
