@@ -252,6 +252,24 @@ impl Env {
             .unwrap()
     }
 
+    /// Runs a stat walk of the Source Set: its counts of changed, added and removed files, if it found any.
+    pub(crate) fn walk(&self) -> Option<(u64, u64, u64)> {
+        let job = self.store.enqueue_stat_walk(SET, "Operator").unwrap();
+        assert_eq!(self.store.claim_job().unwrap().unwrap().id, job.id);
+        let ended = self.store.run_stat_walk_job(job.id).unwrap();
+        assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+        let set = self.store.source_set(SET).unwrap();
+        set.stale.into_iter().find_map(|s| match s {
+            stage_select_api::SourceSetStale::FilesChanged {
+                changed,
+                added,
+                removed,
+                ..
+            } => Some((changed, added, removed)),
+            _ => None,
+        })
+    }
+
     /// The file names in the Source Set's folder and in the Library Folder, leaving out what Stage Select keeps for
     /// itself.
     pub(crate) fn files(&self) -> (Vec<String>, Vec<String>) {
@@ -702,6 +720,92 @@ fn a_torrentzip_stored_loose_is_converted_on_the_way_and_its_original_deleted() 
         .find(|e| e.path == placed_path(env.folder.id, "Pong (USA).a26"))
         .unwrap_or_else(|| panic!("{:?}", next.entries));
     assert_eq!(entry.finding, Finding::Matched);
+}
+
+/// Places Pong, written in the Source Set by `write`, in a folder storing each game as `format`, after an Audit with
+/// `evidence`, copying `across` filesystems, and asserts it was placed `how` as `placed` and that a stat walk then
+/// finds nothing changed. Returns the path of its file in the Library Folder.
+fn place_then_walk(
+    write: impl Fn(&Env),
+    evidence: AuditEvidence,
+    format: StorageFormat,
+    across: bool,
+    (how, placed): (PlaceHow, &str),
+) -> (Env, PathBuf) {
+    let env = Env::new();
+    write(&env);
+    env.audit(evidence);
+    assert_eq!(env.walk(), None, "nothing changed since the audit");
+    env.single_copy(format);
+    env.store.copy_across_filesystems(across);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(item(&plan, "Pong (USA)").place.as_ref().unwrap().how, how);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert_eq!(env.files().1, [placed]);
+    // What the build moved, copied or wrote, it recorded as the audit's: nothing looks changed, added or removed.
+    assert_eq!(env.walk(), None, "placed by a {how:?}");
+    let at = env.library().join(placed);
+    (env, at)
+}
+
+fn loose_pong(env: &Env) {
+    std::fs::write(env.set().join("Pong (USA).a26"), b"pong").unwrap();
+}
+
+#[test]
+fn a_game_placed_by_a_rename_leaves_its_source_set_unchanged_until_its_file_is_edited() {
+    let pong = |env: &Env| {
+        pong_zip(env);
+    };
+    let (env, at) = place_then_walk(
+        pong,
+        AuditEvidence::Full,
+        StorageFormat::TorrentZip,
+        false,
+        (PlaceHow::Rename, "Pong (USA).zip"),
+    );
+    overwrite_keeping_stamp(&at);
+    assert_eq!(env.walk(), Some((1, 0, 0)));
+}
+
+#[test]
+fn a_game_placed_by_a_copy_leaves_its_source_set_unchanged() {
+    let (env, at) = place_then_walk(
+        |env| {
+            pong_zip(env);
+        },
+        AuditEvidence::Full,
+        StorageFormat::TorrentZip,
+        true,
+        (PlaceHow::Copy, "Pong (USA).zip"),
+    );
+    overwrite_keeping_stamp(&at);
+    assert_eq!(env.walk(), Some((1, 0, 0)));
+}
+
+#[test]
+fn a_game_converted_as_it_is_placed_leaves_its_source_set_unchanged() {
+    let (env, at) = place_then_walk(
+        |env| {
+            pong_zip(env);
+        },
+        AuditEvidence::Full,
+        StorageFormat::Loose,
+        false,
+        (PlaceHow::Convert, "Pong (USA).a26"),
+    );
+    overwrite_keeping_stamp(&at);
+    assert_eq!(env.walk(), Some((1, 0, 0)));
+    let (env, at) = place_then_walk(
+        loose_pong,
+        AuditEvidence::Full,
+        StorageFormat::TorrentZip,
+        false,
+        (PlaceHow::Convert, "Pong (USA).zip"),
+    );
+    overwrite_keeping_stamp(&at);
+    assert_eq!(env.walk(), Some((1, 0, 0)));
 }
 
 #[test]

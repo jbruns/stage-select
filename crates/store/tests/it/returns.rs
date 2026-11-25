@@ -1395,3 +1395,120 @@ fn a_deselected_placed_game_with_nothing_to_build_goes_home() {
     assert!(env.store.placed_files(SET).unwrap().is_empty());
     assert!(env.files().0.contains(&"Manual (USA).zip".to_owned()));
 }
+
+/// Places Pong in a folder storing each game as `format`, audits the Source Set again with `again`, if any, then
+/// returns it home as `how` once `change` changed the folder's policy or selection, and walks the Source Set.
+fn return_then_walk(
+    format: StorageFormat,
+    again: Option<AuditEvidence>,
+    across: bool,
+    change: impl Fn(&Env) -> i64,
+    how: ReturnHow,
+) -> Option<(u64, u64, u64)> {
+    let env = Env::new();
+    pong_zip(&env);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(format);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    if let Some(evidence) = again {
+        env.audit(evidence);
+    }
+    assert_eq!(env.walk(), None, "placed");
+    env.store.copy_across_filesystems(across);
+    let selection = change(&env);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(returned(&plan, "Pong (USA)").how, how);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert!(env.store.placed_files(SET).unwrap().is_empty());
+    env.walk()
+}
+
+/// What turns a placed game into one to return: a selection without it, or single copy turned off.
+type Change = dyn Fn(&Env) -> i64;
+
+#[test]
+fn a_game_returned_home_leaves_its_source_set_unchanged() {
+    let deselect = |env: &Env| env.select(&["Combat (USA)"]);
+    let off = |env: &Env| {
+        let mut policy = env.store.storage_policy().unwrap();
+        policy.play_libraries.single_copy = false;
+        env.store.set_storage_policy(&policy, "Operator").unwrap();
+        env.select(&["Pong (USA)"])
+    };
+    for again in [None, Some(AuditEvidence::Full), Some(AuditEvidence::Quick)] {
+        let cases: [(StorageFormat, bool, &Change, ReturnHow); 4] = [
+            (
+                StorageFormat::TorrentZip,
+                false,
+                &deselect,
+                ReturnHow::Rename,
+            ),
+            (StorageFormat::TorrentZip, true, &deselect, ReturnHow::Copy),
+            (StorageFormat::Loose, false, &deselect, ReturnHow::Convert),
+            (StorageFormat::TorrentZip, false, &off, ReturnHow::Copy),
+        ];
+        for (format, across, change, how) in cases {
+            assert_eq!(
+                return_then_walk(format, again, across, change, how),
+                None,
+                "{how:?} home from {format:?}, audited again: {again:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_file_returned_home_and_then_edited_is_found_changed() {
+    let env = Env::new();
+    let bytes = place_pong(&env, StorageFormat::TorrentZip);
+    let selection = env.select(&["Combat (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    home(&env, "Pong (USA).zip", &bytes);
+    assert_eq!(env.walk(), None);
+    overwrite_keeping_stamp(&env.set().join("Pong (USA).zip"));
+    assert_eq!(env.walk(), Some((1, 0, 0)));
+}
+
+#[test]
+fn a_claims_stamp_follows_its_file_home() {
+    let env = Env::new();
+    place_pong(&env, StorageFormat::TorrentZip);
+    // As a quick inventory records a ZIP it only claimed: a claim's stamp, not a read's.
+    let db =
+        rusqlite::Connection::open(env.store.dir().join(stage_select_store::DATABASE)).unwrap();
+    let moved = db
+        .execute(
+            "INSERT INTO audit_claim_stamps (audit_id, path, dev, ino, size, mtime_ns, ctime_ns)
+             SELECT audit_id, path, dev, ino, size, mtime_ns, ctime_ns FROM audit_stamps
+             WHERE audit_id = (SELECT max(id) FROM audits)",
+            [],
+        )
+        .unwrap();
+    assert_eq!(moved, 1);
+    db.execute(
+        "DELETE FROM audit_stamps WHERE audit_id = (SELECT max(id) FROM audits)",
+        [],
+    )
+    .unwrap();
+    assert_eq!(env.walk(), None, "placed");
+    let selection = env.select(&["Combat (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(returned(&plan, "Pong (USA)").how, ReturnHow::Rename);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert_eq!(env.walk(), None, "home");
+    let claimed: Vec<String> = db
+        .prepare(
+            "SELECT path FROM audit_claim_stamps WHERE audit_id = (SELECT max(id) FROM audits)",
+        )
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(claimed, ["Pong (USA).zip"]);
+    overwrite_keeping_stamp(&env.set().join("Pong (USA).zip"));
+    assert_eq!(env.walk(), Some((1, 0, 0)));
+}

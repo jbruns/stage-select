@@ -1051,7 +1051,9 @@ impl Store {
         if let Err(why) = checked {
             return self.unwind(p, set, seq, r, &why);
         }
-        self.commit_write(p, seq, r)?;
+        // Each file put home is recorded as the last check found it, unchanged since it was held.
+        let now: Vec<&Stat> = held.iter().map(Held::stat).collect();
+        self.commit_write(p, seq, r, &now)?;
         self.fault_point(Fault::ReturnRecorded(seq));
         self.dispose_placed(p, seq, r, Some(&deleting), false)
     }
@@ -1104,13 +1106,13 @@ impl Store {
 
     /// Records the release of `r` home, every file of it put home and checked: each placed file forgotten, the
     /// built record of each that goes dropped, and its Source Set's latest Audit made to name the files home. In one
-    /// transaction, which commits it: from here it is rolled forward.
-    fn commit_write(&self, p: &Returning, seq: i64, r: &PlanReturn) -> Result<()> {
+    /// transaction, which commits it: from here it is rolled forward. Each file put home is statted as `now`.
+    fn commit_write(&self, p: &Returning, seq: i64, r: &PlanReturn, now: &[&Stat]) -> Result<()> {
         self.write(|tx| {
             // Every file put home was verified against the DAT: no Game of the release needs review now.
             crate::placements::clear_reviews(tx, p.set, r.games.iter().map(String::as_str))?;
             if let Some(audit) = latest_audit(tx, p.set)? {
-                crate::placements::returned_entries(tx, (p.set, audit), p.folder, r)?;
+                crate::placements::returned_entries(tx, (p.set, audit), p.folder, r, now)?;
             } else {
                 for pl in &r.placed {
                     tx.execute(

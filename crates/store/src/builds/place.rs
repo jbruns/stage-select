@@ -207,12 +207,12 @@ fn placement<'a>(w: &Work<'a>) -> Result<&'a PlanPlace> {
 fn rewrites<'a>(
     unit: &[&Work<'a>],
     paths: &'a [String],
-) -> Result<(Vec<&'a str>, Vec<Rewritten<'a>>)> {
-    let mut from: Vec<&str> = Vec::new();
+) -> Result<(Vec<&'a PlacedOriginal>, Vec<Rewritten<'a>>)> {
+    let mut from: Vec<&PlacedOriginal> = Vec::new();
     for w in unit {
         for o in &placement(w)?.originals {
-            if !from.contains(&o.path.as_str()) {
-                from.push(&o.path);
+            if !from.iter().any(|f| f.path == o.path) {
+                from.push(o);
             }
         }
     }
@@ -638,6 +638,7 @@ impl Store {
             .map(|w| placed_path(p.folder, &w.item.target))
             .collect();
         let (from, to) = rewrites(unit, &paths)?;
+        let from: Vec<&str> = from.iter().map(|o| o.path.as_str()).collect();
         Ok(self
             .read(|c| crate::placements::rewritten(c, p.audit, &from, &to))?
             .map(|_| ()))
@@ -1570,7 +1571,8 @@ impl Store {
             }
             if !matches!(built, Built::Found) {
                 let (from, to) = rewrites(unit, &paths)?;
-                crate::placements::rewritten_entries(tx, (p.set, p.audit), &from, &to)?;
+                let now: Vec<&Stat> = found.iter().map(|f| &f.now).collect();
+                crate::placements::rewritten_entries(tx, (p.set, p.audit), &from, (&to, &now))?;
             }
             if let Some(key) = key {
                 tx.execute(

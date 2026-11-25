@@ -246,6 +246,11 @@ impl Held {
         Ok(Ok(Held { file, st }))
     }
 
+    /// The file's stat as it was opened.
+    pub(crate) fn stat(&self) -> &Stat {
+        &self.st
+    }
+
     /// Whether this is still the file at `name` in `dir`, unchanged since it was opened, and reads, through its own
     /// descriptor, as the SHA-256 `sha` recorded, counted to `tally`. Returns why not.
     ///
