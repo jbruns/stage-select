@@ -88,9 +88,14 @@ pub struct RepairItem {
     pub kind: RepairKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub game: Option<String>,
-    /// The file the item is about, relative to the Source Set's folder.
+    /// The file the item is about, relative to the Source Set's folder. For a Game, the file it is written as.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// For a Game, what it is read from now: each file of the Source Set, relative to its folder, or `<folder>/` for
+    /// the files of one folder; an ingest item as `<name> in ingest folder <root>`; a cue pack as `cue pack <file>`.
+    /// Empty for anything else, and in a plan made before it was recorded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub from: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub member: Option<String>,
     pub summary: String,

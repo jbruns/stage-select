@@ -3219,6 +3219,18 @@ fn step_seq(plan: &RepairPlan, which: impl Fn(&RepairStep) -> bool) -> u32 {
 }
 
 #[test]
+fn a_conversion_names_the_loose_file_it_reads_beside_the_zip_it_writes() {
+    let env = Env::new();
+    env.put("Pong (USA).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let pong = item(&plan, "game:Pong (USA)");
+    assert_eq!(pong.kind, RepairKind::Convert);
+    assert_eq!(pong.from, ["Pong (USA).a26"]);
+    assert_eq!(pong.path.as_deref(), Some("Pong (USA).zip"));
+}
+
+#[test]
 fn a_source_set_is_converted_to_loose_and_back_with_each_original_kept() {
     let env = Env::new();
     env.put("Pong (USA).a26", b"pong");

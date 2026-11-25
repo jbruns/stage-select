@@ -30,9 +30,9 @@ use crate::parts::status::{FindingStatus, ItemOutcome, PlanKind, Status, StatusC
 use crate::parts::url_state::use_query_edit;
 use crate::repair_model::{
     ChangeMark, Found, LoadTicket, Loads, apply_to_keys, apply_to_kind, choices_for, chosen,
-    could_change, current, fetch_after, item_outcome, kind_choices, may_propose, place, plan_line,
-    proposed, repair_lead, repair_to_show, requested, steps_by_item, suggested_addition, to_add,
-    unfinished_note, unplanned,
+    could_change, current, fetch_after, follow_up_audit, item_outcome, kind_choices, may_propose,
+    place, plan_line, proposed, repair_lead, repair_to_show, requested, steps_by_item,
+    suggested_addition, to_add, unfinished_note, unplanned,
 };
 use crate::screens::additions::AdditionFields;
 use crate::screens::source_sets::tab_href;
@@ -941,8 +941,7 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
     let job = p.job;
     let unfinished = unfinished_note(&p);
     let recovery_error = p.recovery_error.clone();
-    let audit_job = p.audit_job;
-    let audit_owed = p.audit_owed;
+    let follow_up = follow_up_audit(&p);
     let plan_id = p.id;
     // Approve sits above the list; once approved, the repair's job and what it queued take its place.
     let approve = move || {
@@ -964,10 +963,7 @@ fn PlanShown(desk: RepairDesk, plan: RepairPlan, replaced: bool) -> impl IntoVie
                     (Some(note), _) => Some(view! { <Message kind=MessageKind::NOTICE live=Live::Off>{note}</Message> }.into_any()),
                     (None, e) => e.map(|e| view! { <Problem message=e live=Live::Off /> }.into_any()),
                 }}
-                {audit_job.map(|job| view! { <JobOutcome job /> })}
-                {audit_owed.then(|| view! {
-                    <p class="note">"An incremental audit is queued once the job running for the source set ends."</p>
-                })}
+                {follow_up.clone().map(|note| view! { <p class="note">{note}</p> })}
             }
             .into_any()
         }

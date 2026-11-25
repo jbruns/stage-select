@@ -1643,6 +1643,7 @@ fn game_item(game: &str, target: &str, kind: RepairKind, summary: String) -> Rep
         kind,
         game: Some(game.to_owned()),
         path: Some(target.to_owned()),
+        from: Vec::new(),
         member: None,
         summary,
         choices: vec![RepairChoice::Apply, RepairChoice::Leave],
@@ -1653,6 +1654,59 @@ fn game_item(game: &str, target: &str, kind: RepairKind, summary: String) -> Rep
         addition_rom: None,
         addition_target: None,
     }
+}
+
+/// What the Game `p` repairs is read from now ([`RepairItem::from`]): the Source Set's files it reads, as `<folder>/`
+/// when there are several and all are in one folder, then each ingest item or cue pack, then any file of the Game's
+/// own that a fill sets aside. Empty for an item that repairs no Game.
+fn read_from(i: &Inputs, p: &Proposed) -> Vec<String> {
+    let ingest = |candidate: usize| {
+        let c = &i.candidates[candidate];
+        format!("{} in ingest folder {}", c.item.name, c.root)
+    };
+    // Each source, and whether it is a file of the Source Set.
+    let read = |rom: &RepairRom| (rom.from.clone(), rom.cue_pack.is_none());
+    let sources: Vec<(String, bool)> = match &p.proposal {
+        None => return Vec::new(),
+        Some(Proposal::Build { roms }) => roms.iter().map(read).collect(),
+        Some(Proposal::Rename { from, .. }) => vec![(from.clone(), true)],
+        Some(Proposal::Fill { candidate }) => vec![(ingest(*candidate), false)],
+        Some(Proposal::Folder { parts }) => parts
+            .iter()
+            .map(|part| match part {
+                Part::Build { rom, .. } => read(rom),
+                Part::Rename { from, .. } => (from.clone(), true),
+                Part::Fill { candidate, .. } => (ingest(*candidate), false),
+            })
+            .collect(),
+    };
+    let fills = matches!(p.proposal, Some(Proposal::Fill { .. }))
+        || matches!(&p.proposal, Some(Proposal::Folder { parts }) if parts.iter().any(|part| matches!(part, Part::Fill { .. })));
+    let files: Vec<String> = (sources.iter())
+        .filter(|(_, file)| *file)
+        .map(|(f, _)| f.clone())
+        .collect();
+    let folders: BTreeSet<Option<&str>> = files
+        .iter()
+        .map(|f| f.rsplit_once('/').map(|(d, _)| d))
+        .collect();
+    let files = match folders.into_iter().collect::<Vec<_>>().as_slice() {
+        [Some(folder)] if files.len() > 1 => vec![format!("{folder}/")],
+        _ => files,
+    };
+    let elsewhere = (sources.into_iter())
+        .filter(|(_, file)| !*file)
+        .map(|(f, _)| f);
+    let own = (p.displaces.iter())
+        .filter(|_| fills)
+        .map(|(path, _)| path.clone());
+    let mut from: Vec<String> = Vec::new();
+    for f in files.into_iter().chain(elsewhere).chain(own) {
+        if !from.contains(&f) {
+            from.push(f);
+        }
+    }
+    from
 }
 
 pub(super) fn plan(i: &Inputs) -> Result<Planned> {
@@ -1827,6 +1881,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                     kind: RepairKind::Conflict,
                     game: entry.roms.first().map(|r| r.game.clone()),
                     path: Some(path.to_string()),
+                    from: Vec::new(),
                     member: entry.member.clone(),
                     summary: format!(
                         "{} holds {} while its name gives {named}",
@@ -3165,6 +3220,7 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
                 kind: RepairKind::KeepAside,
                 game: None,
                 path: Some(path.to_string()),
+                from: Vec::new(),
                 member: None,
                 summary: summary.clone(),
                 choices,
@@ -3257,7 +3313,12 @@ pub(super) fn plan(i: &Inputs) -> Result<Planned> {
         .map(|p| p.item.key.clone())
         .collect();
     Ok(Planned {
-        items: proposed.into_iter().map(|p| p.item).collect(),
+        items: (proposed.iter())
+            .map(|p| RepairItem {
+                from: read_from(i, p),
+                ..p.item.clone()
+            })
+            .collect(),
         steps,
         notes,
         released: releasing,
