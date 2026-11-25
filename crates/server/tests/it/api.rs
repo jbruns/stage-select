@@ -45,14 +45,6 @@ impl Env {
         }
     }
 
-    /// Replaces the Root `root`'s registration in the store, before the Service starts.
-    fn reregister(&self, root: RootSpec) {
-        let store = stage_select_store::Store::open(&self.store()).unwrap();
-        store
-            .edit_root(&root.name.clone(), &root, "Operator")
-            .unwrap();
-    }
-
     fn store(&self) -> PathBuf {
         self.tmp.path().join("store")
     }
@@ -74,12 +66,6 @@ impl Env {
             notify_backoff: None,
             mount_points: None,
         }
-    }
-
-    /// The settings with Root `sets` letting a repair write to the Source Set.
-    fn writing_the_set(&self) -> Settings {
-        self.reregister(RootSpec::new("sets", self.tmp.path().join("roots/sets")).writing(&[SET]));
-        self.settings()
     }
 
     fn start(&self) -> Handle {
@@ -2392,7 +2378,7 @@ fn the_api_sets_a_source_set_aside_unregisters_it_and_forgets_it_once_its_kept_f
     use stage_select_api::repair::{RepairPlan, SourceKeptDeletion, SourceKeptFile};
     let env = Env::new();
     let set = env.tmp.path().join("roots/sets").join(SET);
-    let service = stage_select_server::spawn(env.writing_the_set()).unwrap();
+    let service = stage_select_server::spawn(env.settings()).unwrap();
     let client = Client::new(&service);
     let auth = client.auth.clone().unwrap();
     client.upload("Test - System (20260101).dat", &env.dat());
@@ -2512,7 +2498,7 @@ fn the_api_sets_the_storage_policy_and_a_repair_stores_the_source_set_as_it_says
     use stage_select_api::storage::{StorageFormat, StoragePolicy, SystemStorage};
     let env = Env::new();
     let set = env.tmp.path().join("roots/sets").join(SET);
-    let service = stage_select_server::spawn(env.writing_the_set()).unwrap();
+    let service = stage_select_server::spawn(env.settings()).unwrap();
     let client = Client::new(&service);
     client.upload("Test - System (20260101).dat", &env.dat());
     client.add_set();
@@ -3219,9 +3205,9 @@ mod selections {
             std::fs::create_dir_all(dir).unwrap();
         }
         env.register(&[
-            RootSpec::new("play", &play).writable(),
-            RootSpec::new("romm", play.join("library")).writable(),
-            RootSpec::new("other", &other).writable(),
+            RootSpec::new("play", &play).library(),
+            RootSpec::new("romm", play.join("library")).library(),
+            RootSpec::new("other", &other).library(),
         ]);
         let service = stage_select_server::spawn(env.settings()).unwrap();
         let client = Client::new(&service);
@@ -3277,7 +3263,7 @@ mod selections {
     fn a_profile_lists_the_library_folders_bound_to_it() {
         let env = Env::new();
         let play = env.tmp.path().join("roots/play");
-        env.register(&[RootSpec::new("play", &play).writable()]);
+        env.register(&[RootSpec::new("play", &play).library()]);
         let service = stage_select_server::spawn(env.settings()).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
@@ -3316,7 +3302,7 @@ mod selections {
     ) -> (Handle, i64, Events) {
         use stage_select_api::build::{LibraryFolder, Plan};
         let play = env.tmp.path().join("roots/play");
-        env.register(&[RootSpec::new("play", &play).writable()]);
+        env.register(&[RootSpec::new("play", &play).library()]);
         let service = stage_select_server::spawn(Settings {
             romm_scan_timing: Some(timing),
             calibration_limits: None,
@@ -3604,7 +3590,7 @@ mod selections {
         let env = Env::new();
         let play = env.tmp.path().join("roots/play");
         std::fs::create_dir_all(&play).unwrap();
-        env.register(&[RootSpec::new("play", &play).writable()]);
+        env.register(&[RootSpec::new("play", &play).library()]);
         let service = stage_select_server::spawn(env.settings()).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
@@ -3709,7 +3695,7 @@ mod selections {
         let env = Env::new();
         let play = env.tmp.path().join("roots/play");
         std::fs::create_dir_all(&play).unwrap();
-        env.register(&[RootSpec::new("play", &play).writable()]);
+        env.register(&[RootSpec::new("play", &play).library()]);
         let service = stage_select_server::spawn(env.settings()).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
@@ -3938,8 +3924,7 @@ mod selections {
         let env = Env::new();
         let play = env.tmp.path().join("roots/play");
         std::fs::create_dir_all(&play).unwrap();
-        env.reregister(RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]));
-        env.register(&[RootSpec::new("play", &play).writable()]);
+        env.register(&[RootSpec::new("play", &play).library()]);
         let service = stage_select_server::spawn(env.settings()).unwrap();
         let client = Client::new(&service);
         client.upload("Test - System (20260101).dat", &dat(&env, "20260101", true));
@@ -4585,7 +4570,6 @@ fn the_api_checks_a_source_set_for_changes_and_a_followed_one_goes_stale_on_a_ne
 fn the_runner_starts_a_check_waiting_on_a_repair_once_it_ends() {
     const ESCAPED: &str = "Test%20-%20System";
     let env = Env::new();
-    env.reregister(RootSpec::new("sets", env.tmp.path().join("roots/sets")).writing(&[SET]));
     let service = stage_select_server::spawn(env.settings()).unwrap();
     let client = Client::new(&service);
     let (status, body) =
@@ -4791,7 +4775,7 @@ fn roots_are_registered_edited_and_unregistered_through_the_api_without_a_restar
     let service = env.start();
     let client = Client::new(&service);
     let drop = env.tmp.path().join("drop");
-    let spec = |name: &str, path: &std::path::Path, kind: &str| serde_json::json!({"name": name, "path": path, "kind": kind, "writable": true});
+    let spec = |name: &str, path: &std::path::Path, kind: &str| serde_json::json!({"name": name, "path": path, "kind": kind});
 
     let (status, body) = send_root(
         &client,
@@ -4856,6 +4840,18 @@ fn roots_are_registered_edited_and_unregistered_through_the_api_without_a_restar
     );
     assert_eq!(status, 400, "{body}");
 
+    // The kind alone says whether a root is writable: the retired kind `general` and a writability are refused.
+    let other = env.tmp.path().join("other");
+    std::fs::create_dir_all(&other).unwrap();
+    for refused in [
+        spec("other", &other, "general"),
+        serde_json::json!({"name": "other", "path": other, "kind": "sources", "writable": true}),
+        serde_json::json!({"name": "other", "path": other, "kind": "sources", "writable_paths": ["x"]}),
+    ] {
+        let (status, body) = send_root(&client, "POST", "/roots", Some(refused.clone()));
+        assert!((400..500).contains(&status), "{refused}: {status} {body}");
+    }
+
     let additions = env.tmp.path().join("additions");
     std::fs::create_dir_all(&additions).unwrap();
     let (status, body) = send_root(
@@ -4914,7 +4910,7 @@ fn a_missing_root_or_source_set_folder_is_created_when_asked() {
         "POST",
         "/roots",
         Some(serde_json::json!({
-            "name": "drop", "path": drop, "kind": "ingest", "writable": true, "create": true
+            "name": "drop", "path": drop, "kind": "ingest", "create": true
         })),
     );
     assert_eq!(status, 201, "{body}");

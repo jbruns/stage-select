@@ -479,8 +479,8 @@ async fn folders(
 }
 
 /// Registers a Root. Refused unless its folder exists, or `create` asks for it and the Service can create it, and
-/// can be written when it's declared writable, and unless its kind allows its writability; there is at most one Root
-/// of kind `additions`. A folder created is noted in the event log.
+/// can be written when its kind is a writable one; there is at most one Root of kind `additions`. A folder created is
+/// noted in the event log.
 async fn register_root(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,
@@ -507,9 +507,8 @@ async fn register_root(
     Ok((StatusCode::CREATED, Json(root.view())))
 }
 
-/// Replaces a Root's path, kind, writability and Ceilings; never its name. A path or writability change waits for
-/// the Jobs running on it. Making it less writable voids the approved plans that write where it may no longer
-/// write, and names them; each voided plan's Job ends failed.
+/// Replaces a Root's path, kind and Ceilings; never its name. A path change waits for the Jobs running on it and for
+/// the approved plans that write there; a kind change waits until nothing is registered in it.
 async fn edit_root(
     State(state): State<AppState>,
     Extension(Actor(actor)): Extension<Actor>,

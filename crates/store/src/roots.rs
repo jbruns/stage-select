@@ -42,10 +42,11 @@ pub struct Root {
     pub name: String,
     pub path: PathBuf,
     pub kind: RootKind,
-    /// Whether Stage Select may write to this Root: Builds to its Library Folders, and repairs to any Source Set in it.
-    /// A Source Set is registered only in a read-only Root.
+    /// Whether Stage Select may write to this Root as a whole: Builds to its Library Folders, moves out of its Ingest
+    /// Folder, Additions to its Additions Sets. Its kind fixes it: only a `sources` Root, which holds the Source Sets,
+    /// is read-only.
     pub writable: bool,
-    /// For a read-only Root: the paths, relative to it, of the Source Sets in it that Stage Select may change, by
+    /// For a `sources` Root: the paths, relative to it, of the Source Sets in it that Stage Select may change, by
     /// Repairs and by Single Copy placing their Games. Each Source Set switches its own path in or out.
     pub writable_paths: Vec<String>,
     /// The Operator's Ceilings for it (ADR 0022).
@@ -57,13 +58,13 @@ pub struct Root {
 }
 
 impl Root {
-    /// A read-only general Root `name` at `path`, with no Ceilings of its own, never stored.
+    /// A `sources` Root `name` at `path`, with no Ceilings of its own, never stored.
     #[cfg(test)]
     pub(crate) fn test(name: &str, path: impl Into<PathBuf>) -> Root {
         Root {
             name: name.into(),
             path: path.into(),
-            kind: RootKind::General,
+            kind: RootKind::Sources,
             writable: false,
             writable_paths: Vec::new(),
             readers: None,
@@ -212,7 +213,8 @@ fn stored(c: &Connection, name: &str) -> Result<Option<Root>> {
     .transpose()
 }
 
-/// A Root as given, its syntax checked: what is checked against the store and the filesystem next.
+/// A Root as given, its syntax checked: what is checked against the store and the filesystem next. Its writability
+/// follows its kind; its writable paths are those it held, and only each Source Set's switch changes them.
 struct Checked {
     name: String,
     path: PathBuf,
@@ -222,12 +224,21 @@ struct Checked {
     overrides: RootOverrides,
 }
 
+/// A Root of `kind`, as a message names it: "a library root".
+pub(crate) fn a_root_of(kind: RootKind) -> String {
+    let article = match kind {
+        RootKind::Ingest | RootKind::Additions => "an",
+        RootKind::Sources | RootKind::Library => "a",
+    };
+    format!("{article} {} root", kind.as_str())
+}
+
 fn refused<T>(why: impl Into<String>) -> Result<T> {
     Err(Error::Refused(why.into()))
 }
 
-/// Checks the rules a Root keeps on its own: a name, an absolute path, a kind its writability suits, and Ceilings in
-/// range.
+/// Checks the rules a Root keeps on its own: a name, an absolute path, and Ceilings in range. It holds no writable
+/// paths yet.
 fn checked(spec: &RootSpec) -> Result<Checked> {
     let name = spec.name.as_str();
     if name.trim().is_empty() {
@@ -245,33 +256,6 @@ fn checked(spec: &RootSpec) -> Result<Checked> {
             spec.path
         ));
     }
-    let writable = spec.writable;
-    match spec.kind {
-        RootKind::Ingest if !writable => {
-            return refused(format!(
-                "Root {name} is an ingest folder, which must be writable."
-            ));
-        }
-        RootKind::Additions if !writable => {
-            return refused(format!(
-                "Root {name} holds the additions sets, which must be writable."
-            ));
-        }
-        _ => {}
-    }
-    if !spec.writable_paths.is_empty() && writable {
-        return refused(format!(
-            "Root {name} is writable already: writable paths are only for a read-only root."
-        ));
-    }
-    let mut writable_paths = Vec::new();
-    for rel in &spec.writable_paths {
-        let rel = relative_path(rel)
-            .map_err(|e| Error::Refused(format!("Root {name}: {rel:?}: a writable path {e}.")))?;
-        if !writable_paths.contains(&rel) {
-            writable_paths.push(rel);
-        }
-    }
     let in_range = |value: Option<u64>, what: &str, max: u64| match value {
         Some(v) if !(1..=max).contains(&v) => refused(format!(
             "Set {what} of root {name} to a whole number from 1 to {max}, or leave it empty to use the default."
@@ -287,8 +271,8 @@ fn checked(spec: &RootSpec) -> Result<Checked> {
         name: name.to_owned(),
         path: path.to_path_buf(),
         kind: spec.kind,
-        writable,
-        writable_paths,
+        writable: spec.kind.writable(),
+        writable_paths: Vec::new(),
         overrides,
     })
 }
@@ -311,7 +295,8 @@ fn check_folder(root: &Checked) -> Result<()> {
         && let Err(e) = rustix::fs::access(&root.path, rustix::fs::Access::WRITE_OK)
     {
         return refused(format!(
-            "Root {name} is to be writable, but Stage Select can't write to {path}: {e}."
+            "Root {name} is {}, so Stage Select must be able to write to it, but it can't write to {path}: {e}.",
+            a_root_of(root.kind)
         ));
     }
     Ok(())
@@ -1026,7 +1011,8 @@ pub(crate) fn let_change_set(
         return match on {
             true => Ok(Vec::new()),
             false => refused(format!(
-                "Root {name} is writable, so Stage Select may change everything in it; make it read-only first."
+                "Root {name} is {}, so Stage Select may change everything in it.",
+                a_root_of(was.kind)
             )),
         };
     }
@@ -1398,8 +1384,10 @@ impl Store {
         Ok(saved)
     }
 
-    /// Replaces Root `name` with what `spec` gives, as `actor`. Its name can't change. Making it less writable voids
-    /// each approved plan, not yet started, that writes where it may no longer write: those are returned.
+    /// Replaces Root `name` with what `spec` gives, as `actor`. Its name can't change, and its kind only while nothing
+    /// holds it; its writability follows its kind, and its writable paths stay as each Source Set's switch left them.
+    /// Making it less writable voids each approved plan, not yet started, that writes where it may no longer write:
+    /// those are returned.
     pub fn edit_root(&self, name: &str, spec: &RootSpec, actor: &str) -> Result<RootEdited> {
         if spec.name != name {
             return refused(format!(
@@ -1407,16 +1395,20 @@ impl Store {
                  Register a new root instead."
             ));
         }
-        let root = checked(spec)?;
+        let mut root = checked(spec)?;
         let _lifecycle = self.lifecycle_lock();
         self.fault_point(crate::Fault::RootEditing);
         let was = self
             .read(|c| stored(c, name))?
             .ok_or_else(|| Error::NotFound(format!("There is no root {name}.")))?;
+        // Each Source Set's switch keeps its own path; a Root of another kind writes everywhere and lists none.
+        if !root.writable {
+            root.writable_paths = was.writable_paths.clone();
+        }
         let path_changed = was.path != root.path;
         let writability_changed =
             was.writable != root.writable || was.writable_paths != root.writable_paths;
-        if path_changed || writability_changed {
+        if path_changed || writability_changed || was.kind != root.kind {
             check_folder(&root)?;
         }
         let (saved, voided) = self.write(|tx| {
@@ -1429,20 +1421,6 @@ impl Store {
                 }
             }
             refuse_second_additions(tx, &root)?;
-            if root.writable && !was.writable {
-                let sets = strings(
-                    tx,
-                    "SELECT name FROM source_sets WHERE root = ?1 AND unregistered_at IS NULL ORDER BY name",
-                    [name],
-                )?;
-                if !sets.is_empty() {
-                    return refused(format!(
-                        "Root {name} can't be made writable while it holds source sets ({}): Stage Select changes \
-                         a source set only where you let it, on the source set.",
-                        sets.join(", ")
-                    ));
-                }
-            }
             if path_changed {
                 refuse_nesting_moved(tx, &self.roots(), name, &root.path)?;
             }
@@ -1466,7 +1444,10 @@ impl Store {
                 // refused, as a path change is; only a change that solely narrows voids the writers it shuts out.
                 let widened = !was.writable
                     && (root.writable
-                        || root.writable_paths.iter().any(|p| !was.writable_paths.contains(p)));
+                        || root
+                            .writable_paths
+                            .iter()
+                            .any(|p| !was.writable_paths.contains(p)));
                 if (path_changed || widened) && !writers.is_empty() {
                     let mut seen = BTreeSet::new();
                     let holds: Vec<String> = writers

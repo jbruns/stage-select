@@ -3,10 +3,9 @@
 //! Root exists the home screen no longer leads here.
 
 use stage_select_api::fetch::{FetchProviderStatus, FetchStatus};
-use stage_select_api::roots::RootKind;
 use stage_select_api::{Root, SourceSetSummary};
 
-use crate::registration::holds_source_sets;
+use crate::registration::{holds_library_folders, holds_source_sets};
 
 /// A first-run step, in the order you take them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -63,10 +62,10 @@ pub enum State {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Facts {
     pub roots: usize,
-    /// Read-only general Roots: where Source Sets are registered.
-    pub read_only_roots: usize,
-    /// Writable Roots but Ingest Folders: where Library Folders are made.
-    pub writable_roots: usize,
+    /// `sources` Roots: where Source Sets are registered.
+    pub sources_roots: usize,
+    /// `library` Roots: where Library Folders are made.
+    pub library_roots: usize,
     pub dats: usize,
     pub source_sets: usize,
     /// Source Sets with a finished Audit.
@@ -78,11 +77,8 @@ impl Facts {
     pub fn of(roots: &[Root], dats: usize, sets: &[SourceSetSummary], libraries: usize) -> Facts {
         Facts {
             roots: roots.len(),
-            read_only_roots: roots.iter().filter(|r| holds_source_sets(r)).count(),
-            writable_roots: roots
-                .iter()
-                .filter(|r| r.writable && r.kind != RootKind::Ingest)
-                .count(),
+            sources_roots: roots.iter().filter(|r| holds_source_sets(r)).count(),
+            library_roots: roots.iter().filter(|r| holds_library_folders(r)).count(),
             dats,
             source_sets: sets.len(),
             audited: sets.iter().filter(|s| s.latest.is_some()).count(),
@@ -103,14 +99,16 @@ impl Facts {
         }
         let waiting = match step {
             Step::Root | Step::Dat => None,
-            Step::SourceSet if self.read_only_roots == 0 => {
-                Some("Register a read-only root first.")
+            Step::SourceSet if self.sources_roots == 0 => {
+                Some("Register a root of kind source sets first.")
             }
             Step::SourceSet if self.dats == 0 => Some("Import a DAT first."),
             Step::SourceSet => None,
             Step::Audit if self.source_sets == 0 => Some("Register a source set first."),
             Step::Audit => None,
-            Step::Library if self.writable_roots == 0 => Some("Register a writable root first."),
+            Step::Library if self.library_roots == 0 => {
+                Some("Register a root of kind play library first.")
+            }
             Step::Library if self.source_sets == 0 => Some("Register a source set first."),
             Step::Library => None,
         };
@@ -186,6 +184,7 @@ pub fn root_name(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use stage_select_api::fetch::{FetchProvider, FetchSystem};
+    use stage_select_api::roots::RootKind;
 
     use super::*;
 
@@ -216,31 +215,33 @@ mod tests {
             [
                 State::Ready,
                 State::Ready,
-                State::Waiting("Register a read-only root first."),
+                State::Waiting("Register a root of kind source sets first."),
                 State::Waiting("Register a source set first."),
-                State::Waiting("Register a writable root first."),
+                State::Waiting("Register a root of kind play library first."),
             ]
         );
     }
 
     #[test]
-    fn a_source_set_needs_a_read_only_general_root_and_a_library_folder_a_writable_one_but_an_ingest_folder()
-     {
-        let ingest = [root("in", RootKind::Ingest, true)];
+    fn a_source_set_needs_a_sources_root_and_a_library_folder_a_library_one() {
+        let ingest = [
+            root("in", RootKind::Ingest, true),
+            root("additions", RootKind::Additions, true),
+        ];
         let facts = Facts::of(&ingest, 1, &[], 0);
         assert_eq!(facts.state(Step::Root), State::Done);
         assert_eq!(
             facts.state(Step::SourceSet),
-            State::Waiting("Register a read-only root first.")
+            State::Waiting("Register a root of kind source sets first.")
         );
         assert_eq!(
             facts.state(Step::Library),
-            State::Waiting("Register a writable root first.")
+            State::Waiting("Register a root of kind play library first.")
         );
 
         let both = [
-            root("sets", RootKind::General, false),
-            root("play", RootKind::General, true),
+            root("sets", RootKind::Sources, false),
+            root("play", RootKind::Library, true),
         ];
         let facts = Facts::of(&both, 0, &[], 0);
         assert_eq!(

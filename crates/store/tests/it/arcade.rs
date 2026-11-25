@@ -21,6 +21,8 @@ const PROFILE: &str = "Mine";
 struct Env {
     tmp: tempfile::TempDir,
     store: Store,
+    /// Whether Stage Select may change the Source Set `mame` once it is registered.
+    changeable: bool,
 }
 
 impl Env {
@@ -33,7 +35,7 @@ impl Env {
         Env::with(&["mame"])
     }
 
-    /// With `sets` writable in `writable_paths`.
+    /// With Stage Select let change each Source Set in `writable_paths` once it is registered.
     fn with(writable_paths: &[&str]) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         let sets = tmp.path().join("sets");
@@ -44,8 +46,8 @@ impl Env {
         crate::register(
             &store,
             &[
-                RootSpec::new("sets", &sets).writing(writable_paths),
-                RootSpec::new("play", &play).writable(),
+                RootSpec::new("sets", &sets),
+                RootSpec::new("play", &play).library(),
             ],
         );
         store
@@ -58,7 +60,12 @@ impl Env {
                 WORKERS,
             )
             .unwrap();
-        Env { tmp, store }
+        let changeable = writable_paths.contains(&"mame");
+        Env {
+            tmp,
+            store,
+            changeable,
+        }
     }
 
     /// Imports `dat` and registers the Source Set `mame` for it.
@@ -67,6 +74,9 @@ impl Env {
         self.store
             .add_source_set("sets", "mame", &revision.dat)
             .unwrap();
+        if self.changeable {
+            crate::let_change(&self.store, "mame");
+        }
         revision.sha256
     }
 

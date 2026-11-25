@@ -802,6 +802,60 @@ mod tests {
         assert_eq!(version, format!("Integer({})", current.len() + 1));
     }
 
+    #[test]
+    fn migration_7_makes_a_general_root_sources_if_read_only_and_library_if_writable() {
+        let dir = tempfile::tempdir().unwrap();
+        let before = &migrations::MIGRATIONS[..6];
+        let store = Store::open_with(dir.path(), before).unwrap();
+        store
+            .write(|tx| {
+                for (name, kind, writable, paths) in [
+                    ("sets", "general", false, r#"["Alpha"]"#),
+                    ("play", "general", true, "[]"),
+                    ("in", "ingest", true, "[]"),
+                ] {
+                    tx.execute(
+                        "INSERT INTO roots (name, path, kind, writable, writable_paths, updated_by, updated_at)
+                         VALUES (?1, '/' || ?1, ?2, ?3, ?4, 'Operator', 'then')",
+                        rusqlite::params![name, kind, writable, paths],
+                    )?;
+                    let after = format!(
+                        r#"{{"name":"{name}","path":"/{name}","kind":"{kind}","writable":{writable},"updated_by":"Operator","updated_at":"then"}}"#
+                    );
+                    tx.execute(
+                        "INSERT INTO root_changes (root, action, root_after, changed_by, changed_at)
+                         VALUES (?1, 'registered', ?2, 'Operator', 'then')",
+                        rusqlite::params![name, after],
+                    )?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        drop(store);
+
+        let store = Store::open(dir.path()).unwrap();
+
+        let roots = store.roots();
+        let kind = |name: &str| {
+            let root = roots.root(name).unwrap();
+            (root.kind, root.writable, root.writable_paths.clone())
+        };
+        assert_eq!(
+            kind("sets"),
+            (roots::RootKind::Sources, false, vec!["Alpha".to_owned()])
+        );
+        assert_eq!(kind("play"), (roots::RootKind::Library, true, Vec::new()));
+        assert_eq!(kind("in"), (roots::RootKind::Ingest, true, Vec::new()));
+        for (name, kind) in [
+            ("sets", roots::RootKind::Sources),
+            ("play", roots::RootKind::Library),
+            ("in", roots::RootKind::Ingest),
+        ] {
+            let changes = store.root_changes(name).unwrap();
+            assert_eq!(changes[0].after.as_ref().unwrap().kind, kind, "{name}");
+        }
+    }
+
     /// A process forked while the store is open shares its lock's open file until it runs its program; dropping the
     /// store releases the lock even so, as a store reopened in the same process needs.
     #[test]

@@ -56,7 +56,7 @@ impl Env {
         crate::register(
             &store,
             &[
-                RootSpec::new("sets", tmp.path().join("roots/sets")).writing(&["Alpha"]),
+                RootSpec::new("sets", tmp.path().join("roots/sets")),
                 RootSpec::new("ro", tmp.path().join("roots/ro")),
                 RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
             ],
@@ -83,6 +83,7 @@ impl Env {
         store.import_dat(&dat, None).unwrap();
         let system = format!("{provider}/Test - System");
         store.add_source_set("sets", "Alpha", &system).unwrap();
+        crate::let_change(&store, "Alpha");
         store.add_source_set("ro", "Gamma", &system).unwrap();
         let env = Env { tmp, store };
         env.store.register_ingest_folder("in").unwrap();
@@ -3628,12 +3629,12 @@ fn an_approved_fill_holds_its_ingest_folder_against_unregistering() {
 }
 
 #[test]
-fn a_repair_is_refused_when_its_root_is_made_less_writable_while_it_is_being_approved() {
+fn a_repair_is_refused_when_stage_select_is_stopped_changing_its_source_set_while_it_is_being_approved()
+ {
     let env = Env::new();
     env.put("Pong (Anthology).a26", b"pong");
     env.audit(AuditEvidence::Full);
     let plan = env.plan();
-    let sets = env.tmp.path().join("roots/sets");
 
     let (approved, edited) = race(
         &env.store,
@@ -3642,10 +3643,7 @@ fn a_repair_is_refused_when_its_root_is_made_less_writable_while_it_is_being_app
             env.store
                 .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
         },
-        || {
-            env.store
-                .edit_root("sets", &RootSpec::new("sets", &sets), "Operator")
-        },
+        || env.store.set_repairs_may_change("Alpha", false, "Operator"),
     );
 
     assert!(edited.unwrap().voided.is_empty());
@@ -5163,7 +5161,7 @@ fn an_approved_fill_holds_the_root_of_the_ingest_folder_it_moves_from() {
 }
 
 #[test]
-fn a_root_isnt_made_more_writable_while_an_approved_repair_writes_to_it() {
+fn a_sources_root_keeps_its_path_and_writable_paths_while_an_approved_repair_writes_to_it() {
     let env = Env::new();
     env.put("Pong (Anthology).a26", b"pong");
     env.audit(AuditEvidence::Full);
@@ -5174,67 +5172,11 @@ fn a_root_isnt_made_more_writable_while_an_approved_repair_writes_to_it() {
         .unwrap()
         .job
         .unwrap();
-    let sets = env.tmp.path().join("roots/sets");
-
-    let widened = env.store.edit_root(
-        "sets",
-        &RootSpec::new("sets", &sets).writing(&["Alpha", "Beta"]),
-        "Operator",
-    );
-    assert!(
-        matches!(&widened, Err(Error::Conflict(why)) if why.contains(&format!("repair plan {}", plan.id))),
-        "{widened:?}"
-    );
-    assert_eq!(
-        env.store.roots().root("sets").unwrap().writable_paths,
-        ["Alpha"]
-    );
-    assert_eq!(env.store.job(job).unwrap().state, JobState::Queued);
-}
-
-#[test]
-fn swapping_the_writable_path_an_approved_repair_writes_to_for_another_is_refused() {
-    let env = Env::new();
-    env.put("Pong (Anthology).a26", b"pong");
-    env.audit(AuditEvidence::Full);
-    let plan = env.plan();
-    let job = env
-        .store
-        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
-        .unwrap()
-        .job
-        .unwrap();
-    let sets = env.tmp.path().join("roots/sets");
-
-    let swapped = env.store.edit_root(
-        "sets",
-        &RootSpec::new("sets", &sets).writing(&["Beta"]),
-        "Operator",
-    );
-    assert!(
-        matches!(&swapped, Err(Error::Conflict(why)) if why.contains(&format!("repair plan {}", plan.id))),
-        "{swapped:?}"
-    );
-    assert_eq!(env.store.job(job).unwrap().state, JobState::Queued);
-}
-
-#[test]
-fn an_approved_repair_is_voided_when_its_root_may_no_longer_write_to_the_source_set() {
-    let env = Env::new();
-    env.put("Pong (Anthology).a26", b"pong");
-    env.audit(AuditEvidence::Full);
-    let before = env.listing();
-    let plan = env.plan();
-    let approved = env
-        .store
-        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
-        .unwrap();
-    let job = approved.job.unwrap();
     let sets = env.tmp.path().join("roots/sets");
 
     let moved = env.store.edit_root(
         "sets",
-        &RootSpec::new("sets", env.tmp.path().join("dats")).writing(&["Alpha"]),
+        &RootSpec::new("sets", env.tmp.path().join("dats")),
         "Operator",
     );
     assert!(
@@ -5244,30 +5186,18 @@ fn an_approved_repair_is_voided_when_its_root_may_no_longer_write_to_the_source_
 
     let edited = env
         .store
-        .edit_root("sets", &RootSpec::new("sets", &sets), "Operator")
+        .edit_root(
+            "sets",
+            &RootSpec {
+                readers: Some(2),
+                ..RootSpec::new("sets", &sets)
+            },
+            "Operator",
+        )
         .unwrap();
-    assert_eq!(
-        edited.voided,
-        [stage_select_api::roots::VoidedPlan {
-            kind: stage_select_api::roots::VoidedPlanKind::Repair,
-            plan: plan.id,
-            job,
-            writes_to: "source set Alpha".into(),
-        }]
-    );
-    assert_eq!(env.store.job(job).unwrap().state, JobState::Failed);
-    let voided = env.store.repair_plan(plan.id).unwrap();
-    assert!(voided.finished_at.is_some(), "{voided:?}");
-    assert!(
-        voided.outcomes.iter().all(|o| !o.done),
-        "{:?}",
-        voided.outcomes
-    );
-    assert_eq!(env.listing(), before, "nothing was changed");
-    assert!(
-        env.store.claim_job().unwrap().is_none(),
-        "no job is left to run"
-    );
+    assert!(edited.voided.is_empty(), "{:?}", edited.voided);
+    assert_eq!(edited.root.writable_paths, ["Alpha"]);
+    assert_eq!(env.store.job(job).unwrap().state, JobState::Queued);
 }
 
 /// A source set registered in the read-only root `ro` as `may_change` says, holding a misnamed copy of Pong.
@@ -5348,61 +5278,6 @@ fn a_source_set_registered_read_only_is_refused_a_repair() {
         }
         other => panic!("{other:?}"),
     }
-}
-
-#[test]
-fn a_folder_listed_above_a_source_set_doesnt_let_stage_select_change_it() {
-    let env = Env::new();
-    std::fs::create_dir_all(env.tmp.path().join("roots/ro/Shelf/Delta")).unwrap();
-    write_file(
-        &env.tmp
-            .path()
-            .join("roots/ro/Shelf/Delta/Pong (Anthology).a26"),
-        b"pong",
-    );
-    // As a hand-written root config might list the folder holding it.
-    env.store
-        .edit_root(
-            "ro",
-            &RootSpec::new("ro", env.tmp.path().join("roots/ro")).writing(&["Shelf"]),
-            "Operator",
-        )
-        .unwrap();
-    let set = env
-        .store
-        .register_source_set(
-            "ro",
-            "Shelf/Delta",
-            "No-Intro/Test - System",
-            None,
-            None,
-            false,
-            "Operator",
-        )
-        .unwrap();
-    env.store
-        .audit_source_set("Delta", None, AuditEvidence::Full)
-        .unwrap();
-    assert!(!set.repairs_may_change);
-    match env.store.plan_repair("Delta", &PlanRepair::default()) {
-        Err(Error::Refused(why)) => {
-            assert!(why.contains("may not change source set Delta"), "{why}")
-        }
-        other => panic!("{other:?}"),
-    }
-
-    let changed = env
-        .store
-        .set_repairs_may_change("Delta", true, "Operator")
-        .unwrap();
-    assert!(changed.source_set.repairs_may_change);
-    assert_eq!(
-        env.store.roots().root("ro").unwrap().writable_paths,
-        ["Shelf", "Shelf/Delta"]
-    );
-    env.store
-        .plan_repair("Delta", &PlanRepair::default())
-        .unwrap();
 }
 
 /// Registers `rel` in the read-only Root `ro` as a Source Set bound to the test DAT, creating its folder.

@@ -306,10 +306,13 @@ impl Store {
         // meanwhile comes to overlap it or change the Root it is checked against.
         let _lifecycle = self.lifecycle_lock();
         let roots = &*self.roots();
-        if roots.root(root).is_some_and(|r| r.writable) {
+        if let Some(r) = roots.root(root)
+            && r.kind != crate::roots::RootKind::Sources
+        {
             return Err(Error::Refused(format!(
-                "root {root} is writable, and only library folders go in a writable root; add the source set from a \
-                 read-only root"
+                "root {root} is {}, and a source set goes only in a sources root; register it in a sources root, \
+                 or register this folder as a root of kind sources",
+                crate::roots::a_root_of(r.kind)
             )));
         }
         let (rel, canonical, to_create) = match missing(roots, root, rel)? {

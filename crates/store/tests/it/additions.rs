@@ -58,9 +58,9 @@ impl Env {
         crate::register(
             &store,
             &[
-                RootSpec::new("sets", tmp.path().join("sets")).writing(&[SET]),
+                RootSpec::new("sets", tmp.path().join("sets")),
                 RootSpec::new("in", tmp.path().join("in")).of_kind(RootKind::Ingest),
-                RootSpec::new("play", tmp.path().join("play")).writable(),
+                RootSpec::new("play", tmp.path().join("play")).library(),
                 RootSpec::new("additions", tmp.path().join("additions"))
                     .of_kind(RootKind::Additions),
             ],
@@ -86,6 +86,7 @@ impl Env {
         let dat = write_dat_version(&tmp.path().join("dats"), "test.dat", "1", &games());
         let (revision, _) = store.import_dat(&dat, None).unwrap();
         store.add_source_set("sets", SET, SYSTEM).unwrap();
+        crate::let_change(&store, SET);
         store
             .save_profile(
                 PROFILE,
@@ -1178,7 +1179,7 @@ fn an_addition_being_added_from_a_kept_file_holds_its_root_while_its_job_runs() 
 
     let moved = env.store.edit_root(
         "sets",
-        &RootSpec::new("sets", env.tmp.path().join("play")).writing(&[SET]),
+        &RootSpec::new("sets", env.tmp.path().join("play")),
         "Operator",
     );
     assert!(

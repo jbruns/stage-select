@@ -518,11 +518,11 @@ def seed(api, data):
     additions.mkdir(parents=True)
 
     step("root sets", lambda: api.post("/roots", {
-        "name": "sets", "path": str(sets), "kind": "general", "writable": False, "writable_paths": [GAME_BOY]}))
+        "name": "sets", "path": str(sets), "kind": "sources"}))
     step("root play", lambda: api.post("/roots", {
-        "name": "play", "path": str(play), "kind": "general", "writable": True}))
+        "name": "play", "path": str(play), "kind": "library"}))
     step("root drop", lambda: api.post("/roots", {
-        "name": "drop", "path": str(drop), "kind": "ingest", "writable": True}))
+        "name": "drop", "path": str(drop), "kind": "ingest"}))
 
     for system in SYSTEMS:
         step(f"DAT {system}", lambda s=system: api.upload_dat(
@@ -623,7 +623,7 @@ def seed(api, data):
     step("ingest folder drop", ingest)
 
     def addition():
-        api.post("/roots", {"name": "additions", "path": str(additions), "kind": "additions", "writable": True})
+        api.post("/roots", {"name": "additions", "path": str(additions), "kind": "additions"})
         (drop / ADDITION).write_bytes(payload(ADDITION))
         for _ in range(2):
             api.follow(api.post("/ingest-folders/drop/scans"))

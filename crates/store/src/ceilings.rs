@@ -497,7 +497,7 @@ mod tests {
         crate::roots::Root {
             name: name.into(),
             path: format!("/{name}").into(),
-            kind: crate::roots::RootKind::General,
+            kind: crate::roots::RootKind::Sources,
             writable: false,
             writable_paths: Vec::new(),
             readers,

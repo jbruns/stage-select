@@ -43,8 +43,8 @@ impl Env {
         crate::register(
             &store,
             &[
-                RootSpec::new("sets", tmp.path().join("roots/sets")).writing(&[SET]),
-                RootSpec::new("play", tmp.path().join("roots/play")).writable(),
+                RootSpec::new("sets", tmp.path().join("roots/sets")),
+                RootSpec::new("play", tmp.path().join("roots/play")).library(),
             ],
         );
         let dats = tmp.path().join("dats");
@@ -70,6 +70,7 @@ impl Env {
             ],
         );
         store.add_source_set("sets", SET, A78).unwrap();
+        crate::let_change(&store, SET);
         store
             .save_profile(
                 PROFILE,

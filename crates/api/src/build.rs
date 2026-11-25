@@ -44,7 +44,7 @@ pub struct Marker {
     pub generation: u64,
 }
 
-/// A folder in a writable Root that Stage Select builds a Source Set's Selections into.
+/// A folder in a `library` Root that Stage Select builds a Source Set's Selections into.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LibraryFolder {
     pub id: i64,
@@ -142,7 +142,7 @@ pub struct UnfinishedBuild {
 /// The request to register a Library Folder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddLibraryFolder {
-    /// A writable Root.
+    /// A Root of kind `library`.
     pub root: String,
     /// Relative to the Root. When absent, the path `template` proposes for the Source Set's DAT is used.
     #[serde(default, skip_serializing_if = "Option::is_none")]

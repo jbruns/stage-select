@@ -143,9 +143,11 @@ pub fn Roots() -> impl IntoView {
         </Pending>
         <Help summary="What a root is">
             <p>
-                "A root is a folder the service may work in. Register a root before you register anything in it: a \
-                 read-only root for the folders that hold your games, and a writable root for the library folders \
-                 it builds. A change applies at once, without a restart."
+                "A root is a folder the service may work in. Register a root before you register anything in it. Its \
+                 kind says what it holds and whether Stage Select may write to it: a source sets root for the \
+                 folders that hold your games, read-only but for the source sets you let Stage Select change, and a \
+                 play library root for the library folders it builds, writable. A change applies at once, without a \
+                 restart."
             </p>
         </Help>
         <Drawer open=drawer title=Signal::derive(move || open.with(|o| o.as_ref().map(Open::title).unwrap_or_default()))>
@@ -228,10 +230,10 @@ pub(crate) fn RootForm(
         draft.unwrap_or_else(|| RwSignal::new(was.as_ref().map(RootDraft::of).unwrap_or_default()));
     let suggested = LocalResource::new(|| api::get::<FolderSuggestions>("/folder-suggestions"));
     let editing = was.is_some();
-    // The source sets an edited read-only root holds that Stage Select may change: each switches its own.
+    // The source sets an edited sources root holds that Stage Select may change: each switches its own.
     let holder = was
         .as_ref()
-        .filter(|r| !r.writable && r.kind == RootKind::General)
+        .filter(|r| r.kind == RootKind::Sources)
         .map(|r| r.name.clone());
     let sets = LocalResource::new(move || {
         let holder = holder.clone();
@@ -364,13 +366,6 @@ pub(crate) fn RootForm(
                 <legend>"Kind"</legend>
                 {RootKind::ALL.into_iter().map(kind_choice).collect_view()}
             </fieldset>
-            <Choice
-                checked=Signal::derive(move || draft.with(RootDraft::is_writable))
-                disabled=Signal::derive(move || draft.with(RootDraft::writable_fixed))
-                on_change=Callback::new(move |on| draft.update(|d| d.writable = on))
-            >
-                "Writable"
-            </Choice>
             {move || changeable.get().map(|names| view! {
                 <p class="note small">
                     {changeable_line(names.len())}
@@ -383,7 +378,7 @@ pub(crate) fn RootForm(
             })}
             {editing.then(|| view! {
                 <p class="note small">
-                    "Making it less writable voids each approved plan, not yet started, that would write where it no longer may. You can't change its path or whether it's writable while a job runs on it."
+                    "You can change its kind only while nothing is registered in it, and its path only while no job runs on it and no approved plan writes to it."
                 </p>
             })}
             <button type="submit" class="primary" disabled=request.pending()>

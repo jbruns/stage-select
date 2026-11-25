@@ -67,14 +67,8 @@ impl Env {
         crate::register(
             &store,
             &[
-                RootSpec::new("sets", tmp.path().join("roots/sets")).writing(
-                    if may_change.is_some() {
-                        &[]
-                    } else {
-                        &["Alpha"]
-                    },
-                ),
-                RootSpec::new("play", tmp.path().join("roots/play")).writable(),
+                RootSpec::new("sets", tmp.path().join("roots/sets")),
+                RootSpec::new("play", tmp.path().join("roots/play")).library(),
             ],
         );
         let dat = write_dat_from(
@@ -91,7 +85,7 @@ impl Env {
                 SET,
                 "No-Intro/Test - System",
                 None,
-                may_change,
+                may_change.or(Some(true)),
                 false,
                 "Operator",
             )

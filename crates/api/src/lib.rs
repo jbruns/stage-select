@@ -513,7 +513,7 @@ pub struct AddSourceSet {
     #[serde(default = "yes")]
     pub repairs_may_change: bool,
     /// Create its folder, and the missing folders above it in the Root, if it is missing: an empty Source Set for
-    /// ingest to fill. Needs `repairs_may_change`, as creating it writes to a read-only Root.
+    /// ingest to fill. Needs `repairs_may_change`, as creating it writes to a `sources` Root, which is read-only.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub create: bool,
 }

@@ -408,7 +408,7 @@ impl Env {
             &[
                 RootSpec::new("sets", path("sets")),
                 RootSpec::new("in", path("in")).of_kind(RootKind::Ingest),
-                RootSpec::new("play", path("play")).writable(),
+                RootSpec::new("play", path("play")).library(),
                 RootSpec::new("additions", path("additions")).of_kind(RootKind::Additions),
             ],
         );

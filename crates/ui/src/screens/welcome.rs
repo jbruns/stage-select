@@ -214,9 +214,9 @@ fn explanation(step: Step) -> (&'static str, &'static str) {
     match step {
         Step::Root => (
             "A root is a folder Stage Select may work in.",
-            "Register a read-only root for the folders that hold your games, and a writable root for the library \
-             folders it builds. It reads nothing until you register a root, and writes only where you let it: in a \
-             writable root, and in each source set you let it change.",
+            "Register a source sets root for the folders that hold your games, and a play library root for the \
+             library folders it builds. It reads nothing until you register a root, and writes only where you let \
+             it: in a play library root, and in each source set you let it change.",
         ),
         Step::Dat => (
             "A DAT lists every file a set of games should have.",
@@ -225,7 +225,7 @@ fn explanation(step: Step) -> (&'static str, &'static str) {
              DATs are never fetched: download them yourself.",
         ),
         Step::SourceSet => (
-            "A source set is a folder in a read-only root holding the games of one DAT.",
+            "A source set is a folder in a source sets root holding the games of one DAT.",
             "Registering it reads no file yet.",
         ),
         Step::Audit => (
@@ -234,7 +234,7 @@ fn explanation(step: Step) -> (&'static str, &'static str) {
         ),
         Step::Library => (
             "A library folder is where Stage Select builds the games you select, for your front end to play.",
-            "It needs a writable root. Your source set stays as it is.",
+            "It needs a play library root. Your source set stays as it is.",
         ),
     }
 }
@@ -397,8 +397,8 @@ fn Done(step: Step, last: RwSignal<Option<Held>>, changed: Callback<()>) -> impl
                             .roots
                             .iter()
                             .map(|r| {
-                                let access = if r.writable { "writable" } else { "read-only" };
-                                format!("{} ({}, {access})", r.name, r.path)
+                                let kind = crate::roots_model::kind_label(r.kind).to_lowercase();
+                                format!("{} ({}, {kind})", r.name, r.path)
                             })
                             .collect::<Vec<_>>()
                             .join("; ");

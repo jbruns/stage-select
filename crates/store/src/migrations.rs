@@ -19,6 +19,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0004_created_folders.sql"),
     include_str!("migrations/0005_folder_deletions.sql"),
     include_str!("migrations/0006_source_set_dat_changes.sql"),
+    include_str!("migrations/0007_root_kinds.sql"),
 ];
 
 /// What a store made by an earlier release is refused with.

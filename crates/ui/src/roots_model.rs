@@ -4,13 +4,13 @@
 use stage_select_api::roots::{RootKind, RootSpec, VoidedPlan, VoidedPlanKind};
 use stage_select_api::{Root, SourceSetRecord};
 
-/// A Root's form as typed. Its `writable_paths` aren't in it: each Source Set switches its own.
+/// A Root's form as typed. Its kind alone says whether it is writable, and each Source Set switches its own writable
+/// path.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RootDraft {
     pub name: String,
     pub path: String,
     pub kind: RootKind,
-    pub writable: bool,
     /// Create the folder if it is missing, when registering.
     pub create: bool,
 }
@@ -22,7 +22,6 @@ impl RootDraft {
             name: root.name.clone(),
             path: root.path.clone(),
             kind: root.kind,
-            writable: root.writable,
             create: false,
         }
     }
@@ -35,19 +34,8 @@ impl RootDraft {
         self.path = path;
     }
 
-    /// Whether the writable box can be changed: an ingest or additions root is always writable.
-    pub fn writable_fixed(&self) -> bool {
-        self.kind != RootKind::General
-    }
-
-    /// Whether it may be writable: as typed, or because of its kind.
-    pub fn is_writable(&self) -> bool {
-        self.writable || self.writable_fixed()
-    }
-
     /// The Root to send: `was` is the Root being edited, whose Ceilings it keeps, as the form doesn't show them.
-    /// A read-only Root keeps the writable paths `was` has, as each Source Set switches its own; a writable Root has
-    /// none. Only a registration asks for its folder to be created. The Service checks the rest.
+    /// Only a registration asks for its folder to be created. The Service checks the rest.
     pub fn spec(&self, was: Option<&Root>) -> Result<RootSpec, String> {
         let name = match was {
             Some(root) => root.name.clone(),
@@ -60,17 +48,10 @@ impl RootDraft {
         if path.is_empty() {
             return Err("Give the path of the root's folder.".into());
         }
-        let writable = self.is_writable();
-        let writable_paths = match was {
-            Some(root) if !writable => root.writable_paths.clone(),
-            _ => Vec::new(),
-        };
         Ok(RootSpec {
             name,
             path: path.to_owned(),
             kind: self.kind,
-            writable,
-            writable_paths,
             readers: was.and_then(|r| r.readers),
             read_mib_per_s: was.and_then(|r| r.read_mib_per_s),
             write_mib_per_s: was.and_then(|r| r.write_mib_per_s),
@@ -82,7 +63,8 @@ impl RootDraft {
 /// A kind as its column and its choice say it.
 pub fn kind_label(kind: RootKind) -> &'static str {
     match kind {
-        RootKind::General => "General",
+        RootKind::Sources => "Source sets",
+        RootKind::Library => "Play library",
         RootKind::Ingest => "Ingest folder",
         RootKind::Additions => "Additions sets",
     }
@@ -91,9 +73,10 @@ pub fn kind_label(kind: RootKind) -> &'static str {
 /// What a kind is for, under its choice.
 pub fn kind_note(kind: RootKind) -> &'static str {
     match kind {
-        RootKind::General => {
-            "Holds source sets, if read-only, or play library folders, if writable."
+        RootKind::Sources => {
+            "Holds your source sets. Read-only: Stage Select changes only the source sets you let it change."
         }
+        RootKind::Library => "Holds your play library folders. Writable.",
         RootKind::Ingest => {
             "Where new files arrive. They move out only in plans you approve. Always writable."
         }
@@ -171,7 +154,7 @@ mod tests {
         Root {
             name: "sets".into(),
             path: "/srv/sets".into(),
-            kind: RootKind::General,
+            kind: RootKind::Sources,
             writable: false,
             writable_paths: vec!["Nintendo - GBA".into(), "Sega - Saturn".into()],
             readers: Some(4),
@@ -183,13 +166,11 @@ mod tests {
     }
 
     #[test]
-    fn a_new_root_is_sent_trimmed_writable_for_its_kind_with_no_writable_paths_and_created_if_asked()
-     {
+    fn a_new_root_is_sent_trimmed_with_its_kind_and_created_if_asked() {
         let mut draft = RootDraft {
             name: " drop ".into(),
             path: " /srv/drop ".into(),
             kind: RootKind::Ingest,
-            writable: false,
             create: false,
         };
         assert_eq!(
@@ -197,8 +178,14 @@ mod tests {
             Ok(RootSpec::new("drop", "/srv/drop").of_kind(RootKind::Ingest))
         );
 
-        draft.kind = RootKind::General;
+        draft.kind = RootKind::Sources;
         assert_eq!(draft.spec(None), Ok(RootSpec::new("drop", "/srv/drop")));
+        draft.kind = RootKind::Library;
+        assert_eq!(
+            draft.spec(None),
+            Ok(RootSpec::new("drop", "/srv/drop").library())
+        );
+        draft.kind = RootKind::Sources;
         draft.create = true;
         assert_eq!(
             draft.spec(None),
@@ -217,23 +204,15 @@ mod tests {
     }
 
     #[test]
-    fn an_edit_keeps_the_roots_name_ceilings_and_the_source_sets_it_may_change_and_creates_nothing()
-    {
+    fn an_edit_keeps_the_roots_name_and_ceilings_and_creates_nothing() {
         let was = root();
         let mut draft = RootDraft::of(&was);
         assert_eq!(draft.spec(Some(&was)), Ok(RootSpec::from(&was)));
 
         draft.name = "renamed".into();
-        draft.writable = true;
+        draft.kind = RootKind::Library;
         draft.create = true;
-        assert_eq!(
-            draft.spec(Some(&was)),
-            Ok(RootSpec {
-                writable: true,
-                writable_paths: Vec::new(),
-                ..RootSpec::from(&was)
-            })
-        );
+        assert_eq!(draft.spec(Some(&was)), Ok(RootSpec::from(&was).library()));
     }
 
     #[test]

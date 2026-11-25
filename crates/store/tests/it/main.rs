@@ -45,20 +45,26 @@ pub(crate) fn register(store: &Store, roots: &[RootSpec]) {
     }
 }
 
+/// Lets Stage Select change the registered Source Set `set`, as its switch does.
+pub(crate) fn let_change(store: &Store, set: &str) {
+    store.set_repairs_may_change(set, true, "test").unwrap();
+}
+
 /// Replaces the registered Root of the same name with `root`.
 pub(crate) fn reregister(store: &Store, root: RootSpec) {
     std::fs::create_dir_all(&root.path).unwrap();
     store.edit_root(&root.name, &root, "test").unwrap();
 }
 
-/// Sets whether the Root `root` is writable straight in the closed store at `dir`, past the rules an edit keeps: as
-/// a store restored from a backup taken before an edit might hold it.
+/// Makes the Root `root` writable, as a `library` Root, or not, as a `sources` one, straight in the closed store at
+/// `dir`, past the rules an edit keeps: as a store restored from a backup taken before an edit might hold it.
 pub(crate) fn force_writable(dir: &std::path::Path, root: &str, writable: bool) {
     let conn = rusqlite::Connection::open(dir.join(stage_select_store::DATABASE)).unwrap();
+    let kind = if writable { "library" } else { "sources" };
     let changed = conn
         .execute(
-            "UPDATE roots SET writable = ?2 WHERE name = ?1",
-            rusqlite::params![root, writable],
+            "UPDATE roots SET writable = ?2, kind = ?3 WHERE name = ?1",
+            rusqlite::params![root, writable, kind],
         )
         .unwrap();
     assert_eq!(changed, 1, "no root {root}");
