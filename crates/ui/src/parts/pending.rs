@@ -1,11 +1,12 @@
 //! Pending work and problems. `ActionPending` shows a slow request made through an `Action`: while it runs, a spinner,
 //! a short status such as "Making plan…" and the time elapsed, over what it will replace, kept dimmed; once it fails,
-//! the problem. `Pending` is the same for any pending flag.
+//! the problem. `Pending` is the same for any pending flag. A plan being made also shows how far it has got.
 
 use leptos::prelude::*;
 use leptos_use::use_interval_fn;
 
 use super::message::Problem;
+use super::meter::PercentMeter;
 
 /// Time elapsed, for a pending status: "4 s", "1 min 05 s", "1 h 02 min".
 pub fn elapsed(ms: f64) -> String {
@@ -50,12 +51,13 @@ where
 
 /// Shows `children`, dimmed and inert with `status` above them while `pending` or while a resource they read
 /// reloads (through `<Transition>`), and `problem` once it isn't pending. An `Err` that `children` render shows as a
-/// problem in their place (through `<ErrorBoundary>`).
+/// problem in their place (through `<ErrorBoundary>`). `percent`, once known, is how far the work has got.
 #[component]
 pub fn Pending(
     #[prop(into)] pending: Signal<bool>,
     #[prop(into)] status: Signal<String>,
     #[prop(optional, into)] problem: MaybeProp<String>,
+    #[prop(optional, into)] percent: MaybeProp<u8>,
     children: ChildrenFn,
 ) -> impl IntoView {
     let loading = RwSignal::new(false);
@@ -63,7 +65,7 @@ pub fn Pending(
     view! {
         <div class="pending" aria-busy=move || busy.get().to_string()>
             <Show when=move || busy.get()>
-                <PendingStatus status />
+                <PendingStatus status percent />
             </Show>
             {move || {
                 problem.get().filter(|_| !busy.get()).map(|message| view! { <Problem message /> })
@@ -87,9 +89,13 @@ pub fn Pending(
     }
 }
 
-/// A spinner, `status` and the time since it appeared. Only the status is announced; the ticking time is not.
+/// A spinner, `status`, how far it has got once `percent` is known, and the time since it appeared. Only the status is
+/// announced; the rising percentage and the ticking time are not, though the meter's name carries the percentage.
 #[component]
-pub fn PendingStatus(#[prop(into)] status: Signal<String>) -> impl IntoView {
+pub fn PendingStatus(
+    #[prop(into)] status: Signal<String>,
+    #[prop(optional, into)] percent: MaybeProp<u8>,
+) -> impl IntoView {
     let started = js_sys::Date::now();
     let since = RwSignal::new(0.0);
     use_interval_fn(move || since.set(js_sys::Date::now() - started), 1000);
@@ -97,6 +103,16 @@ pub fn PendingStatus(#[prop(into)] status: Signal<String>) -> impl IntoView {
         <p class="pending-status" role="status">
             <span class="spinner" aria-hidden="true"></span>
             <span>{move || status.get()}</span>
+            {move || {
+                percent
+                    .get()
+                    .map(|percent| {
+                        view! {
+                            <PercentMeter percent />
+                            <span class="percent" aria-hidden="true">{format!("{percent}%")}</span>
+                        }
+                    })
+            }}
             <span class="elapsed" aria-hidden="true">
                 {move || elapsed(since.get())}
             </span>

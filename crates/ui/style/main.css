@@ -1346,7 +1346,8 @@ a.icon-button {
   color: var(--color-text-secondary);
 }
 
-.pending-status .elapsed {
+.pending-status .elapsed,
+.pending-status .percent {
   font-family: var(--font-data);
   font-size: var(--type-meta);
 }

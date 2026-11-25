@@ -66,6 +66,16 @@ pub async fn get<T: DeserializeOwned>(path: &str) -> Result<T, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Waits `ms` milliseconds.
+pub async fn sleep(ms: i32) {
+    let promise = js_sys::Promise::new(&mut |resolve, _| {
+        if let Some(window) = web_sys::window() {
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms);
+        }
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
+
 /// Like `get`, but `None` when the Service finds nothing there (404).
 pub async fn get_found<T: DeserializeOwned>(path: &str) -> Result<Option<T>, String> {
     let response = Request::get(&url(path)).send().await.map_err(failed)?;
