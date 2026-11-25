@@ -911,7 +911,17 @@ impl Store {
             .map(|e| e.path.as_str())
             .collect();
         let payloads = self.read(|c| {
-            crate::audits::payloads_as_stamped(c, set.id, mismatched.iter().copied(), &stamps)
+            crate::audits::payloads_as_stamped(
+                c,
+                set.id,
+                mismatched.iter().copied(),
+                &stamps,
+                report
+                    .dat_revision
+                    .header_rule
+                    .as_ref()
+                    .and_then(|h| h.rule),
+            )
         })?;
         let candidates =
             self.read(|c| fill_candidates(c, &record.name, &report.dat_revision.sha256))?;

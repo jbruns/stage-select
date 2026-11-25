@@ -363,15 +363,18 @@ fn counts_from(row: &Row, first: usize) -> rusqlite::Result<Counts> {
 pub(crate) type MemberSums = Vec<(Option<String>, Checksums)>;
 
 /// The checksums of each payload of each of `paths` in Source Set `set`, by member (none for a loose file), as last
-/// read: only where that read's stamp is `stamps`' for the path, the one the Audit a repair is planned from recorded.
+/// read: only where that read's stamp is `stamps`' for the path, the one the Audit a repair is planned from recorded,
+/// and its Header Rule is `header`, that Audit's. A later Audit, even one stopped before it finished, may have read the
+/// unchanged file again under another revision's rule and recorded checksums that leave out a Header this one didn't.
 pub(crate) fn payloads_as_stamped<'p>(
     c: &Connection,
     set: i64,
     paths: impl IntoIterator<Item = &'p str>,
     stamps: &std::collections::HashMap<String, FileStamp>,
+    header: Option<HeaderRule>,
 ) -> Result<std::collections::HashMap<String, MemberSums>> {
     let mut stmt = c.prepare(
-        "SELECT dev, ino, size, mtime_ns, ctime_ns, members FROM payload_reads
+        "SELECT dev, ino, size, mtime_ns, ctime_ns, members, header_rule FROM payload_reads
          WHERE source_set_id = ?1 AND path = ?2",
     )?;
     let mut found = std::collections::HashMap::new();
@@ -390,11 +393,13 @@ pub(crate) fn payloads_as_stamped<'p>(
                         ctime_ns: r.get::<_, i64>(4)? as i128,
                     },
                     r.get::<_, String>(5)?,
+                    r.get::<_, Option<String>>(6)?,
                 ))
             })
             .optional()?;
-        if let Some((read, members)) = row
+        if let Some((read, members, rule)) = row
             && read == *stamp
+            && rule.as_deref() == header.map(HeaderRule::as_str)
         {
             found.insert(
                 path.to_owned(),

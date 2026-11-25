@@ -1556,6 +1556,36 @@ fn a_mismatched_file_no_ingest_item_replaces_is_set_aside_by_default_and_its_gam
 }
 
 #[test]
+fn a_mismatched_files_checksums_read_under_another_header_rule_are_not_shown() {
+    let env = Env::new();
+    env.put("Yars (USA).a26", b"bad dump");
+    env.audit(AuditEvidence::Full);
+    // As a later Audit against a revision naming a Header Rule does when it reads the unchanged file and stops before
+    // it finishes: its read, leaving out a Header, replaces this Audit's.
+    let db = rusqlite::Connection::open(env.store.dir().join("stage-select.sqlite")).unwrap();
+    let changed = db
+        .execute(
+            "UPDATE payload_reads SET header_rule = 'atari7800',
+                    members = replace(members, ?1, ?2)
+             WHERE path = 'Yars (USA).a26'",
+            [crc32(b"bad dump"), crc32(b"dump")],
+        )
+        .unwrap();
+    assert_eq!(changed, 1);
+
+    let plan = env.plan();
+    let yars = item(&plan, "file:Yars (USA).a26");
+
+    assert!(
+        yars.summary.contains("its checksums aren't on record"),
+        "{}",
+        yars.summary
+    );
+    assert!(!yars.summary.contains(&crc32(b"dump")), "{}", yars.summary);
+    assert_eq!(yars.default, RepairChoice::KeepAside);
+}
+
+#[test]
 fn a_mismatched_file_under_a_nodump_roms_name_is_left_by_default() {
     let env = Env::new();
     let revision = import_adventure_with_a_nodump_manual(&env);
