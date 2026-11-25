@@ -1591,6 +1591,8 @@ fn mismatched_aside(
             addition: None,
             addition_rom: None,
             addition_target: None,
+            from: Vec::new(),
+            from_outside: Vec::new(),
         },
         proposal: None,
         displaces: vec![(path.to_owned(), summary)],
