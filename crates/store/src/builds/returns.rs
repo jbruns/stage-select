@@ -580,7 +580,7 @@ impl Store {
                         &placed_path(p.folder, &pl.path),
                         &r.files[n].path,
                         &original(pl),
-                        now,
+                        Some(now),
                     )?;
                 }
                 set_placed(tx, p.build, (seq, k), "deleted", None)?;

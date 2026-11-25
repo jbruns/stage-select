@@ -479,6 +479,9 @@ impl Intents for DisposeIntents<'_> {
 enum Built {
     /// Put in place without a publish intent, by a rename or a copy: its stamp, as found, is its intent.
     Found,
+    /// As [`Built::Found`], found renamed into place by recovery after a stop: nothing shows it unchanged since, so it
+    /// carries no stamp of its Audit's.
+    Recovered,
     /// Published from the staging folder: recorded only while it is the file its publish intent names.
     Published,
     /// Recorded built already, by the Build or by its recovery.
@@ -848,7 +851,7 @@ impl Store {
                 });
             }
             if changed.is_none() {
-                self.record_unit(p, unit, &found, Built::Found, "done", None)?;
+                self.record_unit(p, unit, &found, Built::Recovered, "done", None)?;
                 return Ok(Ok(()));
             }
         }
@@ -1502,7 +1505,8 @@ impl Store {
 
     /// Records the release of `unit` placed as its files, `found` in place: each recorded built as `built` says, its
     /// Game placed, its Source Set's Audit made to name it there, and the item applied, with its placement at `next`;
-    /// and its unit `unit` done, if it has one. All in one transaction.
+    /// and its unit `unit` done, if it has one. All in one transaction. A file written, not moved, gets its stamp only
+    /// once it is read back ([`Store::stamp_rewrites`]).
     fn record_unit(
         &self,
         p: &Placing,
@@ -1521,7 +1525,7 @@ impl Store {
                 let item = w.item;
                 let (dev, ino) = Identity::of(&f.at).to_sql();
                 let file = file_stat(&f.at);
-                if matches!(built, Built::Found | Built::Earlier) {
+                if matches!(built, Built::Found | Built::Recovered | Built::Earlier) {
                     tx.execute(
                         "UPDATE build_items SET sha256 = ?3, size = ?4, dev = ?5, ino = ?6, mtime_ns = ?7
                          WHERE build_id = ?1 AND seq = ?2",
@@ -1537,7 +1541,7 @@ impl Store {
                     )?;
                 }
                 match built {
-                    Built::Found | Built::Published => {
+                    Built::Found | Built::Recovered | Built::Published => {
                         if !record_applied(tx, p.build, p.folder, w.seq, item, &f.at, true)? {
                             return Err(Error::Io(format!(
                                 "{} is not the file the build put there",
@@ -1564,15 +1568,19 @@ impl Store {
                 if item.chd {
                     record_chd(self, tx, p, w)?;
                 }
-                if let (Built::Found, [was]) = (built, placement(w)?.originals.as_slice()) {
-                    crate::placements::moved_entries(tx, (p.set, p.audit), &was.path, path, was, &f.now)?;
+                let now = match built {
+                    Built::Found => Some(Some(&f.now)),
+                    Built::Recovered => Some(None),
+                    _ => None,
+                };
+                if let (Some(now), [was]) = (now, placement(w)?.originals.as_slice()) {
+                    crate::placements::moved_entries(tx, (p.set, p.audit), &was.path, path, was, now)?;
                 }
                 set_place_state(tx, p.build, w.seq, Some(next))?;
             }
-            if !matches!(built, Built::Found) {
+            if !matches!(built, Built::Found | Built::Recovered) {
                 let (from, to) = rewrites(unit, &paths)?;
-                let now: Vec<&Stat> = found.iter().map(|f| &f.now).collect();
-                crate::placements::rewritten_entries(tx, (p.set, p.audit), &from, (&to, &now))?;
+                crate::placements::rewritten_entries(tx, (p.set, p.audit), &from, &to)?;
             }
             if let Some(key) = key {
                 tx.execute(
@@ -1634,8 +1642,8 @@ impl Store {
         Ok(outputs)
     }
 
-    /// Deletes the Source Set files of each item of `unit`, its release now placed at `spots`. `Err` says why one is
-    /// left outstanding.
+    /// Deletes the Source Set files of each item of `unit`, its release now placed at `spots`, then carries their
+    /// stamps to the files written from them ([`Store::stamp_rewrites`]). `Err` says why one is left outstanding.
     fn dispose_unit(
         &self,
         p: &Placing,
@@ -1649,7 +1657,35 @@ impl Store {
                 return Ok(Err(why));
             }
         }
+        self.stamp_rewrites(p, unit, &outputs)?;
         Ok(Ok(()))
+    }
+
+    /// Carries the Audit's stamps of the Source Set files `unit`'s files were written from, waiting since they were
+    /// recorded placed ([`crate::placements::rewritten_entries`]), over to each of those files that still reads as the
+    /// Build recorded it, statted as held when it was read: one changed since it was written gets none, and looks
+    /// changed until it is audited again. Moved files carried theirs as they were recorded, and wait for nothing.
+    fn stamp_rewrites(&self, p: &Placing, unit: &[&Work], outputs: &[Output]) -> Result<()> {
+        let paths: Vec<String> = unit
+            .iter()
+            .map(|w| placed_path(p.folder, &w.item.target))
+            .collect();
+        let (from, _) = rewrites(unit, &paths)?;
+        if !self.read(|c| crate::placements::rewrites_unchecked(c, p.audit, &from))? {
+            return Ok(());
+        }
+        let mut to = Vec::new();
+        for (w, path) in unit.iter().zip(&paths) {
+            let output = outputs.iter().find(|o| o.seq == w.seq);
+            let now = match output {
+                Some(o) if o.holds(p)?.is_ok() => {
+                    o.found.as_ref().ok().map(|(_, held)| held.stat())
+                }
+                _ => None,
+            };
+            to.push((path.as_str(), now));
+        }
+        self.write(|tx| crate::placements::checked_rewrites(tx, p.audit, &from, &to))
     }
 
     /// Deletes each Source Set file `w`'s Game, now placed at `s`, was placed from and has not yet disposed of, under

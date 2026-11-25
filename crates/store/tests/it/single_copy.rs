@@ -808,6 +808,59 @@ fn a_game_converted_as_it_is_placed_leaves_its_source_set_unchanged() {
     assert_eq!(env.walk(), Some((1, 0, 0)));
 }
 
+/// A converted file edited before it is checked keeps its Source Set's files, and isn't recorded as audited.
+#[test]
+fn a_converted_file_edited_before_it_is_checked_is_found_changed() {
+    let env = Env::new();
+    pong_zip(&env);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::Loose);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(
+        item(&plan, "Pong (USA)").place.as_ref().unwrap().how,
+        PlaceHow::Convert
+    );
+    let at = env.library().join("Pong (USA).a26");
+    let once = std::sync::Once::new();
+    let edited = at.clone();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if matches!(fault, Fault::AfterPublish(_)) {
+                once.call_once(|| overwrite_keeping_stamp(&edited));
+            }
+        })));
+    let job = env.build(&plan);
+    env.store.hook_faults(None);
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    assert_ne!(std::fs::read(&at).unwrap(), b"pong");
+    let (changed, _, _) = env.walk().expect("the edited file is found changed");
+    assert!(changed >= 1, "{changed}");
+}
+
+/// A file renamed into place, then edited while the service is stopped, is found changed once recovery records it.
+#[test]
+fn a_file_edited_after_its_rename_while_the_service_was_stopped_is_found_changed() {
+    let env = Env::new();
+    pong_zip(&env);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(
+        item(&plan, "Pong (USA)").place.as_ref().unwrap().how,
+        PlaceHow::Rename
+    );
+    env.build_until(&plan, |f| matches!(f, Fault::PlaceMoved(_)));
+    let at = env.library().join("Pong (USA).zip");
+    overwrite_keeping_stamp(&at);
+
+    let (env, blocked) = env.restart();
+    assert_eq!(blocked, Vec::<(i64, String)>::new());
+    assert_eq!(env.files().1, ["Pong (USA).zip"]);
+    assert_eq!(env.walk(), Some((1, 0, 0)));
+}
+
 #[test]
 fn a_plan_is_refused_once_the_storage_policy_changed_since_it_was_made() {
     let env = Env::new();
