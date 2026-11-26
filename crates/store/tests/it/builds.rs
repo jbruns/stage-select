@@ -7554,7 +7554,7 @@ fn a_build_plan_counts_the_files_it_finds_then_each_selected_file_it_plans() {
 }
 
 #[test]
-fn a_build_after_a_change_of_mode_alone_needs_no_new_audit_or_plan() {
+fn a_build_after_a_change_of_permissions_alone_needs_no_new_audit() {
     let env = Env::new();
     env.audit();
     let id = env.record(&everything(&env.sha256));

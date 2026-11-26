@@ -655,7 +655,7 @@ fn read_by_latest_audit(env: &Env, name: &str) -> Vec<String> {
 }
 
 #[test]
-fn a_file_whose_mode_alone_changed_is_unconfirmed_and_the_source_set_is_not_stale() {
+fn a_file_whose_permissions_alone_changed_is_unconfirmed_and_the_source_set_is_not_stale() {
     let env = Env::new();
     env.audit("Alpha", AuditEvidence::Incremental);
 
@@ -666,7 +666,7 @@ fn a_file_whose_mode_alone_changed_is_unconfirmed_and_the_source_set_is_not_stal
     assert_eq!(
         env.stale("Alpha"),
         [],
-        "a change of mode alone is no change"
+        "a change of permissions alone is no change"
     );
     assert_eq!(unconfirmed(&env, "Alpha"), 1);
     let walks = env.store.stat_walks("Alpha").unwrap();

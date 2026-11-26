@@ -338,6 +338,7 @@ pub struct SourceSetRecord {
     pub folder_created: Option<FolderCreated>,
 }
 
+/// Whether a count is none, so that it is left out of what is sent.
 fn is_zero(n: &u64) -> bool {
     *n == 0
 }

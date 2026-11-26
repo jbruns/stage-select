@@ -539,6 +539,7 @@ pub fn read_again(
     header: Option<HeaderRule>,
     tally: &meter::Tally,
 ) -> Option<PayloadRead> {
+    /// The one read made, which nothing earlier stands in for.
     struct Kept(std::sync::Mutex<Option<PayloadRead>>);
     impl PayloadReads for Kept {
         fn prior(&self, _: &str) -> Option<PayloadRead> {

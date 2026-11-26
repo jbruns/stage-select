@@ -47,9 +47,11 @@ struct Counts {
 /// How a file the Audit saw compares with it now.
 #[derive(Debug, PartialEq, Eq)]
 enum Compared {
+    /// As the Audit saw it, or with nothing to compare.
     Same,
     /// Its device, inode, size and modification time hold; only its change time moved.
     Unconfirmed,
+    /// Changed, added to or gone from what the Audit stamped.
     Changed,
 }
 
@@ -72,11 +74,12 @@ impl Counts {
                             Compared::Unconfirmed
                         }
                         (Some(_), Some(Some(_))) => Compared::Changed,
-                        (None, Some(Some(now))) if now.mtime_ns > baseline.started_ns => {
+                        // No stamp shows what held, so either time moving is a change.
+                        (None, Some(Some(now)))
+                            if now.mtime_ns > baseline.started_ns
+                                || now.ctime_ns > baseline.started_ns =>
+                        {
                             Compared::Changed
-                        }
-                        (None, Some(Some(now))) if now.ctime_ns > baseline.started_ns => {
-                            Compared::Unconfirmed
                         }
                         (None, Some(Some(_))) => Compared::Same,
                         // A file the audit stamped that can no longer be reached: a dangling symlink, or one that
@@ -302,7 +305,7 @@ impl Store {
             let Some(members) = members else {
                 continue;
             };
-            // Planned for you, by no Job: no Job's meter counts it.
+            // Planned for the Operator, by no Job: no Job's meter counts it.
             let Some(read) = stage_select_engine::read_again(
                 &folder.join(path),
                 folder,

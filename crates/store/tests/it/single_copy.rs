@@ -283,6 +283,14 @@ impl Env {
         })
     }
 
+    /// Asserts a stat walk finds one file unconfirmed, as an edit that keeps its size and modification time leaves it:
+    /// its stat alone can't tell that from a change of permissions, so the next Incremental Audit reads it again
+    /// (ADR 0031). Nothing else is found changed.
+    pub(crate) fn assert_unconfirmed(&self) {
+        assert_eq!(self.walk(), None);
+        assert_eq!(self.store.source_set(SET).unwrap().unconfirmed, 1);
+    }
+
     /// The file names in the Source Set's folder and in the Library Folder, leaving out what Stage Select keeps for
     /// itself.
     pub(crate) fn files(&self) -> (Vec<String>, Vec<String>) {
@@ -826,7 +834,7 @@ fn a_game_placed_by_a_rename_leaves_its_source_set_unchanged_until_its_file_is_e
         (PlaceHow::Rename, "Pong (USA).zip"),
     );
     overwrite_keeping_stamp(&at);
-    assert_eq!(env.walk(), Some((1, 0, 0)));
+    env.assert_unconfirmed();
 }
 
 #[test]
@@ -841,7 +849,7 @@ fn a_game_placed_by_a_copy_leaves_its_source_set_unchanged() {
         (PlaceHow::Copy, "Pong (USA).zip"),
     );
     overwrite_keeping_stamp(&at);
-    assert_eq!(env.walk(), Some((1, 0, 0)));
+    env.assert_unconfirmed();
 }
 
 #[test]
@@ -856,7 +864,7 @@ fn a_game_converted_as_it_is_placed_leaves_its_source_set_unchanged() {
         (PlaceHow::Convert, "Pong (USA).a26"),
     );
     overwrite_keeping_stamp(&at);
-    assert_eq!(env.walk(), Some((1, 0, 0)));
+    env.assert_unconfirmed();
     let (env, at) = place_then_walk(
         loose_pong,
         AuditEvidence::Full,
@@ -865,7 +873,7 @@ fn a_game_converted_as_it_is_placed_leaves_its_source_set_unchanged() {
         (PlaceHow::Convert, "Pong (USA).zip"),
     );
     overwrite_keeping_stamp(&at);
-    assert_eq!(env.walk(), Some((1, 0, 0)));
+    env.assert_unconfirmed();
 }
 
 /// A converted file edited before it is checked keeps its Source Set's files, and isn't recorded as audited.
@@ -929,7 +937,7 @@ fn a_file_edited_just_before_its_rename_stays_in_the_source_set_found_changed() 
         env.files(),
         (vec!["Pong (USA).zip".into()], Vec::<String>::new())
     );
-    assert_eq!(env.walk(), Some((1, 0, 0)));
+    env.assert_unconfirmed();
 }
 
 /// A file edited in place as it is renamed into place, keeping its size and modification time, is found changed.
@@ -1914,4 +1922,38 @@ fn a_file_a_build_kept_outlives_its_library_folder_and_goes_with_its_source_set(
     let set = kept[0].source_set;
     env.store.unregister_source_set(SET).unwrap();
     env.store.forget(RegistrationKind::SourceSet, set).unwrap();
+}
+
+#[test]
+fn a_change_of_permissions_inside_a_plans_window_asks_you_to_review_it_again_and_no_audit() {
+    let env = Env::new();
+    pong_zip(&env);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::Loose);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    let job = env
+        .store
+        .approve_plan(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    // Inside the plan's own window, its sources' change time still binds it (ADRs 0008, 0010, 0024).
+    crate::placed_recovery::chmod(&env.set().join("Pong (USA).zip"));
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
+    let job = env.store.run_build_job(job.id, None).unwrap();
+    assert_eq!(job.state, JobState::Failed, "{job:?}");
+    assert!(
+        job.error
+            .as_deref()
+            .is_some_and(|e| e.contains("Review plan")),
+        "{job:?}"
+    );
+
+    let again = env.plan(&env.folder, selection);
+    let job = env.build(&again);
+
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    assert_eq!(
+        env.files(),
+        (Vec::<String>::new(), vec!["Pong (USA).a26".into()])
+    );
 }

@@ -6146,7 +6146,7 @@ fn a_first_marker_open_to_others_is_closed_before_it_is_published() {
 }
 
 #[test]
-fn a_file_whose_mode_alone_changed_since_the_audit_is_read_again_and_repaired() {
+fn a_file_whose_permissions_alone_changed_since_the_audit_is_read_again_and_repaired() {
     let env = Env::new();
     env.put("Pong (Anthology).a26", b"pong");
     write_zip(
