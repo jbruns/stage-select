@@ -1357,6 +1357,45 @@ fn a_conflict_is_kept_aside_and_rebuilt_only_when_you_choose_it() {
     assert!(both.is_err(), "{both:?}");
 }
 
+/// A member of the folder's group, who may write in `.stage-select` (ADR 0031), renames the retention area while a
+/// Build keeps a file aside in it: the file then lands where the Build never records it.
+#[cfg(unix)]
+#[test]
+fn a_retention_area_moved_while_a_build_keeps_a_file_aside_is_never_recorded_as_the_files_place() {
+    let env = Env::new();
+    let (folder, plan) = built_then_deselected(&env);
+    let dir = env.play().join("atari2600");
+    let first = plan.content.removals[0].target.clone();
+    let area = dir.join(".stage-select/retained");
+    let moved = dir.join(".stage-select/retained-moved");
+    let (from, to) = (area.clone(), moved.clone());
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::BeforeKeep(0) && from.exists() {
+                std::fs::rename(&from, &to).unwrap();
+            }
+        })));
+    let ended = env.build(&plan);
+    env.store.hook_faults(None);
+
+    assert!(moved.join("2").join(format!("{first}.kept")).exists());
+    let recorded = env.store.kept_files(folder.id).unwrap();
+    assert!(
+        recorded.iter().all(|k| k.name != first),
+        "recorded where it is not: {recorded:?}"
+    );
+    assert_eq!(ended.state, JobState::Failed);
+    let error = ended.error.unwrap();
+    assert!(
+        error.contains(&format!(
+            "was set aside, but {} was moved while the build ran, so it is not at {}",
+            area.display(),
+            area.join("2").join(format!("{first}.kept")).display()
+        )),
+        "{error}"
+    );
+}
+
 #[test]
 fn a_crash_mid_removal_leaves_the_file_in_place_or_kept_and_recovery_reports_it() {
     for fault in [Fault::BeforeKeep(0), Fault::AfterKeep(0)] {

@@ -1054,11 +1054,25 @@ impl Store {
             })
             .map_err(|e| Error::Io(e.to_string()))?;
         self.fault_point(Fault::AfterKeep(k.seq));
-        if !is_kept_entry(&retention.generation, &kept, id, None, directory) {
-            let error = format!(
-                "{}/{kept} is not the file moved there; it was left as it is",
-                retention.generation.path().display()
-            );
+        // Found through the folder's handle by the path it is recorded at, as well as through the retention area's:
+        // anyone in the folder's group may move the retention area aside while the Build holds it open, and the path
+        // recorded must be where the file is.
+        let recorded = format!("{}/{kept}", generation_dir(k.generation));
+        let moved = !is_kept_entry(dir, &recorded, id, None, directory);
+        if moved || !is_kept_entry(&retention.generation, &kept, id, None, directory) {
+            let error = if moved {
+                format!(
+                    "{name} was set aside, but {} was moved while the build ran, so it is not at {}; find it where \
+                     that folder went. Nothing records it as kept",
+                    retention.area.path().display(),
+                    dir.path().join(&recorded).display()
+                )
+            } else {
+                format!(
+                    "{}/{kept} is not the file moved there; it was left as it is",
+                    retention.generation.path().display()
+                )
+            };
             self.write(|tx| {
                 tx.execute(
                     "UPDATE kept_files SET state = 'lost', error = ?2 WHERE id = ?1",
