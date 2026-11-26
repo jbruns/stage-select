@@ -1769,14 +1769,18 @@ after a rename, the one your source set's audit verified when it read the whole 
 check of the library folder trusts a placed file unread while it is the same file, unchanged since it was recorded.
 One whose permissions or owner changed, which moves its change time but no byte, is read again, and stays the game's
 only copy if it still holds what it was placed as: its recorded SHA-256, or, with none recorded, exactly the
-TorrentZip or loose file its DAT's ROMs make. The check then records its SHA-256 and the file as it is now, and so
-does an audit that reads it and finds the same. Anything else is a conflict, left as it is.
+TorrentZip or loose file the ROMs it was placed with make, byte for byte, where your DAT lists a SHA-1 or SHA-256 for
+each of them. The ROMs are the ones the build that placed it used, from that build's DAT revision, including any
+optional or dependency ROMs it held. The check then records its SHA-256 and the file as it is now, and so does an
+audit that reads it and finds the same. An audit that reads a placed file with no SHA-256 recorded, unchanged since it
+was placed, records one too. Anything else is a conflict, left as it is.
 
 If you move a placed game's files back into your source set's folder by hand, a check of the library folder reports
-each one missing, "found in its source set; audit it to bring it home", and a plan says so too. The next audit of your
-source set that finds the game complete in its folder, verified by reading it, and nothing of it where it was placed,
-records it home: it changes what Stage Select records, not your files. The library folder's next build then places
-it again. A game found in both places stays placed.
+each one missing and, where a file of the same name is in your source set, says so: "a file of the same name is in
+your source set; audit it to see whether it holds this game". A plan says so too. The next audit of your source set
+records the game home if it read, in your source set's folder, every ROM each of its placed files held, and found
+nothing of it where it was placed, before and as it records it. That changes what Stage Select records, not your
+files. The library folder's next build then places it again. A game found in both places stays placed.
 
 A build plan lists each placement and return, says whether it renames, copies or converts, and why a game is copied
 rather than placed. Its single copy section totals the bytes placing frees in your source set and writes in the

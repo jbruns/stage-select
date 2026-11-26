@@ -9,8 +9,8 @@ use std::fs::File;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use rustix::fs::{FileType, Stat};
 use stage_select_api::build::{
-    CheckSummary, CheckedFile, DriftEntry, DriftKind, FileOutcome, FileStat, FolderCheck,
-    PlacedFile,
+    CheckSummary, CheckedFile, DriftEntry, DriftKind, ExpectedRom, FileOutcome, FileStat,
+    FolderCheck, PlacedFile,
 };
 use stage_select_api::storage::{Storage, StorageFormat, multidisc_dir, playlist_name, release_of};
 use stage_select_api::{DatFormat, HeaderRule, Job, JobKind, JobState};
@@ -133,9 +133,10 @@ pub(super) struct ScanInput<'a> {
     pub home: Option<&'a FolderDir>,
 }
 
-/// What a check says of a Placed Game's file it found missing that is in its Source Set's folder: an Audit records it
-/// home there.
-pub(crate) const FOUND_HOME: &str = "found in its source set; audit it to bring it home";
+/// What a check says of a Placed Game's file it found missing where a file of its name is in its Source Set's folder:
+/// a name says nothing of what that file holds, and only an Audit, reading it, tells whether it is the Game's.
+pub(crate) const FOUND_HOME: &str =
+    "a file of the same name is in your source set; audit it to see whether it holds this game";
 
 /// Whether the Placed Game's file `placed`, missing where it was placed, is in its Source Set's folder `home`: a
 /// regular file of its name there, at the path it has in its Library Folder or by its name alone at the top. Only an
@@ -588,9 +589,15 @@ pub(super) fn scan(
             && !crate::placements::unchanged(placed, &st)
             && !matches!(file.outcome, FileOutcome::Missing | FileOutcome::Unreadable)
         {
-            let (probe, hashed) = probe_of(target, &st, input.dat.and_then(Dat::header), &mut out);
+            let was = PlacedAs {
+                roms: &built.roms,
+                loose: built.loose,
+            };
+            let (probe, hashed) = probe_of(target, &st, was.header(), &mut out);
             file.hashed |= hashed;
-            match probe.map(|p| (proven(placed, &p, input.dat), p)) {
+            let canonical =
+                || canonical_while(dir, target, &crate::placements::stamp_of(&st), input.tally);
+            match probe.map(|p| (proven(placed, &p, Some(was), canonical), p)) {
                 Err(e) => {
                     file.outcome = FileOutcome::Unreadable;
                     file.detail = Some(e);
@@ -661,10 +668,10 @@ pub(super) fn scan(
             // its size and modification time set back, is read again.
             Some((_, Ok(Some(st)))) if crate::placements::unchanged(placed, &st) => {}
             Some((_, Ok(Some(st)))) => {
-                let (probe, hashed) =
-                    probe_of(target, &st, input.dat.and_then(Dat::header), &mut out);
+                // Nothing records the ROMs it was placed as: only its SHA-256 can prove it.
+                let (probe, hashed) = probe_of(target, &st, None, &mut out);
                 file.hashed = hashed;
-                match probe.map(|p| (proven(placed, &p, input.dat), p)) {
+                match probe.map(|p| (proven(placed, &p, None, || false), p)) {
                     Err(e) => {
                         file.outcome = FileOutcome::Unreadable;
                         file.detail = Some(e);
@@ -799,57 +806,104 @@ pub(super) fn scan(
     out
 }
 
+/// What a Placed Game's file was placed as: the ROMs the Build that placed it recorded it holding, from that Build's
+/// DAT revision, and whether it is one of them, loose.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PlacedAs<'a> {
+    pub roms: &'a [ExpectedRom],
+    pub loose: bool,
+}
+
+impl PlacedAs<'_> {
+    /// The Header Rule its ROMs' checksums leave a Header out under, if any.
+    pub fn header(&self) -> Option<HeaderRule> {
+        self.roms.iter().find_map(|r| r.header)
+    }
+}
+
 /// Whether the Placed Game's file `placed`, its stamp moved since it was recorded, still holds what it was placed as,
-/// read again as `probe`: its SHA-256 as recorded, or, with none recorded, as for a file placed by a rename before it
-/// kept its Audit's, exactly the bytes the ROMs `dat` lists for its Game make. Only a canonical form says that: a
-/// TorrentZip holding exactly those ROMs, or a loose file that is one of them whole, with no Header left out. Its
-/// whole SHA-256 is of all of it, whatever the DAT's Header Rule. Otherwise why not.
+/// read again as `probe` under its ROMs' Header Rule: its SHA-256 as recorded, or, with none recorded, as for a file
+/// placed by a rename before it kept its Audit's, exactly the bytes the ROMs it was placed as, `placed_as`, make. Only
+/// a canonical form says that, and only where each of those ROMs is listed with a SHA-1 or SHA-256: a TorrentZip
+/// holding exactly them, its bytes TorrentZip's for them, as `canonical` reads it to say; or a loose file that is the
+/// one of them, whole, with no Header left out. A Header under a Header Rule is left out of the proof, as an Audit
+/// leaves it out of its Finding. Otherwise why not.
 pub(crate) fn proven(
     placed: &PlacedFile,
     probe: &Probe,
-    dat: Option<&Dat>,
+    placed_as: Option<PlacedAs>,
+    canonical: impl FnOnce() -> bool,
 ) -> std::result::Result<(), String> {
     let changed =
         "it changed since it was placed; an audit of its source set says what it holds now";
-    match (placed.sha256.as_deref(), dat) {
-        (Some(sha256), _) if sha256 == probe.sha256 => Ok(()),
-        (Some(_), _) => Err(changed.into()),
-        // A CHD is placed read, so always with its SHA-256.
-        (None, _) if placed.chd => Err(changed.into()),
-        (None, None) => Err(format!(
-            "{changed}; its DAT revision is no longer kept, so it couldn't be checked against its ROMs"
-        )),
-        (None, Some(dat)) => {
-            let roms = crate::plans::roms_of(dat, &placed.game);
-            let exact = match probe.zip {
-                true => {
-                    probe.torrentzip
-                        && !roms.is_empty()
-                        && stage_select_engine::build::holds(probe, &roms)
-                }
-                // A loose file is one ROM of its Game, named for it.
-                false => {
-                    let name = name_of(&placed.path);
-                    probe
-                        .payloads
-                        .iter()
-                        .all(|p| p.checksums().header.is_none())
-                        && roms
-                            .iter()
-                            .filter(|rom| name_of(&rom.name) == name)
-                            .any(|rom| holds_as(probe, std::slice::from_ref(rom), true))
-                }
-            };
-            match exact {
-                true => Ok(()),
-                false => Err(format!(
-                    "it changed since it was placed, and isn't exactly the DAT's ROMs for {}; an audit of its \
-                     source set says what it holds now",
-                    placed.game
-                )),
-            }
-        }
+    if let Some(sha256) = &placed.sha256 {
+        return match *sha256 == probe.sha256 {
+            true => Ok(()),
+            false => Err(changed.into()),
+        };
     }
+    // A CHD is placed read, so always with its SHA-256.
+    if placed.chd {
+        return Err(changed.into());
+    }
+    let Some(was) = placed_as else {
+        return Err(format!(
+            "{changed}; nothing records the ROMs it was placed as, to check it against"
+        ));
+    };
+    if was.roms.is_empty()
+        || !was
+            .roms
+            .iter()
+            .all(|rom| rom.sha1.is_some() || rom.sha256.is_some())
+    {
+        return Err(format!(
+            "{changed}; the DAT lists no SHA-1 or SHA-256 for each of its ROMs, to check it against"
+        ));
+    }
+    let exact = match was.loose {
+        false => {
+            probe.zip
+                && probe.torrentzip
+                && stage_select_engine::build::holds(probe, was.roms)
+                && canonical()
+        }
+        // A loose file is one ROM of its Game, named for it.
+        true => {
+            let name = name_of(&placed.path);
+            probe
+                .payloads
+                .iter()
+                .all(|p| p.checksums().header.is_none())
+                && was.roms.iter().all(|rom| name_of(&rom.name) == name)
+                && holds_as(probe, was.roms, true)
+        }
+    };
+    match exact {
+        true => Ok(()),
+        false => Err(format!(
+            "it changed since it was placed, and isn't exactly the DAT's ROMs for {}; an audit of its source set \
+             says what it holds now",
+            placed.game
+        )),
+    }
+}
+
+/// Whether the regular file `rel` in `dir`, read while it is stamped `stamp`, before and after, is exactly the
+/// TorrentZip its members make. What it reads is counted to `tally`.
+pub(crate) fn canonical_while(
+    dir: &FolderDir,
+    rel: &str,
+    stamp: &stage_select_engine::FileStamp,
+    tally: &Tally,
+) -> bool {
+    let Ok(file) = dir.open_file(rel) else {
+        return false;
+    };
+    let held = |file: &File| {
+        rustix::fs::fstat(file).is_ok_and(|now| crate::placements::stamp_of(&now) == *stamp)
+    };
+    held(&file) && stage_select_engine::build::canonical(&file, tally) && held(&file)
 }
 
 impl Scan {

@@ -1098,16 +1098,16 @@ impl Store {
                     self.meter.job(job).tally(Some(root))
                 })
             };
-            let verified = self.verified_placements(
-                (running.set_id, id),
-                &report.entries,
-                &self.blob_path(&running.revision.sha256),
-                tally,
-            )?;
+            let folders = self.opened_placed_folders(running.set_id)?;
+            let verified =
+                self.verified_placements((running.set_id, id), &report.entries, &folders, tally)?;
             self.write(|tx| {
                 finish_audit(tx, id, &report)?;
                 crate::placements::refresh_verified(tx, &verified)?;
-                crate::placements::record_home(tx, (running.set_id, id), &report)?;
+                // Whether each Placed file is still gone is asked again here, as this records it home.
+                crate::placements::record_home(tx, (running.set_id, id), &report, &|f| {
+                    crate::placements::gone(&folders, f)
+                })?;
                 if let Some(job) = job {
                     super::jobs::succeed(tx, &self.meter, job, id)?;
                 }

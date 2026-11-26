@@ -1174,7 +1174,7 @@ pub struct PlacedFile {
     pub ctime_ns: i128,
     /// Its SHA-256, when known: read after a copy or conversion, or after a rename the one its Audit verified, where
     /// that read all of it, as for a loose file; recorded since by a check or Audit that read it again and proved it.
-    /// Without one, a check proves it against the DAT's ROMs for its Game.
+    /// Without one, a check proves it against the ROMs the Build that placed it recorded it holding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
     /// Whether it is a CHD, placed under Place Converted Games: its disc's tracks, which an Audit reads by extracting

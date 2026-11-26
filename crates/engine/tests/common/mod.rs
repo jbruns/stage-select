@@ -21,6 +21,33 @@ pub fn rom_without_crc(name: &'static str, payload: &[u8]) -> RomSpec {
     }
 }
 
+/// A ROM listed with its size, CRC-32 and MD5, but no SHA-1 or SHA-256.
+pub fn rom_without_sha(name: &'static str, payload: &[u8]) -> RomSpec {
+    RomSpec {
+        sha256: false,
+        sha1: false,
+        ..rom(name, payload)
+    }
+}
+
+/// A ROM listed with its size alone.
+pub fn rom_size_only(name: &'static str, payload: &[u8]) -> RomSpec {
+    RomSpec {
+        sha256: false,
+        sha1: false,
+        crc: false,
+        ..rom(name, payload)
+    }
+}
+
+/// A ROM its Game may run without (`optional="yes"`).
+pub fn optional_rom(name: &'static str, payload: &[u8]) -> RomSpec {
+    RomSpec {
+        optional: true,
+        ..rom(name, payload)
+    }
+}
+
 /// Writes a No-Intro style Logiqx DAT with the given Games and returns its path.
 pub fn write_dat(dir: &Path, games: &[(&str, Vec<RomSpec>)]) -> PathBuf {
     write_dat_as(dir, &Dat::default(), games)

@@ -615,8 +615,8 @@ fn read(dir: &FolderDir, rel: &str) -> Result<(Stat, String)> {
     Ok((st, sha256))
 }
 
-/// A Placed Game's file an Audit verified, every Entry of it Matched for its Game on Payload Evidence, with its stamp
-/// moved since it was recorded: as it was recorded, and as the Audit read it, with the SHA-256 of all of it then.
+/// A Placed Game's file an Audit verified, every Entry of it Matched on Payload Evidence, whose record lacked what the
+/// Audit proved: as it was recorded, and as the Audit read it, with the SHA-256 of all of it then.
 pub(crate) struct Verified {
     was: PlacedFile,
     stamp: FileStamp,
@@ -637,30 +637,80 @@ pub(crate) fn refresh_verified(tx: &Transaction, verified: &[Verified]) -> Resul
     Ok(())
 }
 
+/// The ROMs the Build that placed Library Folder `folder`'s file `path` recorded it holding, from that Build's DAT
+/// revision, and whether it is one of them loose: what it was placed as. None when nothing records it.
+pub(crate) fn placed_as(
+    c: &Connection,
+    folder: i64,
+    path: &str,
+) -> Result<Option<(Vec<stage_select_api::build::ExpectedRom>, bool)>> {
+    let row: Option<(String, bool)> = c
+        .query_row(
+            "SELECT roms, loose FROM built_files WHERE folder_id = ?1 AND target = ?2",
+            params![folder, path],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    row.map(|(roms, loose)| {
+        serde_json::from_str(&roms)
+            .map(|roms| (roms, loose))
+            .map_err(|e| Error::Io(e.to_string()))
+    })
+    .transpose()
+}
+
+/// The Library Folders holding Source Set `set`'s Placed Games, each opened where it is registered; none for one that
+/// can't be.
+pub(crate) type PlacedFolders = std::collections::HashMap<i64, Option<(FolderDir, String)>>;
+
+impl Store {
+    /// The Library Folders holding Source Set `set`'s Placed Games, opened, as [`PlacedFolders`] says.
+    pub(crate) fn opened_placed_folders(&self, set: i64) -> Result<PlacedFolders> {
+        let roots = &*self.roots();
+        let placed = self.read(|c| placed_files_of(c, set))?;
+        let mut out = PlacedFolders::new();
+        for p in placed {
+            if out.contains_key(&p.library_folder) {
+                continue;
+            }
+            let row = self.read(|c| folder_by_id(c, p.library_folder))?;
+            let dir = open_folder(roots, &row.root, &row.path).ok();
+            out.insert(p.library_folder, dir.map(|d| (d, row.root)));
+        }
+        Ok(out)
+    }
+}
+
+/// Whether the Placed Game's file `f` is gone from its Library Folder, as `folders` opened it, now: none of its name
+/// there, nor anything that can't be statted.
+pub(crate) fn gone(folders: &PlacedFolders, f: &PlacedFile) -> bool {
+    folders
+        .get(&f.library_folder)
+        .and_then(Option::as_ref)
+        .is_some_and(|(dir, _)| matches!(dir.stat(&f.path), Ok(None)))
+}
+
 /// Ends the Placement of each of Source Set `set`'s Placed Games that its Audit `audit`, which found `report`, found
 /// back in the Source Set's own folder: none of its Placed files found where it was placed, neither read nor
-/// unreadable, and the Game Complete from files in the Source Set's folder, each Entry Matched for it on Payload
-/// Evidence. The store changes, not the disk: its Library Folder then sees the Game as not yet placed, and its next
-/// Build places it again. A Game found in both places stays placed.
+/// unreadable, and still gone just before this records it, as `gone` says; and every ROM each of those files was placed
+/// holding found in the Source Set's folder by its payload, as the Audit read it there, with a SHA-1 or SHA-256 the
+/// DAT lists for it: an optional ROM, or a Dependency's, as well as the Game's own. The store changes, not the disk:
+/// its Library Folder then sees the Game as not yet placed, and its next Build places it again, from those files. A
+/// Game found in both places stays placed.
 pub(crate) fn record_home(
     tx: &Transaction,
     (set, audit): (i64, i64),
     report: &stage_select_engine::Report,
+    gone: &dyn Fn(&PlacedFile) -> bool,
 ) -> Result<()> {
-    use stage_select_api::storage::{placed_path, split_placed};
+    use stage_select_api::storage::placed_path;
     let mut games: std::collections::BTreeMap<String, Vec<PlacedFile>> = Default::default();
     for p in placed_files_of(tx, set)? {
         games.entry(p.game.clone()).or_default().push(p);
     }
     let mut stamped = tx.prepare("SELECT 1 FROM audit_stamps WHERE audit_id = ?1 AND path = ?2")?;
-    for (game, files) in games {
-        let complete = report
-            .games
-            .iter()
-            .any(|g| g.name == game && g.status == stage_select_engine::GameStatus::Complete);
-        if !complete {
-            continue;
-        }
+    let mut home: Option<Vec<stage_select_engine::payload::Checksums>> = None;
+    for (_, files) in games {
         let mut placed_found = false;
         for f in &files {
             let path = placed_path(f.library_folder, &f.path);
@@ -670,14 +720,24 @@ pub(crate) fn record_home(
         if placed_found {
             continue;
         }
-        let of: Vec<&stage_select_engine::Entry> = report
-            .entries
-            .iter()
-            .filter(|e| e.finding == stage_select_engine::Finding::Matched)
-            .filter(|e| e.roms.iter().any(|r| r.game == game))
-            .collect();
-        let home = verified_for(&of, &game) && of.iter().all(|e| split_placed(&e.path).is_none());
-        if home {
+        let home = match &home {
+            Some(home) => home,
+            None => home.insert(home_payloads(tx, (set, audit), report)?),
+        };
+        let mut all_home = true;
+        for f in &files {
+            let roms = placed_as(tx, f.library_folder, &f.path)?.map(|(roms, _)| roms);
+            all_home &= roms.is_some_and(|roms| {
+                !roms.is_empty()
+                    && roms.iter().all(|rom| {
+                        (rom.sha1.is_some() || rom.sha256.is_some())
+                            && home
+                                .iter()
+                                .any(|sums| stage_select_engine::build::matches(sums, rom))
+                    })
+            });
+        }
+        if all_home && files.iter().all(gone) {
             for f in &files {
                 forget_placed(tx, f.library_folder, &f.path)?;
             }
@@ -686,19 +746,60 @@ pub(crate) fn record_home(
     Ok(())
 }
 
-/// Whether every one of `entries`, an Audit's Entries of one file, is Matched for `game` on Payload Evidence, and there
-/// is one.
-pub(crate) fn verified_for(entries: &[&stage_select_engine::Entry], game: &str) -> bool {
-    !entries.is_empty() && entries.iter().all(|e| read_as(e, game))
+/// The checksums of each payload Audit `audit` of Source Set `set`, which found `report`, read or reused in the
+/// Source Set's own folder, on Payload Evidence: each read recorded at the stamp the Audit recorded for its file.
+fn home_payloads(
+    tx: &Transaction,
+    (set, audit): (i64, i64),
+    report: &stage_select_engine::Report,
+) -> Result<Vec<stage_select_engine::payload::Checksums>> {
+    use stage_select_api::storage::split_placed;
+    let read: std::collections::HashSet<(&str, Option<&str>)> = report
+        .entries
+        .iter()
+        .filter(|e| split_placed(&e.path).is_none())
+        .filter(|e| {
+            e.evidence
+                .as_ref()
+                .is_some_and(|ev| ev.level == stage_select_engine::EvidenceLevel::Payload)
+        })
+        .map(|e| (e.path.as_str(), e.member.as_deref()))
+        .collect();
+    let mut stmt = tx.prepare(
+        "SELECT r.path, r.members FROM payload_reads r
+         JOIN audit_stamps s ON s.audit_id = ?2 AND s.path = r.path AND s.unreadable = 0
+          AND s.dev = r.dev AND s.ino = r.ino AND s.size = r.size AND s.mtime_ns = r.mtime_ns
+          AND s.ctime_ns = r.ctime_ns
+         WHERE r.source_set_id = ?1 AND r.disk_sha1 IS NULL",
+    )?;
+    let rows = stmt.query_map(params![set, audit], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (path, members) = row?;
+        let members: crate::audits::MemberSums =
+            serde_json::from_str(&members).map_err(|e| Error::Io(e.to_string()))?;
+        out.extend(
+            members
+                .into_iter()
+                .filter(|(member, _)| read.contains(&(path.as_str(), member.as_deref())))
+                .map(|(_, sums)| sums),
+        );
+    }
+    Ok(out)
 }
 
-/// Whether the Entry `e` is Matched for `game` on Payload Evidence: read, not claimed.
-fn read_as(e: &stage_select_engine::Entry, game: &str) -> bool {
-    e.finding == stage_select_engine::Finding::Matched
-        && e.roms.iter().any(|r| r.game == game)
-        && e.evidence
-            .as_ref()
-            .is_some_and(|ev| ev.level == stage_select_engine::EvidenceLevel::Payload)
+/// Whether every one of `entries`, an Audit's Entries of one file, is Matched on Payload Evidence, for its Game or a
+/// Dependency's, and there is one: a file the Audit read, and found holding ROMs the DAT lists.
+pub(crate) fn read_matched(entries: &[&stage_select_engine::Entry]) -> bool {
+    !entries.is_empty()
+        && entries.iter().all(|e| {
+            e.finding == stage_select_engine::Finding::Matched
+                && e.evidence
+                    .as_ref()
+                    .is_some_and(|ev| ev.level == stage_select_engine::EvidenceLevel::Payload)
+        })
 }
 
 /// The regular file `rel` in `dir` read whole, its payloads' checksums leaving out the Header `rule` finds, only while
@@ -727,32 +828,29 @@ fn probe_stamped(
 }
 
 impl Store {
-    /// The Placed Games' files of Source Set `set` that its Audit `audit`, which found `entries` against the DAT
-    /// revision whose blob is `dat`, verified, their stamps moved since they were recorded, as [`Verified`] says: what
-    /// the Audit refreshes their Placements with, so that a change of metadata alone, which an Audit reads again,
-    /// leaves no Placed file a check can't prove. Each is proven as a check proves it
-    /// ([`crate::checks::proven`]): by its Audit's SHA-256 of all of it, where that read all of it and it is the one
-    /// recorded or none is, or else read again whole, only while it is still as the Audit read it, counted to
-    /// `tally`. A payload that matches is not enough: a file whose other bytes changed stays as recorded, for a check
-    /// to flag. A CHD's Placement is left to its checks.
+    /// The Placed Games' files of Source Set `set` that its Audit `audit`, which found `entries`, verified, and whose
+    /// records lack what it proved, as [`Verified`] says: what the Audit refreshes their Placements with, so that a
+    /// change of metadata alone, which an Audit reads again, leaves no Placed file a check can't prove. Each is read
+    /// again whole, only while it is still as the Audit read it, before and after, through the descriptor it is read
+    /// by, counted to `tally`, so that the SHA-256 recorded is of the file as stamped. One whose stamp is still as
+    /// recorded is the file placed, and its SHA-256 is recorded where none was. One whose stamp moved is proven as a
+    /// check proves it ([`crate::checks::proven`]), against the ROMs it was placed as, not the Audit's DAT revision: a
+    /// payload that matches is not enough, and a file whose other bytes changed stays as recorded, for a check to
+    /// flag. A CHD's Placement is left to its checks.
     pub(crate) fn verified_placements(
         &self,
         (set, audit): (i64, i64),
         entries: &[stage_select_engine::Entry],
-        dat: &std::path::Path,
+        folders: &PlacedFolders,
         tally: impl Fn(&str) -> Tally,
     ) -> Result<Vec<Verified>> {
-        let roots = &*self.roots();
         let placed = self.read(|c| placed_files_of(c, set))?;
         let mut verified = Vec::new();
-        let mut dirs: std::collections::HashMap<i64, Option<(FolderDir, String)>> =
-            Default::default();
-        let mut read_dat = None;
         for was in placed.into_iter().filter(|p| !p.chd) {
             let path = stage_select_api::storage::placed_path(was.library_folder, &was.path);
             let of: Vec<&stage_select_engine::Entry> =
                 entries.iter().filter(|e| e.path == path).collect();
-            if !verified_for(&of, &was.game) {
+            if !read_matched(&of) {
                 continue;
             }
             let Some(stamp) = self.read(|c| stamp_at(c, "audit_stamps", audit, &path))? else {
@@ -765,37 +863,30 @@ impl Store {
                 mtime_ns: was.file.mtime_ns,
                 ctime_ns: was.ctime_ns,
             };
-            if stamp == recorded {
+            let unchanged = stamp == recorded;
+            if unchanged && was.sha256.is_some() {
                 continue;
             }
-            // A loose file read whole, Matched for its Game: exactly its ROM, so proven unless another SHA-256 is
-            // recorded.
-            if let Some(sha256) = self.read(|c| audited_sha256(c, set, &path, &stamp))? {
-                if was.sha256.as_ref().is_none_or(|r| *r == sha256) {
-                    verified.push(Verified { was, stamp, sha256 });
-                }
-                continue;
-            }
-            let dir = match dirs.entry(was.library_folder) {
-                std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-                std::collections::hash_map::Entry::Vacant(e) => {
-                    let row = self.read(|c| folder_by_id(c, was.library_folder))?;
-                    let dir = open_folder(roots, &row.root, &row.path).ok();
-                    e.insert(dir.map(|d| (d, row.root)))
-                }
-            };
-            let Some((dir, root)) = dir else {
+            let Some(Some((dir, root))) = folders.get(&was.library_folder) else {
                 continue;
             };
-            let dat = match &read_dat {
-                Some(dat) => dat,
-                None => read_dat.insert(stage_select_engine::dat::Dat::read(dat)?),
-            };
-            let Some(probe) = probe_stamped(dir, &was.path, &stamp, dat.header(), &tally(root))
-            else {
+            let roms = self.read(|c| placed_as(c, was.library_folder, &was.path))?;
+            let placed_as = roms.as_ref().map(|(roms, loose)| crate::checks::PlacedAs {
+                roms,
+                loose: *loose,
+            });
+            let tally = tally(root);
+            let rule = placed_as.and_then(|p| p.header());
+            let Some(probe) = probe_stamped(dir, &was.path, &stamp, rule, &tally) else {
                 continue;
             };
-            if crate::checks::proven(&was, &probe, Some(dat)).is_ok() {
+            let proof = match unchanged {
+                true => Ok(()),
+                false => crate::checks::proven(&was, &probe, placed_as, || {
+                    crate::checks::canonical_while(dir, &was.path, &stamp, &tally)
+                }),
+            };
+            if proof.is_ok() {
                 verified.push(Verified {
                     was,
                     stamp,
