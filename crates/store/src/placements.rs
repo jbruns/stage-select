@@ -783,9 +783,10 @@ pub(crate) fn gone(folders: &PlacedFolders, f: &PlacedFile) -> bool {
 
 /// Ends the Placement of each of Source Set `set`'s Placed Games that its Audit `audit`, which found `report`, found
 /// back in the Source Set's own folder: none of its Placed files found where it was placed, neither read nor
-/// unreadable, and still gone just before this records it, as `gone` says; and every ROM each of those files was placed
-/// holding found in the Source Set's folder by its payload, as the Audit read it there, with a SHA-1 or SHA-256 the
-/// DAT lists for it: an optional ROM, or a Dependency's, as well as the Game's own. The store changes, not the disk:
+/// unreadable, and still gone just before this records it, as `gone` says; and each of those files found in the Source
+/// Set's folder as the Audit read it there, on Payload Evidence: a loose file of its recorded SHA-256, or every ROM it
+/// was placed holding by its payload, with a SHA-1 or SHA-256 the DAT lists for it, an optional ROM or a Dependency's
+/// as well as the Game's own. Each payload there stands for one file or ROM alone. The store changes, not the disk:
 /// its Library Folder then sees the Game as not yet placed, and its next Build places it again, from those files. A
 /// Game found in both places stays placed.
 pub(crate) fn record_home(
@@ -800,7 +801,7 @@ pub(crate) fn record_home(
         games.entry(p.game.clone()).or_default().push(p);
     }
     let mut stamped = tx.prepare("SELECT 1 FROM audit_stamps WHERE audit_id = ?1 AND path = ?2")?;
-    let mut home: Option<Vec<stage_select_engine::payload::Checksums>> = None;
+    let mut home: Option<Vec<HomePayload>> = None;
     for (_, files) in games {
         let mut placed_found = false;
         for f in &files {
@@ -815,18 +816,13 @@ pub(crate) fn record_home(
             Some(home) => home,
             None => home.insert(home_payloads(tx, (set, audit), report)?),
         };
+        // Each payload home stands for one file or ROM alone, so that the next Build has a source for each.
+        let mut taken = vec![false; home.len()];
         let mut all_home = true;
         for f in &files {
             let roms = placed_as(tx, f.library_folder, &f.path)?.map(|(roms, _)| roms);
-            all_home &= roms.is_some_and(|roms| {
-                !roms.is_empty()
-                    && roms.iter().all(|rom| {
-                        crate::checks::identified(rom)
-                            && home
-                                .iter()
-                                .any(|sums| stage_select_engine::build::matches(sums, rom))
-                    })
-            });
+            all_home &= home_by_sha256(home, &mut taken, f)
+                || roms.is_some_and(|roms| home_by_roms(home, &mut taken, &roms));
         }
         if all_home && files.iter().all(gone) {
             for f in &files {
@@ -837,13 +833,64 @@ pub(crate) fn record_home(
     Ok(())
 }
 
-/// The checksums of each payload Audit `audit` of Source Set `set`, which found `report`, read or reused in the
-/// Source Set's own folder, on Payload Evidence: each read recorded at the stamp the Audit recorded for its file.
+/// A payload an Audit read in its Source Set's own folder: its checksums, and whether they are of all of a loose file,
+/// with no Header left out, so that its SHA-256 is the file's.
+struct HomePayload {
+    sums: stage_select_engine::payload::Checksums,
+    whole: bool,
+}
+
+/// Whether the Placed file `f` is home by its own SHA-256, as recorded: a loose file read whole there with it, not yet
+/// `taken`, which it then takes.
+fn home_by_sha256(home: &[HomePayload], taken: &mut [bool], f: &PlacedFile) -> bool {
+    let Some(sha256) = &f.sha256 else {
+        return false;
+    };
+    take(home, taken, |p| {
+        p.whole && p.sums.size == f.file.size && p.sums.sha256.eq_ignore_ascii_case(sha256)
+    })
+}
+
+/// Whether every one of `roms`, each listed with a SHA-1 or SHA-256, is home: each by a payload of its own, not yet
+/// `taken`, which they then take. Takes none when one isn't.
+fn home_by_roms(
+    home: &[HomePayload],
+    taken: &mut [bool],
+    roms: &[stage_select_api::build::ExpectedRom],
+) -> bool {
+    if roms.is_empty() || !roms.iter().all(crate::checks::identified) {
+        return false;
+    }
+    let mut mine = taken.to_vec();
+    let all = roms.iter().all(|rom| {
+        take(home, &mut mine, |p| {
+            stage_select_engine::build::matches(&p.sums, rom)
+        })
+    });
+    if all {
+        taken.copy_from_slice(&mine);
+    }
+    all
+}
+
+/// Takes the first of `home` not yet `taken` that is `wanted`; whether there is one.
+fn take(home: &[HomePayload], taken: &mut [bool], wanted: impl Fn(&HomePayload) -> bool) -> bool {
+    match (0..home.len()).find(|&i| !taken[i] && wanted(&home[i])) {
+        Some(i) => {
+            taken[i] = true;
+            true
+        }
+        None => false,
+    }
+}
+
+/// Each payload Audit `audit` of Source Set `set`, which found `report`, read or reused in the Source Set's own
+/// folder, on Payload Evidence: each read recorded at the stamp the Audit recorded for its file.
 fn home_payloads(
     tx: &Transaction,
     (set, audit): (i64, i64),
     report: &stage_select_engine::Report,
-) -> Result<Vec<stage_select_engine::payload::Checksums>> {
+) -> Result<Vec<HomePayload>> {
     use stage_select_api::storage::split_placed;
     let read: std::collections::HashSet<(&str, Option<&str>)> = report
         .entries
@@ -875,7 +922,10 @@ fn home_payloads(
             members
                 .into_iter()
                 .filter(|(member, _)| read.contains(&(path.as_str(), member.as_deref())))
-                .map(|(_, sums)| sums),
+                .map(|(member, sums)| HomePayload {
+                    whole: member.is_none() && sums.header.is_none(),
+                    sums,
+                }),
         );
     }
     Ok(out)

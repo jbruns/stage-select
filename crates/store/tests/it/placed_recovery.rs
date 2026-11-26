@@ -802,3 +802,48 @@ fn a_loose_placed_file_a_repair_wrote_under_a_new_name_is_where_its_next_check_l
         check.files
     );
 }
+
+#[test]
+fn a_placed_game_whose_two_identical_roms_have_one_copy_home_stays_placed() {
+    let env = Env::with(&games_with(vec![
+        rom("Pong (USA).a26", b"pong"),
+        rom("Pong (USA) (Alt).a26", b"pong"),
+    ]));
+    let at = env.place_pong(StorageFormat::TorrentZip, |env| {
+        write_torrentzip(
+            &env.set().join("Pong (USA).zip"),
+            &[
+                ("Pong (USA) (Alt).a26", b"pong"),
+                ("Pong (USA).a26", b"pong"),
+            ],
+        );
+    });
+    // One payload home stands for one of its ROMs, not both: the next build would have no source for the other.
+    std::fs::remove_file(&at).unwrap();
+    write_torrentzip(
+        &env.set().join("Pong (USA).zip"),
+        &[("Pong (USA).a26", b"pong")],
+    );
+
+    env.audit(AuditEvidence::Incremental);
+
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 1);
+}
+
+#[test]
+fn a_placed_file_moved_home_is_recorded_home_by_its_own_sha256_where_its_roms_cant_prove_it() {
+    let env = Env::with(&games_with(vec![rom_without_sha(
+        "Pong (USA).a26",
+        b"pong",
+    )]));
+    let at = env.place_pong(StorageFormat::Loose, loose_pong);
+    assert_eq!(
+        env.store.placed_files(SET).unwrap()[0].sha256.as_deref(),
+        Some(sha256_hex(b"pong").as_str())
+    );
+    std::fs::rename(&at, env.set().join("Pong (USA).a26")).unwrap();
+
+    env.audit(AuditEvidence::Incremental);
+
+    assert!(env.store.placed_files(SET).unwrap().is_empty());
+}
