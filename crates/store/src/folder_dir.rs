@@ -21,6 +21,10 @@ pub(super) struct FolderDir {
     path: PathBuf,
     /// Whether it is the folder's [`STATE`] directory or a folder in it: one Stage Select keeps its own things in.
     own: bool,
+    /// Where it is the folder's [`STATE`] directory, or in it, and that was found open to others and not yet closed,
+    /// as it is until the folder's marker shows it is this store's ([`FolderDir::close_state`]): what a write in it
+    /// is refused with.
+    exposed: Option<String>,
 }
 
 const DIR_FLAGS: OFlags = OFlags::RDONLY
@@ -209,11 +213,13 @@ impl Needs {
 /// The owners and groups a test says entries have in place of the ones their filesystems record, by identity: an
 /// owner other than the test's own user, or a group it isn't in, which an unprivileged test can't otherwise arrange.
 /// Process-wide, as directories are opened with no store at hand; keyed by identity, so each test's entries are its
-/// own.
+/// own. Built only with the `test-seams` feature, which only the store's own tests enable.
+#[cfg(feature = "test-seams")]
 static PRETENDED_OWNERS: std::sync::Mutex<Vec<(Identity, (u32, u32))>> =
     std::sync::Mutex::new(Vec::new());
 
 /// Makes the entry `id` read as owned by the user and group `owner`, or, with `None`, by whoever its filesystem says.
+#[cfg(feature = "test-seams")]
 pub(super) fn pretend_owner(id: Identity, owner: Option<(u32, u32)>) {
     let mut owners = PRETENDED_OWNERS.lock().unwrap_or_else(|e| e.into_inner());
     owners.retain(|(of, _)| *of != id);
@@ -224,13 +230,19 @@ pub(super) fn pretend_owner(id: Identity, owner: Option<(u32, u32)>) {
 
 /// The user and group that own the entry `st` describes: its filesystem's answer, or what a test said.
 fn owner_of(st: &Stat) -> (u32, u32) {
-    let id = Identity::of(st);
-    PRETENDED_OWNERS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .find(|(of, _)| *of == id)
-        .map_or((st.st_uid, st.st_gid), |(_, owner)| *owner)
+    #[cfg(feature = "test-seams")]
+    {
+        let id = Identity::of(st);
+        if let Some((_, owner)) = PRETENDED_OWNERS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|(of, _)| *of == id)
+        {
+            return *owner;
+        }
+    }
+    (st.st_uid, st.st_gid)
 }
 
 /// What Stage Select changed of the permissions of its own entries, by the entry's path, in sentences, until the
@@ -254,61 +266,174 @@ fn quoted(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
 }
 
-/// Whether Stage Select may keep its own things in the entry at `path`, described by `st` and open as `fd` where it
-/// could be opened: whether it can use it as `needs` says and others, beyond its owner and group, have no access to
-/// it (ADR 0031). Group bits and setgid are allowed, whoever owns it. Where Stage Select owns it, can use it and
-/// others have access, that access is removed through `fd`, its other bits kept, and [`take_repaired`] says so. Otherwise returns what is wrong, what is expected and the
-/// command to run on the Host. What the owner and group classes allow is read from the mode alone: an access control
-/// list granting more is not looked for.
+/// What Stage Select could open of an entry it checks with [`closed_to_others`].
+#[derive(Clone, Copy)]
+pub(super) enum Opened<'a> {
+    /// The folder, open for reading.
+    Folder(std::os::fd::BorrowedFd<'a>),
+    /// The file, open for reading and writing.
+    File(std::os::fd::BorrowedFd<'a>),
+    /// Nothing: opening it was refused.
+    Not,
+}
+
+impl Opened<'_> {
+    /// Whether the kernel lets Stage Select use the entry as `needs` says, whatever grants or denies it: its mode,
+    /// an access control list, or the mount.
+    fn kernel_allows(self) -> bool {
+        match self {
+            Opened::Folder(fd) => {
+                use rustix::fs::Access;
+                rustix::fs::accessat(
+                    fd,
+                    ".",
+                    Access::READ_OK | Access::WRITE_OK | Access::EXEC_OK,
+                    AtFlags::EACCESS,
+                )
+                .is_ok()
+            }
+            // Opened for reading and writing, so it is allowed.
+            Opened::File(_) => true,
+            Opened::Not => false,
+        }
+    }
+}
+
+/// Whether [`closed_to_others`] may remove others' access to an entry Stage Select owns: only once the entry is known
+/// to be this store's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Repair {
+    Allowed,
+    Deferred,
+}
+
+/// How [`closed_to_others`] found an entry Stage Select may use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Standing {
+    /// No one beyond its owner and group has access to it.
+    Closed,
+    /// Others have access to it, and Stage Select, which owns it, would remove that access once the entry is known to
+    /// be this store's ([`Repair::Deferred`]). Until then nothing is written in it: this is what a write is refused
+    /// with.
+    Exposed(String),
+}
+
+/// The sentence a repair is reported by: the permissions before, and the ones read back after, saying so if the
+/// filesystem kept setgid off.
+pub(super) fn repair_note(path: &Path, was: u32, asked: u32, now: u32) -> String {
+    let mut note = format!(
+        "Others had access to {} (its permissions were {was:o}), so Stage Select removed their access: its \
+         permissions are now {now:o}.",
+        path.display()
+    );
+    if asked & 0o2000 != 0 && now & 0o2000 == 0 {
+        note.push_str(
+            " The filesystem cleared its setgid bit, so new entries in it no longer take its group; set it again \
+             with chmod g+s if you need that.",
+        );
+    }
+    note
+}
+
+/// Whether Stage Select may keep its own things in the entry at `path`, described by `st` and open as `opened`
+/// says: whether it can use it as `needs` says and others, beyond its owner and group, have no access to it (ADR
+/// 0031). Group bits and setgid are allowed, whoever owns it. Where Stage Select owns it, can use it and others have
+/// access, that access is removed through the open descriptor under [`Repair::Allowed`], its other bits kept, and
+/// [`take_repaired`] says so with the permissions read back; under [`Repair::Deferred`] it is left and
+/// [`Standing::Exposed`] returned. Otherwise returns what is wrong, what is expected and the command to run.
+///
+/// Whether Stage Select can use it is the kernel's answer, through the descriptor, as well as the mode's for the
+/// class that applies to it: an access control list or a mount that keeps it out is refused, though no command
+/// fixes it. Whether others have access is read from the mode's "other" bits alone: an access control list entry
+/// granting another user access is not looked for.
 // `st_mode` is a `u16` on macOS and a `u32` on Linux.
 #[allow(clippy::unnecessary_cast)]
 pub(super) fn closed_to_others(
-    fd: Option<std::os::fd::BorrowedFd>,
+    opened: Opened,
     st: &Stat,
     path: &Path,
     needs: Needs,
-) -> std::result::Result<(), String> {
+    repair: Repair,
+) -> std::result::Result<Standing, String> {
     let mode = st.st_mode as u32 & 0o7777;
     let (owner, gid) = owner_of(st);
     let uid = rustix::process::geteuid().as_raw();
     let in_group = rustix::process::getegid().as_raw() == gid
         || rustix::process::getgroups()
             .is_ok_and(|groups| groups.iter().any(|g| g.as_raw() == gid));
-    let (want, class) = needs.bits();
+    let (want, _) = needs.bits();
     let ours = owner == uid;
     // Only the class that applies to Stage Select counts: the owner's if it is the owner, else the group's.
-    let usable = uid == 0
+    let mode_allows = uid == 0
         || if ours {
             (mode >> 6) & want == want
         } else {
             in_group && (mode >> 3) & want == want
         };
+    let kernel_allows = opened.kernel_allows();
+    let usable = mode_allows && kernel_allows;
     let open = mode & 0o007 != 0;
     if usable && !open {
-        return Ok(());
+        return Ok(Standing::Closed);
     }
-    if usable
-        && ours
-        && let Some(fd) = fd
-    {
+    let refusal = || {
+        refusal(
+            path,
+            mode,
+            (owner, gid, uid),
+            needs,
+            (ours, in_group),
+            (mode_allows, kernel_allows),
+        )
+    };
+    if usable && ours {
+        let fd = match opened {
+            Opened::Folder(fd) | Opened::File(fd) => fd,
+            Opened::Not => return Err(refusal()),
+        };
+        if repair == Repair::Deferred {
+            return Ok(Standing::Exposed(refusal()));
+        }
         let closed = mode & !0o007;
         // Where the change fails, as on a read-only mount, it is refused with the command that fixes it.
-        if rustix::fs::fchmod(fd, Mode::from_raw_mode(closed as _)).is_ok() {
-            REPAIRED.lock().unwrap_or_else(|e| e.into_inner()).push((
-                path.to_path_buf(),
-                format!(
-                    "Others had access to {} (its permissions were {mode:o}), so Stage Select removed their \
-                     access: its permissions are now {closed:o}.",
-                    path.display()
-                ),
-            ));
-            return Ok(());
+        if rustix::fs::fchmod(fd, Mode::from_raw_mode(closed as _)).is_ok()
+            && let Ok(after) = rustix::fs::fstat(fd)
+        {
+            let now = after.st_mode as u32 & 0o7777;
+            if now & 0o007 == 0 {
+                REPAIRED
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push((path.to_path_buf(), repair_note(path, mode, closed, now)));
+                return Ok(Standing::Closed);
+            }
         }
     }
+    Err(refusal())
+}
+
+/// What [`closed_to_others`] refuses an entry with: what is wrong, what is expected, and the command that fixes it.
+/// `ids` are its owner, its group and Stage Select's user; `standing` whether Stage Select owns it and is in its
+/// group; `allows` whether its mode and the kernel let Stage Select use it.
+fn refusal(
+    path: &Path,
+    mode: u32,
+    (owner, gid, uid): (u32, u32, u32),
+    needs: Needs,
+    (ours, in_group): (bool, bool),
+    (mode_allows, kernel_allows): (bool, bool),
+) -> String {
+    let (want, class) = needs.bits();
+    let usable = mode_allows && kernel_allows;
+    let open = mode & 0o007 != 0;
     let kind = needs.noun();
     let mut wrong = Vec::new();
     if !usable {
-        wrong.push("Stage Select can't read and write it".to_owned());
+        wrong.push(if mode_allows {
+            "Stage Select can't read and write it, though its permissions allow that".to_owned()
+        } else {
+            "Stage Select can't read and write it".to_owned()
+        });
     }
     if open {
         wrong.push("others have access to it".to_owned());
@@ -316,14 +441,14 @@ pub(super) fn closed_to_others(
     let at = quoted(path);
     let (command, who) = if usable || ours || in_group {
         let mut changes = Vec::new();
-        if !usable {
+        if !mode_allows {
             changes.push(format!("{}+{class}", if ours { 'u' } else { 'g' }));
         }
         if open {
             changes.push("o-rwx".to_owned());
         }
         (
-            format!("chmod {} {at}", changes.join(",")),
+            (!changes.is_empty()).then(|| format!("chmod {} {at}", changes.join(","))),
             "its owner or as root",
         )
     } else {
@@ -336,21 +461,37 @@ pub(super) fn closed_to_others(
         }
         let chown = format!("chown {uid} {at}");
         (
-            if changes.is_empty() {
+            Some(if changes.is_empty() {
                 chown
             } else {
                 format!("{chown} && chmod {} {at}", changes.join(","))
-            },
+            }),
             "root",
         )
     };
-    Err(format!(
+    let what = format!(
         "{} can't be used: {} (it is owned by uid {owner} and group {gid}, with permissions {mode:o}). Stage \
          Select keeps its own things in this {kind}, so it needs to read and write it, and no one beyond its owner \
-         and group may have access to it. To fix it, run this on the host as {who}, then try again: {command}",
+         and group may have access to it.",
         path.display(),
         wrong.join(" and "),
-    ))
+    );
+    let after = if !usable && mode_allows {
+        // The mode allows it, so what keeps Stage Select out is an access control list or the mount, which no chmod
+        // changes.
+        " An access control list or the mount keeps Stage Select out."
+    } else {
+        ""
+    };
+    match command {
+        Some(command) => format!(
+            "{what}{after} To fix it, run this on the host as {who}, then try again (the path is as Stage Select sees \
+             it: if Stage Select runs in a container, use the host folder mounted there): {command}"
+        ),
+        None => format!(
+            "{what}{after} To fix it, let Stage Select read and write it on the host, as {who}, then try again."
+        ),
+    }
 }
 
 impl FolderDir {
@@ -367,6 +508,7 @@ impl FolderDir {
             fd,
             path: root.to_path_buf(),
             own: false,
+            exposed: None,
         };
         if !rel.is_empty() {
             for part in rel.split('/') {
@@ -409,9 +551,15 @@ impl FolderDir {
                 rustix::io::Errno::ACCESS if own => {
                     match rustix::fs::statat(&holder.fd, leaf, AtFlags::SYMLINK_NOFOLLOW) {
                         Ok(st) if FolderDir::kind(&st) == FileType::Directory => {
-                            match closed_to_others(None, &st, &self.at(name), Needs::Folder) {
+                            match closed_to_others(
+                                Opened::Not,
+                                &st,
+                                &self.at(name),
+                                Needs::Folder,
+                                Repair::Deferred,
+                            ) {
                                 Err(why) => io::Error::new(io::ErrorKind::PermissionDenied, why),
-                                Ok(()) => self.error(name, e),
+                                Ok(_) => self.error(name, e),
                             }
                         }
                         _ => self.error(name, e),
@@ -420,15 +568,88 @@ impl FolderDir {
                 e => self.error(name, e),
             }
         })?;
-        let found = FolderDir {
+        let mut found = FolderDir {
             fd,
             path: self.at(name),
             own,
+            exposed: holder.exposed.clone(),
         };
-        if state && let Err(why) = found.closed(false)? {
-            return Err(self.unusable_state(why));
+        if state {
+            // Others' access is not removed here: this may be another store's folder, as a backup of one is, until its
+            // marker shows it is this store's.
+            match found.standing(Repair::Deferred)? {
+                Ok(Standing::Closed) => {}
+                Ok(Standing::Exposed(why)) => found.exposed = Some(why),
+                Err(why) => return Err(self.unusable_state(why)),
+            }
         }
         Ok(found)
+    }
+
+    /// Closes the folder's [`STATE`] directory to others, where Stage Select owns it and others have access, once
+    /// its marker, read through the descriptor the change is made through, names the store `store`; a folder whose
+    /// marker names another store, or has none, is left as it is. Returns why it could not be closed.
+    pub fn close_state(&self, store: &str) -> std::result::Result<(), String> {
+        #[derive(serde::Deserialize)]
+        struct Of {
+            store: String,
+        }
+        let Ok(fd) = rustix::fs::openat(&self.fd, STATE, DIR_FLAGS, Mode::empty()) else {
+            return Ok(());
+        };
+        let marker = stage_select_api::build::MARKER
+            .strip_prefix(&format!("{STATE}/"))
+            .unwrap_or_default();
+        let ours = rustix::fs::openat(
+            &fd,
+            marker,
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .ok()
+        .and_then(|file| {
+            let mut bytes = Vec::new();
+            File::from(file)
+                .take(64 << 10)
+                .read_to_end(&mut bytes)
+                .ok()?;
+            serde_json::from_slice::<Of>(&bytes).ok()
+        })
+        .is_some_and(|of| of.store == store);
+        if !ours {
+            return Ok(());
+        }
+        let st = rustix::fs::fstat(&fd).map_err(|e| e.to_string())?;
+        if FolderDir::kind(&st) != FileType::Directory {
+            return Ok(());
+        }
+        closed_to_others(
+            Opened::Folder(fd.as_fd()),
+            &st,
+            &self.at(STATE),
+            Needs::Folder,
+            Repair::Allowed,
+        )
+        .map(|_| ())
+    }
+
+    /// What a change in the folder's [`STATE`] directory is refused with while it is open to others and not yet
+    /// closed; `None` when it is closed, or absent.
+    pub fn state_exposed(&self) -> io::Result<Option<String>> {
+        match self.sub(STATE) {
+            Ok(state) => Ok(state.exposed),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Refuses a change in the directory `holder`, the one this directory's path resolves through, while it is the
+    /// folder's [`STATE`] directory, or in it, open to others and not yet closed.
+    fn writable(holder: &FolderDir) -> io::Result<()> {
+        match &holder.exposed {
+            Some(why) => Err(io::Error::new(io::ErrorKind::PermissionDenied, why.clone())),
+            None => Ok(()),
+        }
     }
 
     /// Why the folder's [`STATE`] directory, found as `why` says, is never used: it is not a directory at all.
@@ -448,12 +669,14 @@ impl FolderDir {
     /// Creates the directory `name`, failing if anything is there.
     pub fn mkdir(&self, name: &str) -> io::Result<()> {
         let name = component(name)?;
+        FolderDir::writable(self)?;
         rustix::fs::mkdirat(&self.fd, name, dir_mode()).map_err(|e| self.error(name, e))
     }
 
     /// Creates the directory `name` for this service's user only, failing if anything is there.
     pub fn mkdir_private(&self, name: &str) -> io::Result<()> {
         let name = component(name)?;
+        FolderDir::writable(self)?;
         rustix::fs::mkdirat(&self.fd, name, Mode::RWXU).map_err(|e| self.error(name, e))
     }
 
@@ -466,17 +689,31 @@ impl FolderDir {
     /// it is not defended against. What this rejects is a directory anyone else could change, or one Stage Select
     /// can't use; [`Unusable::Access`] says how to fix it on the Host.
     pub fn closed(&self, empty: bool) -> io::Result<std::result::Result<Identity, Unusable>> {
-        let st = rustix::fs::fstat(&self.fd).map_err(|e| with_path(&self.path, e.into()))?;
-        if FolderDir::kind(&st) != FileType::Directory {
-            return Ok(Err(Unusable::Kind("it is not a directory".into())));
-        }
-        if let Err(why) = closed_to_others(Some(self.fd.as_fd()), &st, &self.path, Needs::Folder) {
-            return Ok(Err(Unusable::Access(why)));
+        match self.standing(Repair::Allowed)? {
+            Ok(_) => {}
+            Err(why) => return Ok(Err(why)),
         }
         if empty && !self.entries()?.is_empty() {
             return Ok(Err(Unusable::Kind("it is not empty".into())));
         }
-        Ok(Ok(Identity::of(&st)))
+        self.identity().map(Ok)
+    }
+
+    /// Whether this is a directory Stage Select may keep its own things in, as [`closed_to_others`] finds under
+    /// `repair`.
+    fn standing(&self, repair: Repair) -> io::Result<std::result::Result<Standing, Unusable>> {
+        let st = rustix::fs::fstat(&self.fd).map_err(|e| with_path(&self.path, e.into()))?;
+        if FolderDir::kind(&st) != FileType::Directory {
+            return Ok(Err(Unusable::Kind("it is not a directory".into())));
+        }
+        Ok(closed_to_others(
+            Opened::Folder(self.fd.as_fd()),
+            &st,
+            &self.path,
+            Needs::Folder,
+            repair,
+        )
+        .map_err(Unusable::Access))
     }
 
     /// This same open directory, on a descriptor of its own.
@@ -485,6 +722,7 @@ impl FolderDir {
             fd: self.fd.try_clone()?,
             path: self.path.clone(),
             own: self.own,
+            exposed: self.exposed.clone(),
         })
     }
 
@@ -496,6 +734,7 @@ impl FolderDir {
     /// Creates the new file `name` for reading and writing, failing if anything, a symlink included, is there.
     pub fn create_new(&self, name: &str) -> io::Result<File> {
         let (parent, leaf) = self.resolve(name)?;
+        FolderDir::writable(parent.as_ref().unwrap_or(self))?;
         let flags =
             OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
         let fd = rustix::fs::openat(
@@ -511,6 +750,7 @@ impl FolderDir {
     /// Opens the regular file `name` for reading and writing, refusing a symlink or anything else.
     pub fn open_write(&self, name: &str) -> io::Result<File> {
         let (parent, leaf) = self.resolve(name)?;
+        FolderDir::writable(parent.as_ref().unwrap_or(self))?;
         let flags = OFlags::RDWR | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
         let fd = rustix::fs::openat(
             &parent.as_ref().unwrap_or(self).fd,
@@ -590,6 +830,8 @@ impl FolderDir {
     pub fn rename_new(&self, from: &str, dest: &FolderDir, to: &str) -> io::Result<()> {
         let (from_parent, from_leaf) = self.resolve(from)?;
         let (to_parent, to_leaf) = dest.resolve(to)?;
+        FolderDir::writable(from_parent.as_ref().unwrap_or(self))?;
+        FolderDir::writable(to_parent.as_ref().unwrap_or(dest))?;
         match rustix::fs::renameat_with(
             &from_parent.as_ref().unwrap_or(self).fd,
             from_leaf,
@@ -622,6 +864,8 @@ impl FolderDir {
     pub fn replace(&self, from: &str, to: &str) -> io::Result<()> {
         let (from_parent, from_leaf) = self.resolve(from)?;
         let (to_parent, to_leaf) = self.resolve(to)?;
+        FolderDir::writable(from_parent.as_ref().unwrap_or(self))?;
+        FolderDir::writable(to_parent.as_ref().unwrap_or(self))?;
         rustix::fs::renameat(
             &from_parent.as_ref().unwrap_or(self).fd,
             from_leaf,
@@ -634,6 +878,7 @@ impl FolderDir {
     /// Removes the file or symlink `name`; a symlink's target is never touched.
     pub fn unlink(&self, name: &str) -> io::Result<()> {
         let (parent, leaf) = self.resolve(name)?;
+        FolderDir::writable(parent.as_ref().unwrap_or(self))?;
         rustix::fs::unlinkat(&parent.as_ref().unwrap_or(self).fd, leaf, AtFlags::empty())
             .map_err(|e| self.error(name, e))
     }
@@ -641,6 +886,7 @@ impl FolderDir {
     /// Removes the empty directory `name`.
     pub fn rmdir(&self, name: &str) -> io::Result<()> {
         let (parent, leaf) = self.resolve(name)?;
+        FolderDir::writable(parent.as_ref().unwrap_or(self))?;
         rustix::fs::unlinkat(
             &parent.as_ref().unwrap_or(self).fd,
             leaf,

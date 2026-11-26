@@ -99,7 +99,7 @@ fn check_set_marker(
 ) -> std::result::Result<(), String> {
     let path = dir.path().display();
     match read_set_marker(dir) {
-        MarkerFound::Present(marker) if marker == *expected => Ok(()),
+        MarkerFound::Present(marker) if marker == *expected => dir.close_state(&expected.store),
         MarkerFound::Absent if rule == MarkerRule::Creating => Ok(()),
         MarkerFound::Present(marker) if marker.store != expected.store => Err(format!(
             "{path}: its .stage-select marker is from another store; is this the right folder, or the right mount? \
@@ -925,6 +925,15 @@ impl Store {
         let dat = Dat::read(&self.blob_path(&report.dat_revision.sha256))
             .map_err(|e| Error::Io(e.to_string()))?;
         let dir = FolderDir::open(&root.path, &record.path).map_err(io_err)?;
+        // Others' access to its own folder is removed only once its marker shows it is this store's Source Set. One
+        // that can't be removed is refused, with how to fix it, when the plan is approved.
+        let expected = SourceSetMarker {
+            store: self.read(store_id)?,
+            source_set: set.id,
+        };
+        if matches!(read_set_marker(&dir), MarkerFound::Present(marker) if marker == expected) {
+            let _ = dir.close_state(&expected.store);
+        }
         let folder = dir.identity().map_err(io_err)?;
         let reported: HashSet<&str> = report.entries.iter().map(|e| e.path.as_str()).collect();
         // The files the Audit read are as good a guess as any of how many there are now.
@@ -1978,12 +1987,41 @@ impl Store {
                  folder, then plan the repair again. Nothing in it was changed"
             )))
         };
+        let at = dir.path().join(MARKER_NEW);
+        // Why the marker temp, `st` as found, could not be opened to write with `e`, where its permissions or its
+        // folder's keep Stage Select out: what is wrong and how to fix it, the temp left pending so that once you fix
+        // it the next repair takes it up again. `None` for anything else.
+        let denied = |e: &io::Error, st: Option<rustix::fs::Stat>| -> Option<String> {
+            if e.kind() != io::ErrorKind::PermissionDenied {
+                return None;
+            }
+            if let Ok(Some(why)) = dir.state_exposed() {
+                return Some(why);
+            }
+            let st = st.filter(|st| FolderDir::kind(st) == FileType::RegularFile)?;
+            crate::folder_dir::closed_to_others(
+                crate::folder_dir::Opened::Not,
+                &st,
+                &at,
+                crate::folder_dir::Needs::File,
+                crate::folder_dir::Repair::Deferred,
+            )
+            .err()
+        };
         // Opened once: checked, written and published through the one descriptor, held throughout, so nothing put in
         // its place, even with the inode number it freed, is ever written to.
         let mut file = match (stat(MARKER_NEW)?, recorded) {
-            (Some(_), Some(id)) => {
-                let Ok(mut file) = dir.open_write(MARKER_NEW) else {
-                    return not_it(self);
+            (Some(found), Some(id)) => {
+                let mut file = match dir.open_write(MARKER_NEW) {
+                    Ok(file) => file,
+                    Err(e) => {
+                        if is_file(&found, id)
+                            && let Some(why) = denied(&e, Some(found))
+                        {
+                            return Ok(Err(why));
+                        }
+                        return not_it(self);
+                    }
                 };
                 let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
                 let mut held = Vec::new();
@@ -2000,37 +2038,26 @@ impl Store {
                 }
                 file
             }
-            (Some(_), None) if pending => {
+            (Some(found), None) if pending => {
                 // Whoever owns it, as for Stage Select's own folders (ADR 0031). What it can't fix is left pending,
                 // so that once the Operator fixes it the next repair takes it up again.
-                let at = dir.path().join(MARKER_NEW);
                 let file = match dir.open_write(MARKER_NEW) {
                     Ok(file) => file,
-                    Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-                        if let Some(st) = stat(MARKER_NEW)?
-                            && FolderDir::kind(&st) == rustix::fs::FileType::RegularFile
-                            && let Err(why) = crate::folder_dir::closed_to_others(
-                                None,
-                                &st,
-                                &at,
-                                crate::folder_dir::Needs::File,
-                            )
-                        {
-                            return Ok(Err(why));
-                        }
-                        return not_it(self);
-                    }
-                    Err(_) => return not_it(self),
+                    Err(e) => match denied(&e, Some(found)) {
+                        Some(why) => return Ok(Err(why)),
+                        None => return not_it(self),
+                    },
                 };
                 let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
                 if !(st.st_size == 0 && st.st_nlink == 1) {
                     return not_it(self);
                 }
                 if let Err(why) = crate::folder_dir::closed_to_others(
-                    Some(std::os::fd::AsFd::as_fd(&file)),
+                    crate::folder_dir::Opened::File(std::os::fd::AsFd::as_fd(&file)),
                     &st,
                     &at,
                     crate::folder_dir::Needs::File,
+                    crate::folder_dir::Repair::Allowed,
                 ) {
                     return Ok(Err(why));
                 }

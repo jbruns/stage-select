@@ -2595,6 +2595,23 @@ pub(crate) fn owned_by_another(path: &Path, outside: bool) {
     stage_select_store::pretend_owner(path, Some((st.uid() + 1, gid))).unwrap();
 }
 
+/// Runs the command a refusal of `path` ends with, as you would on the host. A `chown` to the test's own user, which
+/// owns it already, changes nothing, so the user the test pretended owns it is forgotten, as a real `chown` makes it.
+pub(crate) fn run_fix(message: &str, path: &Path) {
+    let (_, command) = message
+        .rsplit_once("mounted there): ")
+        .unwrap_or_else(|| panic!("no command in {message}"));
+    let ran = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .status()
+        .unwrap();
+    assert!(ran.success(), "{command}: {ran}");
+    if command.starts_with("chown ") {
+        stage_select_store::pretend_owner(path, None).unwrap();
+    }
+}
+
 /// The permission bits of `path`, setgid included.
 pub(crate) fn mode_of(path: &Path) -> u32 {
     use std::os::unix::fs::PermissionsExt;
@@ -2695,6 +2712,35 @@ fn a_stage_select_folder_open_to_others_that_stage_select_owns_is_closed_and_the
 
 #[cfg(unix)]
 #[test]
+fn a_stage_select_folder_open_to_others_holding_another_stores_marker_is_left_as_it_is() {
+    let env = Env::new();
+    let (_, plan) = built_then_changed(&env, |state| {
+        // A backup of another store's folder: its marker names that store.
+        let marker = state.join("marker");
+        let mut json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&marker).unwrap()).unwrap();
+        json["store"] = "another store".into();
+        std::fs::write(&marker, serde_json::to_vec(&json).unwrap()).unwrap();
+        set_mode(state, 0o777);
+    });
+    let state = env.play().join("atari2600/.stage-select");
+
+    assert_eq!(blockers(&plan), BTreeSet::from([BlockerKind::Marker]));
+    assert!(
+        plan.content.blockers[0].message.contains("another store"),
+        "{:?}",
+        plan.content.blockers
+    );
+    assert_eq!(mode_of(&state), 0o777, "left as it is");
+    assert!(
+        plan.content.repaired.is_empty(),
+        "{:?}",
+        plan.content.repaired
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn a_stage_select_folder_stage_select_cannot_fix_is_refused_with_the_command_that_fixes_it() {
     // What is wrong, how the folder is left so, the command, and who runs it.
     type Case = (&'static str, fn(&Path), &'static str, &'static str);
@@ -2768,7 +2814,8 @@ fn a_stage_select_folder_stage_select_cannot_fix_is_refused_with_the_command_tha
         let command = command.replace("UID", &uid.to_string());
         assert!(
             message.ends_with(&format!(
-                "as {who}, then try again: {command} '{}'",
+                "on the host as {who}, then try again (the path is as Stage Select sees it: if Stage Select runs in \
+                 a container, use the host folder mounted there): {command} '{}'",
                 state.display()
             )),
             "{message}"
@@ -2776,9 +2823,8 @@ fn a_stage_select_folder_stage_select_cannot_fix_is_refused_with_the_command_tha
         assert!(!message.contains("Move it"), "{message}");
         assert_eq!(mode_of(&state), mode, "{wrong}: left as it is");
 
-        // You run the command, and the next plan runs with nothing left to clear.
-        stage_select_store::pretend_owner(&state, None).unwrap();
-        set_mode(&state, 0o700);
+        // You run the command the message names, and the next plan runs with nothing left to clear.
+        run_fix(message, &state);
         let plan = env.plan(&folder, plan.content.selection);
         assert!(plan.approvable(), "{wrong}: {:?}", plan.content.blockers);
         assert_eq!(env.build(&plan).state, JobState::Succeeded, "{wrong}");
@@ -5432,6 +5478,44 @@ fn a_file_put_in_place_is_recorded_only_once_recovery_makes_its_rename_durable()
         assert_eq!(item.state, ItemState::Applied, "{repacking}: {item:?}");
         validate(&env.play().join("atari2600").join(target));
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_staging_folder_stage_select_cannot_open_once_made_needs_nothing_cleared_after_the_fix() {
+    let env = Env::new();
+    env.audit();
+    let id = titles(&env, &["Pong (USA)"]);
+    let folder = env.folder("atari2600");
+    let dir = env.play().join("atari2600");
+    // Made as a mount that forces its own permissions makes it: Stage Select can't even open it.
+    let at = dir.clone();
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::MadeStaging {
+                for temp in temp_names(&at, "staging") {
+                    set_mode(&at.join(temp), 0o000);
+                }
+            }
+        })));
+    let plan = env.plan(&folder, id);
+    let failed = env.build(&plan);
+    env.store.hook_faults(None);
+    assert_eq!(failed.state, JobState::Failed);
+    let temps = temp_names(&dir, "staging");
+    assert_eq!(temps.len(), 1, "{temps:?}");
+    let temp = dir.join(&temps[0]);
+    let message = failed.error.unwrap();
+    assert!(
+        message.contains(&format!("{} can't be used", temp.display())),
+        "{message}"
+    );
+
+    run_fix(&message, &temp);
+
+    let plan = env.plan(&folder, id);
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
 }
 
 #[test]

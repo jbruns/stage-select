@@ -678,7 +678,8 @@ pub(super) fn marker_problem(
             marker.folder
         )),
         MarkerState::Present(marker) => match marker.generation.cmp(&generation) {
-            Ordering::Equal => None,
+            // Shown to be this store's folder: only now is others' access to its own folder removed.
+            Ordering::Equal => dir.close_state(store).err(),
             Ordering::Greater => Some(format!(
                 "its marker is at build generation {}, newer than the store's {generation}; was the store restored \
                  from a backup?",
@@ -696,7 +697,7 @@ pub(super) fn marker_problem(
 /// Checks, through `dir`, that the folder's marker is exactly `expected`; the error says what it is instead.
 pub(super) fn check_marker(dir: &FolderDir, expected: &Marker) -> std::result::Result<(), String> {
     match read_marker(dir) {
-        MarkerState::Present(marker) if marker == *expected => Ok(()),
+        MarkerState::Present(marker) if marker == *expected => dir.close_state(&expected.store),
         MarkerState::Present(marker) => Err(format!(
             "{}: the marker is for store {}, library folder {}, generation {}, where this build expected store {}, \
              library folder {}, generation {}; the folder was left as it is",

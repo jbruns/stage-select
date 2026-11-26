@@ -234,6 +234,17 @@ pub(super) fn create_dir(
     });
     let made = match parent.sub(&temp) {
         Ok(made) => made,
+        // The folder just made, which Stage Select can't even open as it came out: recorded as this store's leftover,
+        // by the identity found at its unique name, so that once you fix it nothing is left to clear.
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+            if let Ok(Some(st)) = parent.stat(&temp)
+                && is_dir(&st)
+            {
+                record_leftover(store, folder, &temp_key, Identity::of(&st))?;
+            }
+            forget_name(store, folder, &temp_key)?;
+            return Ok(Err(e.to_string()));
+        }
         Err(e) => return not_made(e.to_string()),
     };
     let id = match made.closed(true) {
@@ -425,6 +436,11 @@ fn own_dir(
                 Ok(dir) => dir,
                 Err(e) => return Ok(Err(e.to_string())),
             };
+            // What was opened, not what was found at the name before, must be the folder recorded before anything
+            // about it is changed: something put in its place since is never repaired.
+            if dir.identity().ok() != recorded {
+                return Ok(Err(not_ours(parent, name)));
+            }
             match dir.closed(false) {
                 Ok(Ok(id)) if Some(id) == recorded => Ok(Ok(Some(dir))),
                 Ok(Ok(_)) => Ok(Err(not_ours(parent, name))),

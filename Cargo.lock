@@ -2570,6 +2570,7 @@ dependencies = [
  "stage-select-api",
  "stage-select-engine",
  "stage-select-selection",
+ "stage-select-store",
  "stage-select-test-fixtures",
  "tempfile",
  "thiserror 2.0.21",

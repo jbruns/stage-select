@@ -1342,7 +1342,7 @@ impl Store {
                 set.system
             )));
         }
-        Ok(Ok(dir))
+        Ok(dir.close_state(&expected.store).map(|()| dir))
     }
 
     /// Opens the folder of Additions Set `id`, which a build reads its Additions from.

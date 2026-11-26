@@ -180,7 +180,8 @@ pub struct Store {
 /// Makes the entry at `path` read, wherever Stage Select checks who owns one of its own entries, as owned by the user
 /// and group `owner`, or, with `None`, by whoever its filesystem says: an owner other than the test's own user, or a
 /// group it isn't in, which an unprivileged test can't otherwise arrange. It holds for every store in the process, by
-/// the entry's identity.
+/// the entry's identity. Only with the `test-seams` feature, which only the store's own tests enable.
+#[cfg(feature = "test-seams")]
 #[doc(hidden)]
 pub fn pretend_owner(path: &Path, owner: Option<(u32, u32)>) -> std::io::Result<()> {
     use std::os::unix::fs::MetadataExt;
