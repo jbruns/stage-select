@@ -260,6 +260,8 @@ fn quoted(path: &Path) -> String {
 /// others have access, that access is removed through `fd`, its other bits kept, and [`take_repaired`] says so. Otherwise returns what is wrong, what is expected and the
 /// command to run on the Host. What the owner and group classes allow is read from the mode alone: an access control
 /// list granting more is not looked for.
+// `st_mode` is a `u16` on macOS and a `u32` on Linux.
+#[allow(clippy::unnecessary_cast)]
 pub(super) fn closed_to_others(
     fd: Option<std::os::fd::BorrowedFd>,
     st: &Stat,
