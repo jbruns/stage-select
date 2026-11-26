@@ -17,7 +17,7 @@ use crate::parts::help::Help;
 use crate::parts::message::{Message, MessageKind, Problem, Said};
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::{ActionPending, Pending};
-use crate::permissions_model::PolicyDraft;
+use crate::permissions_model::{PolicyDraft, PolicyField};
 use crate::roots_model::{
     RootDraft, access, changeable_line, changeable_sets, kind_label, kind_note, voided_lines,
 };
@@ -460,6 +460,7 @@ enum PolicyRow {
 }
 
 impl PolicyRow {
+    /// What the row sets, as its fields' labels name it.
     fn name(&self) -> String {
         match self {
             PolicyRow::Every => "every root".into(),
@@ -476,6 +477,7 @@ struct PolicyDrafts {
 }
 
 impl PolicyDrafts {
+    /// The saved settings, as the form shows them.
     fn of(settings: &PermissionSettings) -> PolicyDrafts {
         PolicyDrafts {
             every: PolicyDraft::of(settings.global),
@@ -487,6 +489,7 @@ impl PolicyDrafts {
         }
     }
 
+    /// What `row` sets, as typed; empty when nothing is.
     fn get(&self, row: &PolicyRow) -> PolicyDraft {
         match row {
             PolicyRow::Every => self.every.clone(),
@@ -494,6 +497,7 @@ impl PolicyDrafts {
         }
     }
 
+    /// What `row` sets, to type into.
     fn get_mut(&mut self, row: &PolicyRow) -> &mut PolicyDraft {
         match row {
             PolicyRow::Every => &mut self.every,
@@ -552,13 +556,9 @@ fn PolicyForm(roots: Signal<Vec<Root>>) -> impl IntoView {
             ));
         });
     };
-    let field = move |row: PolicyRow, which: usize| {
+    let field = move |row: PolicyRow, which: PolicyField| {
         let row = StoredValue::new(row);
-        let (label, placeholder) = match which {
-            0 => ("file mode", "0660"),
-            1 => ("folder mode", "2770"),
-            _ => ("group", "none"),
-        };
+        let (label, placeholder) = (which.label(), which.placeholder());
         view! {
             <input
                 type="text"
@@ -566,24 +566,10 @@ fn PolicyForm(roots: Signal<Vec<Root>>) -> impl IntoView {
                 size="6"
                 aria-label=move || format!("{}: {label}", row.with_value(PolicyRow::name))
                 placeholder=placeholder
-                prop:value=move || {
-                    let d = draft.with(|d| d.get(&row.get_value()));
-                    match which {
-                        0 => d.file_mode,
-                        1 => d.folder_mode,
-                        _ => d.group,
-                    }
-                }
+                prop:value=move || draft.with(|d| which.of(&d.get(&row.get_value())).clone())
                 on:input=move |ev| {
                     let value = event_target_value(&ev);
-                    draft.update(|d| {
-                        let d = d.get_mut(&row.get_value());
-                        match which {
-                            0 => d.file_mode = value,
-                            1 => d.folder_mode = value,
-                            _ => d.group = value,
-                        }
-                    });
+                    draft.update(|d| *which.of_mut(d.get_mut(&row.get_value())) = value);
                 }
             />
         }
@@ -592,17 +578,14 @@ fn PolicyForm(roots: Signal<Vec<Root>>) -> impl IntoView {
         view! {
             <tr>
                 <th scope="row">{label}</th>
-                <td>{field(row.clone(), 0)}</td>
-                <td>{field(row.clone(), 1)}</td>
-                <td>{field(row, 2)}</td>
+                <td>{field(row.clone(), PolicyField::FileMode)}</td>
+                <td>{field(row.clone(), PolicyField::FolderMode)}</td>
+                <td>{field(row, PolicyField::Group)}</td>
             </tr>
         }
     };
     view! {
         <h2 id="permission-policy">"Permission policy"</h2>
-        <p>
-            "The mode and group you want for files and folders. Leave a root's empty to use every root's; leave              every root's empty to keep the host's defaults."
-        </p>
         <div class="table-scroll">
             <table aria-label="Permission policy">
                 <thead>
@@ -629,12 +612,12 @@ fn PolicyForm(roots: Signal<Vec<Root>>) -> impl IntoView {
             <button type="button" on:click=save>"Save the permission policy"</button>
         </div>
         <Said said />
-        <Help summary="What the permission policy does">
+        <Help summary="Leave a root's policy empty to use every root's, and every root's empty to keep the host's defaults.">
             <p>
-                "Stage Select gives every file and folder it writes your policy's mode, and its group when you give                  one by number, as id -g shows it. A folder mode such as 2770 includes setgid, so new files take the                  folder's group."
+                "Stage Select gives every file and folder it writes your policy's mode, and its group when you give one by number, as id -g shows it. A folder mode such as 2770 includes setgid, so new files take the folder's group."
             </p>
             <p>
-                "Each check of a source set or library folder compares what it sees with your policy, and its                  Permissions tab lists what differs. That never makes a source set stale or a library folder drift.                  Stage Select restores what it owns through a plan you approve, changes a group only to one it is                  in, and for the rest gives you the command to run on the host. A source set it may not change is                  only reported."
+                "Each check of a source set or library folder compares what it sees with your policy, and its Permissions tab lists what differs. That never makes a source set stale or a library folder drift. Stage Select restores what it owns through a plan you approve, changes a group only to one it is in, and for the rest gives you the command to run on the host. A source set it may not change is only reported."
             </p>
         </Help>
     }

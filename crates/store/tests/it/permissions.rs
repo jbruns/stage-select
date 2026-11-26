@@ -376,6 +376,36 @@ fn a_read_only_source_sets_differences_are_reported_and_never_planned() {
 }
 
 #[test]
+fn a_symlinked_file_is_never_compared_since_a_restore_never_follows_a_link() {
+    let env = Env::new();
+    let set = env.set("Alpha");
+    write_file(&set.join("Pong (USA).a26"), b"pong");
+    set_mode(&set.join("Pong (USA).a26"), 0o660);
+    let outside = env.tmp.path().join("outside.a26");
+    write_file(&outside, b"elsewhere");
+    set_mode(&outside, 0o644);
+    std::os::unix::fs::symlink(&outside, set.join("Linked (USA).a26")).unwrap();
+    env.audit("Alpha");
+    declare(&env.store);
+
+    let view = env.walk("Alpha");
+
+    let paths: Vec<_> = view
+        .report
+        .unwrap()
+        .differences
+        .into_iter()
+        .map(|d| d.path)
+        .collect();
+    assert!(!paths.contains(&"Linked (USA).a26".to_owned()), "{paths:?}");
+    assert_eq!(
+        stat(&outside).0,
+        0o644,
+        "what a link points at is never changed"
+    );
+}
+
+#[test]
 fn a_permissions_finding_never_makes_a_source_set_stale() {
     let env = Env::new();
     let set = env.set("Alpha");

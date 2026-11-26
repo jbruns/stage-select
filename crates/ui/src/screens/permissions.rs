@@ -1,6 +1,6 @@
 //! The permissions view, a source set's and a library folder's Permissions tab: what its latest check found of its
 //! files' permissions against your permission policy, apart from stale and drift. What Stage Select can restore is a
-//! plan you approve; what it can't comes with the command to run on the host.
+//! plan you approve, reviewed in the plan shape; what it can't comes with the command to run on the host.
 
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -9,21 +9,22 @@ use leptos::prelude::*;
 use leptos_router::components::A;
 use stage_select_api::Job;
 use stage_select_api::permissions::{
-    PermissionDifference, PermissionsApproval, PermissionsRestored, PermissionsView,
+    PermissionCause, PermissionDifference, PermissionsApproval, PermissionsRestored,
+    PermissionsView,
 };
 
 use crate::api;
 use crate::events::use_live;
 use crate::model::when;
-use crate::parts::help::Help;
-use crate::parts::list::{Column, List, ListRow, Width};
+use crate::parts::list::{Clip, Column, ListRow, Width};
 use crate::parts::message::{Live, Message, MessageKind, Said};
 use crate::parts::outcome::{Reports, ShowReports};
 use crate::parts::pending::Pending;
-use crate::parts::plan::{ApproveBar, Change};
+use crate::parts::plan::{self, ApproveBar, Change, PlanReview, PlanRow};
 use crate::parts::plan_model::Approval;
+use crate::parts::status::{ItemOutcome, Status, StatusBadge, StatusIcon};
 use crate::permissions_model::{
-    approve_label, cause_label, cause_reason, change, found_line, plan_line, policy_line,
+    LastRestore, approve_label, change, found_line, listed, plan_line, policy_line, restorable,
     restored_line,
 };
 
@@ -35,6 +36,7 @@ pub enum Place {
 }
 
 impl Place {
+    /// Its path in the API: the source set's or the library folder's.
     fn base(&self) -> String {
         match self {
             Place::SourceSet(name) => format!("/source-sets/{}", api::segment(name)),
@@ -54,58 +56,95 @@ impl Place {
 /// Where you set the permission policy.
 const POLICY: &str = "/settings/roots#permission-policy";
 
-/// A file or folder that differs from the policy.
+/// A file or folder that differs from the policy, with what the last restore did to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Row(PermissionDifference);
+struct Row {
+    difference: PermissionDifference,
+    /// `Some(true)` when the last restore failed for it, `Some(false)` when it restored it.
+    failed: Option<bool>,
+}
 
+/// The list's columns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Col {
+    Kind,
     Path,
     Change,
-    Who,
+    Outcome,
+}
+
+impl PlanRow for Row {
+    type Kind = PermissionCause;
+
+    fn kind(&self) -> PermissionCause {
+        self.difference.cause
+    }
+
+    fn outcome(&self) -> Option<ItemOutcome> {
+        self.failed.map(|failed| {
+            if failed {
+                ItemOutcome::Failed
+            } else {
+                ItemOutcome::Done
+            }
+        })
+    }
 }
 
 impl ListRow for Row {
     type Col = Col;
-    const COLUMNS: &'static [Col] = &[Col::Path, Col::Change, Col::Who];
+    const COLUMNS: &'static [Col] = &[Col::Kind, Col::Path, Col::Change, Col::Outcome];
 
     fn column(col: Col) -> Column {
         match col {
-            Col::Path => Column::new("path", "Path", Width::Flex { min: 12.0, share: 3 }).sortable(),
-            Col::Change => Column::new("change", "Now → your policy", Width::Flex { min: 14.0, share: 2 }),
-            Col::Who => Column::new("who", "Restored by", Width::Fixed(9.0))
+            Col::Kind => Column::new("kind", "Kind", Width::Fixed(3.5))
                 .sortable()
                 .hint("Who can give it your policy: Stage Select, through the plan, or you, on the host"),
+            Col::Path => Column::new("path", "Path", Width::Flex { min: 12.0, share: 3 }).sortable(),
+            Col::Change => Column::new("change", "Now → your policy", Width::Flex { min: 14.0, share: 2 }),
+            Col::Outcome => plan::outcome_column(),
         }
     }
 
     fn key(&self) -> String {
-        self.0.path.clone()
+        self.difference.path.clone()
     }
 
     fn title(&self) -> String {
-        shown_path(&self.0)
+        shown_path(&self.difference)
     }
 
     fn search(&self) -> String {
-        format!("{} {}", self.0.path, cause_label(self.0.cause))
+        format!(
+            "{} {}",
+            self.difference.path,
+            self.difference.cause.look().label
+        )
     }
 
     fn cell(&self, col: Col) -> AnyView {
         match col {
-            Col::Path => view! { <crate::parts::list::Clip text=shown_path(&self.0) /> }.into_any(),
+            Col::Kind => {
+                view! { <StatusIcon status=self.difference.cause tab_stop=false /> }.into_any()
+            }
+            Col::Path => view! { <Clip text=shown_path(&self.difference) /> }.into_any(),
             Col::Change => {
-                let (current, proposed) = change(&self.0);
+                let (current, proposed) = change(&self.difference);
                 view! { <Change current proposed /> }.into_any()
             }
-            Col::Who => cause_label(self.0.cause).into_any(),
+            Col::Outcome => plan::outcome_cell(self.outcome()),
         }
     }
 
     fn compare(&self, other: &Self, col: Col) -> Ordering {
         match col {
-            Col::Who => self.0.cause.cmp(&other.0.cause),
-            _ => self.0.path.cmp(&other.0.path),
+            Col::Kind => self
+                .difference
+                .cause
+                .rank()
+                .cmp(&other.difference.cause.rank()),
+            Col::Outcome => plan::compare_outcome(self.outcome(), other.outcome()),
+            Col::Path | Col::Change => self.difference.path.cmp(&other.difference.path),
         }
     }
 }
@@ -121,17 +160,20 @@ fn shown_path(d: &PermissionDifference) -> String {
     }
 }
 
+/// A row's detail: what it is now, what your policy gives it, and who can restore it.
 fn detail(row: Row) -> AnyView {
-    let d = row.0;
+    let d = row.difference;
     let (current, proposed) = change(&d);
     view! {
         <dl class="facts">
+            <dt>"Kind"</dt>
+            <dd><StatusBadge status=d.cause /></dd>
             <dt>"Now"</dt>
             <dd>{format!("{current}, owned by uid {}", d.uid)}</dd>
             <dt>"Your policy"</dt>
             <dd>{proposed}</dd>
         </dl>
-        <p>{cause_reason(d.cause)}</p>
+        <p>{d.cause.look().hint}</p>
     }
     .into_any()
 }
@@ -151,29 +193,35 @@ pub fn PermissionsTab(place: Place) -> impl IntoView {
     let reports = Reports::new();
     let said = RwSignal::new(None::<Result<String, String>>);
     let busy = RwSignal::new(false);
+    let last = RwSignal::new(None::<LastRestore>);
     let check = move |_| {
         reports.clear();
         said.set(None);
+        last.set(None);
         let path = place.get_value().check();
         leptos::task::spawn_local(async move {
             let started = api::post::<_, Job>(&path, &()).await;
             reports.started(started, "Couldn't check it");
         });
     };
-    let restore = Callback::new(move |digest: String| {
-        busy.set(true);
-        let path = format!("{}/permissions/restore", place.get_value().base());
-        leptos::task::spawn_local(async move {
-            let done =
-                api::post::<_, PermissionsRestored>(&path, &PermissionsApproval { digest }).await;
-            said.set(Some(match done {
-                Ok(restored) => Ok(restored_line(&restored)),
-                Err(problem) => Err(format!("Couldn't restore the permissions: {problem}")),
-            }));
-            busy.set(false);
-            refresh.update(|n| *n += 1);
-        });
-    });
+    let restore = Callback::new(
+        move |(digest, planned): (String, Vec<PermissionDifference>)| {
+            busy.set(true);
+            let path = format!("{}/permissions/restore", place.get_value().base());
+            leptos::task::spawn_local(async move {
+                let done =
+                    api::post::<_, PermissionsRestored>(&path, &PermissionsApproval { digest })
+                        .await;
+                said.set(Some(match &done {
+                    Ok(restored) => Ok(restored_line(restored)),
+                    Err(problem) => Err(format!("Couldn't restore the permissions: {problem}")),
+                }));
+                last.set(done.ok().map(|restored| LastRestore { planned, restored }));
+                busy.set(false);
+                refresh.update(|n| *n += 1);
+            });
+        },
+    );
     let problem = Signal::derive(move || found.get().and_then(Result::err));
     view! {
         <div class="actions">
@@ -183,25 +231,23 @@ pub fn PermissionsTab(place: Place) -> impl IntoView {
         <Said said />
         <Pending pending=Signal::derive(move || found.get().is_none()) status="Loading its permissions…" problem>
             {move || {
-                found.get().and_then(Result::ok).map(|found| shown(found, restore, busy))
+                found
+                    .get()
+                    .and_then(Result::ok)
+                    .map(|found| shown(found, last.get(), restore, busy))
             }}
         </Pending>
-        <Help summary="What your permission policy does">
-            <p>
-                "Your permission policy is the mode and group you want files and folders to have. Stage Select gives \
-                 it to everything it writes, and compares it with what each check sees. A difference never makes a \
-                 source set stale or a library folder drift, and never stops an audit or a build."
-            </p>
-            <p>
-                "Stage Select changes the mode only of files it owns, and the group only to one it is in. For the \
-                 rest it says what to run on the host. It never changes a source set it may not change."
-            </p>
-        </Help>
     }
 }
 
-/// What the check found, with the plan to restore and what to run on the host.
-fn shown(found: PermissionsView, restore: Callback<String>, busy: RwSignal<bool>) -> AnyView {
+/// What the check found, reviewed as the plan to restore what Stage Select can, with what to run on the host for
+/// the rest.
+fn shown(
+    found: PermissionsView,
+    last: Option<LastRestore>,
+    restore: Callback<(String, Vec<PermissionDifference>)>,
+    busy: RwSignal<bool>,
+) -> AnyView {
     let Some(policy) = found.policy else {
         return view! {
             <p>
@@ -242,35 +288,35 @@ fn shown(found: PermissionsView, restore: Callback<String>, busy: RwSignal<bool>
             }
         })
         .collect_view();
-    let plan = report.plan_digest.clone().and_then(|digest| {
-        let line = plan_line(&report.differences)?;
-        let label = approve_label(&report.differences);
-        let changed = report
-            .differences
-            .iter()
-            .filter(|d| d.cause == stage_select_api::permissions::PermissionCause::Restorable)
-            .count();
-        Some(view! {
-            <h2>"Restore"</h2>
-            <p>{line}</p>
+    let summary = plan_line(&report.differences)
+        .unwrap_or_else(|| found_line(report.differences.len(), report.compared));
+    // Approve, only while there is a plan: what Stage Select owns that differs, bound by its digest.
+    let plan = report.plan_digest.clone().map(|digest| {
+        let planned: Vec<_> = restorable(&report.differences).cloned().collect();
+        (digest, planned, approve_label(&report.differences))
+    });
+    let approve = ViewFn::from(move || {
+        let Some((digest, planned, label)) = plan.clone() else {
+            return ().into_any();
+        };
+        view! {
             <ApproveBar
-                label=label
+                label
                 approval=Approval {
                     changed: 0,
-                    blocked: changed == 0,
+                    blocked: planned.is_empty(),
                     stale: false,
                 }
-                on_approve=Callback::new(move |()| restore.run(digest.clone()))
+                on_approve=Callback::new(move |()| restore.run((digest.clone(), planned.clone())))
                 busy
             />
-        })
+        }
+        .into_any()
     });
     let rows = Arc::new(
-        report
-            .differences
-            .iter()
-            .cloned()
-            .map(Row)
+        listed(&report.differences, last.as_ref())
+            .into_iter()
+            .map(|(difference, failed)| Row { difference, failed })
             .collect::<Vec<_>>(),
     );
     let checked = format!(
@@ -281,16 +327,29 @@ fn shown(found: PermissionsView, restore: Callback<String>, busy: RwSignal<bool>
     );
     view! {
         {stale}
-        <p>{checked}</p>
         {fixes}
-        {plan}
-        <List
+        <PlanReview
             id="permissions"
             label="Differences from your permission policy"
             rows=Signal::stored(rows)
             empty="Nothing differs from your permission policy."
-            placeholder="Filter by path or who restores it"
+            summary=Signal::stored(summary)
+            placeholder="Filter by path or kind"
             detail=Callback::new(detail)
+            approve=approve
+            help=move || view! {
+                <p>{checked.clone()}</p>
+                <p>
+                    "Your permission policy is the mode and group you want files and folders to have. Stage Select \
+                     gives it to everything it writes, and compares it with what each check sees. A difference never \
+                     makes a source set stale or a library folder drift, and never stops an audit or a build."
+                </p>
+                <p>
+                    "Stage Select changes the mode only of files it owns, and the group only to one it is in. For the \
+                     rest it says what to run on the host. It never changes a source set it may not change. The plan \
+                     binds the files as this check saw them: if any changed since, check again."
+                </p>
+            }
         />
     }
     .into_any()

@@ -319,6 +319,9 @@ struct Walked {
     files: Vec<ToRead>,
     /// Each folder walked, the Source Set's own first: its path relative to the Source Set, and where it is.
     folders: Vec<(String, std::path::PathBuf)>,
+    /// The paths, relative to the Source Set, of the files and folders reached through a symbolic link: the link
+    /// itself, or anything in a folder that is one.
+    linked: HashSet<String>,
 }
 
 /// Walks the Source Set at `root` as an Audit does, passing over Stage Select's own entries and confined as
@@ -337,6 +340,8 @@ fn walk(
     let mut items = Vec::new();
     let mut files: Vec<ToRead> = Vec::new();
     let mut folders = Vec::new();
+    let mut linked = HashSet::new();
+    let mut linked_folders: Vec<String> = Vec::new();
     let mut walk = walkdir::WalkDir::new(root)
         .follow_links(true)
         .sort_by_file_name()
@@ -387,8 +392,20 @@ fn walk(
                 continue;
             }
         }
+        let at = rel(item.path());
+        if item.path_is_symlink()
+            || linked_folders.iter().any(|f| {
+                at.strip_prefix(f.as_str())
+                    .is_some_and(|r| r.starts_with('/'))
+            })
+        {
+            if item.file_type().is_dir() {
+                linked_folders.push(at.clone());
+            }
+            linked.insert(at.clone());
+        }
         if item.file_type().is_dir() {
-            folders.push((rel(item.path()), path));
+            folders.push((at, path));
             continue;
         }
         if !item.file_type().is_file() {
@@ -414,6 +431,7 @@ fn walk(
         items,
         files,
         folders,
+        linked,
     }))
 }
 
@@ -477,6 +495,7 @@ fn walk_placed(placed: &Placed) -> (Walked, Vec<Option<FileStamp>>) {
             items,
             files,
             folders: Vec::new(),
+            linked: HashSet::new(),
         },
         stamps,
     )
@@ -513,6 +532,7 @@ pub struct Perm {
 }
 
 impl Perm {
+    /// From what `stat` gave; none where the platform has no owners or modes.
     #[cfg(unix)]
     pub fn from_metadata(m: &std::fs::Metadata) -> Option<Perm> {
         use std::os::unix::fs::MetadataExt;
@@ -564,6 +584,7 @@ pub fn stat_walk(
         items,
         files,
         folders,
+        linked,
     }) = walk(root, confine, keep_going)?
     else {
         return Ok(None);
@@ -574,12 +595,12 @@ pub fn stat_walk(
         if !keep_going() {
             return Ok(None);
         }
-        found.push(StatEntry::Folder {
-            rel,
-            perm: std::fs::metadata(&path)
-                .ok()
-                .and_then(|m| Perm::from_metadata(&m)),
-        });
+        // What is reached through a symlink is the link's target's, not the Source Set's own, so it has none.
+        let perm = (!linked.contains(&rel))
+            .then(|| std::fs::metadata(&path).ok())
+            .flatten()
+            .and_then(|m| Perm::from_metadata(&m));
+        found.push(StatEntry::Folder { rel, perm });
     }
     for item in items {
         if !keep_going() {
@@ -591,9 +612,12 @@ pub fn stat_walk(
                 let file = files.next().expect("one file per item");
                 let meta = std::fs::metadata(&file.path).ok();
                 StatEntry::File {
-                    rel,
+                    perm: meta
+                        .as_ref()
+                        .filter(|_| !linked.contains(&rel))
+                        .and_then(Perm::from_metadata),
                     stamp: meta.as_ref().and_then(FileStamp::from_metadata),
-                    perm: meta.as_ref().and_then(Perm::from_metadata),
+                    rel,
                 }
             }
         });

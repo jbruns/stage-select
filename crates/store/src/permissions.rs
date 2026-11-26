@@ -7,14 +7,15 @@
 //! is cheap to run again, and the plan to restore is the latest check's, bound by its digest.
 
 use std::collections::HashMap;
-use std::os::fd::BorrowedFd;
+use std::os::fd::{AsFd, BorrowedFd};
 use std::path::{Path, PathBuf};
 
-use rustix::fs::{AtFlags, FileType, Mode, Stat};
+use rustix::fs::{AtFlags, FileType, Mode, OFlags, Stat};
 use rustix::process::Gid;
 use stage_select_api::permissions::{
     Mode as PolicyMode, PermissionCause, PermissionDifference, PermissionFailure, PermissionFix,
     PermissionPolicy, PermissionSettings, PermissionsReport, PermissionsRestored, PermissionsView,
+    files_and_folders,
 };
 
 use crate::folder_dir::{FolderDir, Identity, owner_of, owner_of_id, quoted};
@@ -107,48 +108,49 @@ fn as_declared(st: &Stat, policy: &PermissionPolicy) -> bool {
 }
 
 /// Gives the entry `name` in the folder `dir`, or the entry open as `dir` itself when `name` is none, the policy: its
-/// group first, where Stage Select is in that group and owns the entry, then its mode, where it owns it. A symlink,
-/// or anything but a regular file or a folder, is left as it is. Never fails what it is part of: an entry that comes
-/// out other than declared, as a filesystem or a Host's access control lists may make it, is what the next check
-/// reports. Returns the `lstat` after, if it could be taken.
+/// group first, where Stage Select is in that group and owns the entry, then its mode, where it owns it. A named entry
+/// is opened without following a symlink and changed only through that descriptor, so an entry swapped for a symlink
+/// meanwhile is never followed; a symlink, anything but a regular file or a folder, and an entry Stage Select can't
+/// open are left as they are. Never fails what it is part of: an entry that comes out other than declared, as a
+/// filesystem or a Host's access control lists may make it, is what the next check reports. Returns the `lstat`
+/// after, if it could be taken.
 pub(crate) fn give(dir: BorrowedFd, name: Option<&str>, policy: &PermissionPolicy) -> Option<Stat> {
-    let stat = || match name {
-        Some(name) => rustix::fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW),
-        None => rustix::fs::fstat(dir),
+    let Some(name) = name else {
+        return give_fd(dir, policy);
     };
-    let st = stat().ok()?;
+    let flags =
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::NOCTTY | OFlags::CLOEXEC;
+    match rustix::fs::openat(dir, name, flags, Mode::empty()) {
+        Ok(fd) => give_fd(fd.as_fd(), policy),
+        Err(_) => rustix::fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW).ok(),
+    }
+}
+
+/// Gives the regular file or folder open as `fd` the policy, as [`give`] says.
+fn give_fd(fd: BorrowedFd, policy: &PermissionPolicy) -> Option<Stat> {
+    let st = rustix::fs::fstat(fd).ok()?;
     let folder = match FileType::from_raw_mode(st.st_mode) {
         FileType::Directory => true,
         FileType::RegularFile => false,
         _ => return Some(st),
     };
     let me = Me::now();
-    let owns = me.root() || st.st_uid == me.uid;
-    if !owns {
+    if !(me.root() || st.st_uid == me.uid) {
         return Some(st);
     }
     if let Some(group) = policy.group
         && st.st_gid != group
         && me.in_group(group)
     {
-        let gid = Some(Gid::from_raw(group));
-        let _ = match name {
-            Some(name) => rustix::fs::chownat(dir, name, None, gid, AtFlags::SYMLINK_NOFOLLOW),
-            None => rustix::fs::fchown(dir, None, gid),
-        };
+        let _ = rustix::fs::fchown(fd, None, Some(Gid::from_raw(group)));
     }
     // A change of group may clear setgid, so the mode is set after it, from what it is then.
-    let st = stat().ok()?;
+    let st = rustix::fs::fstat(fd).ok()?;
     let want = policy.mode(folder);
     if mode_of(&st) != want {
-        let mode = Mode::from_raw_mode(want as _);
-        let _ = match name {
-            // Not a symlink, as it was just found: chmodat follows one, and Linux takes no flag to say not to.
-            Some(name) => rustix::fs::chmodat(dir, name, mode, AtFlags::empty()),
-            None => rustix::fs::fchmod(dir, mode),
-        };
+        let _ = rustix::fs::fchmod(fd, Mode::from_raw_mode(want as _));
     }
-    stat().ok()
+    rustix::fs::fstat(fd).ok()
 }
 
 /// A file or folder as a check saw it: what its permissions are compared from.
@@ -248,22 +250,6 @@ fn compare(
     found
 }
 
-/// "3 files and 1 folder".
-fn things(files: usize, folders: usize) -> String {
-    let n = |count: usize, one: &str, many: &str| {
-        format!("{count} {}", if count == 1 { one } else { many })
-    };
-    match (files, folders) {
-        (f, 0) => n(f, "file", "files"),
-        (0, d) => n(d, "folder", "folders"),
-        (f, d) => format!(
-            "{} and {}",
-            n(f, "file", "files"),
-            n(d, "folder", "folders")
-        ),
-    }
-}
-
 /// What the policy is, in words.
 fn declared(policy: &PermissionPolicy) -> String {
     let mut said = format!(
@@ -298,14 +284,21 @@ fn fixes(
                 return None;
             }
             let folders = of.iter().filter(|d| d.folder).count();
-            let count = things(of.len() - folders, folders);
+            let count = files_and_folders(of.len() - folders, folders);
+            // "1 file here belongs", "2 files here belong".
+            let one = of.len() == 1;
+            let (belong, are_not, differ, them) = if one {
+                ("belongs", "isn't", "differs", "it")
+            } else {
+                ("belong", "aren't", "differ", "them")
+            };
             let expected = declared(policy);
             let (explanation, command) = match cause {
                 PermissionCause::OtherOwner => (
                     format!(
-                        "{count} here belong to another user, so Stage Select can't give them the permissions you \
+                        "{count} here {belong} to another user, so Stage Select can't give {them} the permissions you \
                          chose: {expected}. To let it, run this on the host as root, then check again ({AS_SEEN}). \
-                         Stage Select can then restore them through a plan you approve."
+                         Stage Select can then restore {them} through a plan you approve."
                     ),
                     format!("chown -R {} {at}", me.uid),
                 ),
@@ -313,8 +306,8 @@ fn fixes(
                     let group = policy.group.unwrap_or_default();
                     (
                         format!(
-                            "{count} here aren't in group {group}, and Stage Select isn't in that group, so it can't \
-                             give it to them: {expected}. Run this on the host as root, then check again \
+                            "{count} here {are_not} in group {group}, and Stage Select isn't in that group, so it can't \
+                             give it to {them}: {expected}. Run this on the host as root, then check again \
                              ({AS_SEEN})."
                         ),
                         format!("chgrp -R {group} {at}"),
@@ -327,8 +320,8 @@ fn fixes(
                     );
                     (
                         format!(
-                            "{count} here differ from the permissions you chose: {expected}. Stage Select may not \
-                             change this source set, so it only reports them. To fix them, run this on the host as \
+                            "{count} here {differ} from the permissions you chose: {expected}. Stage Select may not \
+                             change this source set, so it only reports {them}. To fix {them}, run this on the host as \
                              their owner or as root, then check again ({AS_SEEN})."
                         ),
                         match policy.group {
@@ -540,9 +533,9 @@ impl Store {
     ) -> Result<PermissionsRestored> {
         let set = self.read(|c| crate::sets::set_by_name(c, name))?;
         let roots = self.roots();
-        let root = roots
-            .root(&set.record.root)
-            .ok_or_else(|| Error::Refused(format!("there is no root {}", set.record.root)))?;
+        let root = roots.root(&set.record.root).ok_or_else(|| {
+            Error::Refused(format!("There is no root named {}.", set.record.root))
+        })?;
         let writable = root.may_write(&set.record.path);
         self.restore_permissions(Scope::SourceSet(set.id), root, writable, digest, actor)
     }
@@ -566,7 +559,7 @@ impl Store {
         let roots = self.roots();
         let root = roots
             .root(&folder.root)
-            .ok_or_else(|| Error::Refused(format!("there is no root {}", folder.root)))?;
+            .ok_or_else(|| Error::Refused(format!("There is no root named {}.", folder.root)))?;
         self.restore_permissions(Scope::Library(id), root, root.writable, digest, actor)
     }
 }

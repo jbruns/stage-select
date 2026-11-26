@@ -50,6 +50,7 @@ impl<'de> Deserialize<'de> for Mode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PermissionPolicy {
+    /// Setuid, setgid and sticky aside, as `0660`.
     pub file_mode: Mode,
     /// Setgid included, as `2770`.
     pub folder_mode: Mode,
@@ -103,12 +104,29 @@ pub enum PermissionCause {
 }
 
 impl PermissionCause {
+    /// Every cause, those Stage Select can't restore itself first.
     pub const ALL: [PermissionCause; 4] = [
         PermissionCause::OtherOwner,
         PermissionCause::NotInGroup,
         PermissionCause::ReadOnly,
         PermissionCause::Restorable,
     ];
+}
+
+/// How many files and folders, in words: "3 files and 1 folder".
+pub fn files_and_folders(files: usize, folders: usize) -> String {
+    let n = |count: usize, one: &str, many: &str| {
+        format!("{count} {}", if count == 1 { one } else { many })
+    };
+    match (files, folders) {
+        (f, 0) => n(f, "file", "files"),
+        (0, d) => n(d, "folder", "folders"),
+        (f, d) => format!(
+            "{} and {}",
+            n(f, "file", "files"),
+            n(d, "folder", "folders")
+        ),
+    }
 }
 
 /// A file or folder whose mode or group differs from the policy, as the check saw it.

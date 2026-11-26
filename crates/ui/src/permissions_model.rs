@@ -3,6 +3,7 @@
 
 use stage_select_api::permissions::{
     Mode, PermissionCause, PermissionDifference, PermissionPolicy, PermissionsRestored,
+    files_and_folders,
 };
 
 /// A policy as typed: a file mode, a folder mode and a group, each as text. All empty is no policy.
@@ -14,6 +15,7 @@ pub struct PolicyDraft {
 }
 
 impl PolicyDraft {
+    /// A saved policy as the form shows it; none is every field empty.
     pub fn of(policy: Option<PermissionPolicy>) -> PolicyDraft {
         match policy {
             None => PolicyDraft::default(),
@@ -56,6 +58,52 @@ impl PolicyDraft {
     }
 }
 
+/// One of a [`PolicyDraft`]'s fields, as the form names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PolicyField {
+    FileMode,
+    FolderMode,
+    Group,
+}
+
+impl PolicyField {
+    /// Its label, after what it sets: "file mode".
+    pub fn label(self) -> &'static str {
+        match self {
+            PolicyField::FileMode => "file mode",
+            PolicyField::FolderMode => "folder mode",
+            PolicyField::Group => "group",
+        }
+    }
+
+    /// What it shows while empty.
+    pub fn placeholder(self) -> &'static str {
+        match self {
+            PolicyField::FileMode => "0660",
+            PolicyField::FolderMode => "2770",
+            PolicyField::Group => "none",
+        }
+    }
+
+    /// Its text in `draft`.
+    pub fn of(self, draft: &PolicyDraft) -> &String {
+        match self {
+            PolicyField::FileMode => &draft.file_mode,
+            PolicyField::FolderMode => &draft.folder_mode,
+            PolicyField::Group => &draft.group,
+        }
+    }
+
+    /// Its text in `draft`, to type into.
+    pub fn of_mut(self, draft: &mut PolicyDraft) -> &mut String {
+        match self {
+            PolicyField::FileMode => &mut draft.file_mode,
+            PolicyField::FolderMode => &mut draft.folder_mode,
+            PolicyField::Group => &mut draft.group,
+        }
+    }
+}
+
 /// A policy in words: "0660 files, 2770 folders, group 1000".
 pub fn policy_line(policy: &PermissionPolicy) -> String {
     let mut line = format!("{} files, {} folders", policy.file_mode, policy.folder_mode);
@@ -63,51 +111,6 @@ pub fn policy_line(policy: &PermissionPolicy) -> String {
         line.push_str(&format!(", group {group}"));
     }
     line
-}
-
-/// "3 files and 1 folder".
-fn things(files: usize, folders: usize) -> String {
-    let n = |count: usize, one: &str, many: &str| {
-        format!("{count} {}", if count == 1 { one } else { many })
-    };
-    match (files, folders) {
-        (f, 0) => n(f, "file", "files"),
-        (0, d) => n(d, "folder", "folders"),
-        (f, d) => format!(
-            "{} and {}",
-            n(f, "file", "files"),
-            n(d, "folder", "folders")
-        ),
-    }
-}
-
-/// Who can restore a difference, terse, for its cell.
-pub fn cause_label(cause: PermissionCause) -> &'static str {
-    match cause {
-        PermissionCause::Restorable => "Stage Select",
-        PermissionCause::OtherOwner => "Another owner",
-        PermissionCause::NotInGroup => "Not its group",
-        PermissionCause::ReadOnly => "Read-only",
-    }
-}
-
-/// Why a difference is its cause's, for the detail pane.
-pub fn cause_reason(cause: PermissionCause) -> &'static str {
-    match cause {
-        PermissionCause::Restorable => {
-            "Stage Select owns it, so the plan restores it once you approve it."
-        }
-        PermissionCause::OtherOwner => {
-            "Another user owns it, so Stage Select can't change its mode. Run the command above on the host."
-        }
-        PermissionCause::NotInGroup => {
-            "Stage Select isn't in your policy's group, so it can't give it that group. Run the command above on the \
-             host."
-        }
-        PermissionCause::ReadOnly => {
-            "Stage Select may not change this source set, so it only reports it. Run the command above on the host."
-        }
-    }
 }
 
 /// A file's mode and group, as a cell shows it: "0644, group 20".
@@ -128,29 +131,85 @@ pub fn change(d: &PermissionDifference) -> (String, String) {
     )
 }
 
-/// The plan's line: what it restores, in numbers.
-pub fn plan_line(differences: &[PermissionDifference]) -> Option<String> {
-    let restorable: Vec<_> = differences
+/// The differences the plan restores: those Stage Select owns.
+pub fn restorable(
+    differences: &[PermissionDifference],
+) -> impl Iterator<Item = &PermissionDifference> {
+    differences
         .iter()
         .filter(|d| d.cause == PermissionCause::Restorable)
-        .collect();
-    if restorable.is_empty() {
-        return None;
+}
+
+/// The plan's line: what it restores, in numbers.
+pub fn plan_line(differences: &[PermissionDifference]) -> Option<String> {
+    let (mut files, mut folders) = (0, 0);
+    for d in restorable(differences) {
+        if d.folder {
+            folders += 1;
+        } else {
+            files += 1;
+        }
     }
-    let folders = restorable.iter().filter(|d| d.folder).count();
-    Some(format!(
-        "Restores the permissions of {}.",
-        things(restorable.len() - folders, folders)
-    ))
+    (files + folders > 0).then(|| {
+        format!(
+            "Restores the permissions of {}.",
+            files_and_folders(files, folders)
+        )
+    })
 }
 
 /// What approving the plan says on its button.
 pub fn approve_label(differences: &[PermissionDifference]) -> String {
-    let n = differences
+    format!("Approve and restore {}", restorable(differences).count())
+}
+
+/// The last restore you approved: the differences it was to restore, and what it did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LastRestore {
+    pub planned: Vec<PermissionDifference>,
+    pub restored: PermissionsRestored,
+}
+
+impl LastRestore {
+    /// Whether the restore failed for `d`: by its path, or for the folder itself, by the folder's whole path.
+    pub fn failed(&self, d: &PermissionDifference) -> bool {
+        self.restored
+            .failed
+            .iter()
+            .any(|f| f.path == d.path || (d.path.is_empty() && f.path.starts_with('/')))
+    }
+
+    /// Whether `d` was among the differences it was to restore.
+    pub fn planned(&self, d: &PermissionDifference) -> bool {
+        self.planned.iter().any(|p| p.path == d.path)
+    }
+}
+
+/// What the list shows: what the check found, and after a restore, what it restored besides, which the check no
+/// longer holds; each with whether the restore failed for it (`Some(false)` restored, `Some(true)` failed).
+pub fn listed(
+    found: &[PermissionDifference],
+    last: Option<&LastRestore>,
+) -> Vec<(PermissionDifference, Option<bool>)> {
+    let Some(last) = last else {
+        return found.iter().cloned().map(|d| (d, None)).collect();
+    };
+    let mut rows: Vec<_> = found
         .iter()
-        .filter(|d| d.cause == PermissionCause::Restorable)
-        .count();
-    format!("Approve and restore {n}")
+        .cloned()
+        .map(|d| {
+            let failed = (last.planned(&d) || last.failed(&d)).then(|| last.failed(&d));
+            (d, failed)
+        })
+        .collect();
+    rows.extend(
+        last.planned
+            .iter()
+            .filter(|p| !found.iter().any(|d| d.path == p.path) && !last.failed(p))
+            .cloned()
+            .map(|d| (d, Some(false))),
+    );
+    rows
 }
 
 /// What a restore did, in a sentence.
@@ -185,6 +244,64 @@ pub fn found_line(differing: usize, compared: u64) -> String {
 mod tests {
     use super::*;
     use stage_select_api::permissions::PermissionFailure;
+
+    #[test]
+    fn after_a_restore_the_list_shows_what_it_restored_and_what_failed() {
+        let d = |path: &str, cause| PermissionDifference {
+            path: path.into(),
+            folder: path.is_empty(),
+            mode: Mode(0o644),
+            uid: 1,
+            gid: 20,
+            expected_mode: Mode(0o660),
+            expected_group: None,
+            cause,
+        };
+        let planned = vec![
+            d("", PermissionCause::Restorable),
+            d("a", PermissionCause::Restorable),
+            d("b", PermissionCause::Restorable),
+        ];
+        let last = LastRestore {
+            planned: planned.clone(),
+            restored: PermissionsRestored {
+                restored: 1,
+                failed: vec![
+                    PermissionFailure {
+                        path: "/sets/NES".into(),
+                        reason: "gone".into(),
+                    },
+                    PermissionFailure {
+                        path: "b".into(),
+                        reason: "gone".into(),
+                    },
+                ],
+            },
+        };
+        let found = [
+            d("", PermissionCause::Restorable),
+            d("b", PermissionCause::Restorable),
+            d("c", PermissionCause::OtherOwner),
+        ];
+        let shown: Vec<_> = listed(&found, Some(&last))
+            .into_iter()
+            .map(|(d, failed)| (d.path, failed))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("".to_owned(), Some(true)),
+                ("b".to_owned(), Some(true)),
+                ("c".to_owned(), None),
+                ("a".to_owned(), Some(false)),
+            ]
+        );
+        assert!(
+            listed(&found, None)
+                .iter()
+                .all(|(_, failed)| failed.is_none())
+        );
+    }
 
     #[test]
     fn a_draft_reads_as_a_policy_none_or_what_is_wrong() {
