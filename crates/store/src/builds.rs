@@ -2114,6 +2114,7 @@ impl Store {
                 newer.id
             )));
         }
+        self.note_repaired(plan_id, &again.content.repaired)?;
         if let Some(cleanup) = &content.cleanup {
             return self
                 .carry_out_cleanup(job, plan_id, content, cleanup, &again, build_id, progress);

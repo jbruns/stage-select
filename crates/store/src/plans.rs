@@ -139,8 +139,18 @@ pub(super) fn to_json<T: serde::Serialize>(value: &T) -> String {
 }
 
 /// The SHA-256 of the plan's canonical JSON: compact, with fields in declaration order and items in plan order.
+/// What an approval binds a plan by: the SHA-256 of its compact JSON, leaving out what Stage Select repaired of the
+/// folder's own entries, which is reported with the plan and added to as it is computed again, never approved.
 pub(super) fn digest(content: &PlanContent) -> String {
-    let bytes = serde_json::to_vec(content).expect("a plan always serializes");
+    let bytes = if content.repaired.is_empty() {
+        serde_json::to_vec(content)
+    } else {
+        serde_json::to_vec(&PlanContent {
+            repaired: Vec::new(),
+            ..content.clone()
+        })
+    }
+    .expect("a plan always serializes");
     sha256_hex(&bytes)
 }
 
@@ -3230,7 +3240,8 @@ impl Store {
         Ok(planned)
     }
 
-    /// Computes again the plan whose content is `content`, a cleanup or a build, as it would be now.
+    /// Computes again the plan whose content is `content`, a cleanup or a build, as it would be now. Its `repaired`
+    /// is what computing it again repaired, for [`Store::note_repaired`] to add to the plan.
     pub(super) fn recompute(&self, content: &PlanContent) -> Result<Planned> {
         let mut planned = match &content.cleanup {
             Some(cleanup) => self.compute_cleanup(content.folder, &cleanup.choices),
@@ -3241,9 +3252,25 @@ impl Store {
                 &PlanMeter::default(),
             ),
         }?;
-        // What planning repaired was done once, when it was planned, and is no part of what is approved.
-        planned.content.repaired = content.repaired.clone();
+        planned.content.repaired = self.repaired_in(content.folder)?;
         Ok(planned)
+    }
+
+    /// Adds `repaired`, what computing plan `id` again repaired, to what the plan says it repaired, so that the plan
+    /// says so whenever it is read, across a restart too.
+    pub(super) fn note_repaired(&self, id: i64, repaired: &[String]) -> Result<()> {
+        if repaired.is_empty() {
+            return Ok(());
+        }
+        self.write(|tx| {
+            let mut content = plan_by_id(tx, id)?.content;
+            content.repaired.extend_from_slice(repaired);
+            tx.execute(
+                "UPDATE plans SET content = ?2 WHERE id = ?1",
+                params![id, to_json(&content)],
+            )?;
+            Ok(())
+        })
     }
 
     /// What Stage Select changed of the permissions of Library Folder `folder`'s own entries since a plan of it last
@@ -3386,6 +3413,7 @@ impl Store {
                 newer.id
             )));
         }
+        self.note_repaired(id, &again.content.repaired)?;
         let _lifecycle = self.lock_roots_unchanged(&roots)?;
         self.write(|tx| {
             let active: Option<i64> = tx
@@ -3532,6 +3560,16 @@ mod digest_tests {
         let json = r#"{"folder":1,"generation":2,"selection":3,"audit":4,"dat_revision":"abc","items":[],"blockers":[]}"#;
         let content: stage_select_api::build::PlanContent = serde_json::from_str(json).unwrap();
         assert_eq!(serde_json::to_string(&content).unwrap(), json);
+        assert_eq!(
+            digest(&content),
+            "2fdd832e813acc66d5552d86218c38bce39e261cc2f85bdaa20782df04f4b33d"
+        );
+    }
+
+    #[test]
+    fn what_was_repaired_is_no_part_of_a_plan_digest() {
+        let json = r#"{"folder":1,"generation":2,"selection":3,"audit":4,"dat_revision":"abc","items":[],"blockers":[],"repaired":["Others had access."]}"#;
+        let content: stage_select_api::build::PlanContent = serde_json::from_str(json).unwrap();
         assert_eq!(
             digest(&content),
             "2fdd832e813acc66d5552d86218c38bce39e261cc2f85bdaa20782df04f4b33d"

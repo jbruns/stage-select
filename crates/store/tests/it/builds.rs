@@ -2749,6 +2749,31 @@ fn a_stage_select_folder_open_to_others_that_stage_select_owns_is_closed_and_the
     assert!(!env.store.kept_files(folder.id).unwrap().is_empty());
 }
 
+/// Opened to others after it was planned: closed when the approved plan is computed again, and the plan says so
+/// across a restart.
+#[cfg(unix)]
+#[test]
+fn a_stage_select_folder_closed_when_an_approved_plan_runs_is_recorded_with_the_plan() {
+    let env = Env::new();
+    let (_, plan) = built_then_changed(&env, |_| {});
+    let state = env.play().join("atari2600/.stage-select");
+    set_mode(&state, 0o777);
+
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert_eq!(mode_of(&state), 0o770);
+    let (env, blocked) = env.restart();
+    assert!(blocked.is_empty(), "{blocked:?}");
+
+    assert_eq!(
+        env.store.plan(plan.id).unwrap().content.repaired,
+        [format!(
+            "Others had access to {} (its permissions were 777), so Stage Select removed their access: its \
+             permissions are now 770.",
+            state.display()
+        )]
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn a_stage_select_folder_open_to_others_holding_another_stores_marker_is_left_as_it_is() {
@@ -2934,7 +2959,10 @@ fn a_stage_select_folder_an_access_control_list_keeps_stage_select_out_of_is_ref
             .stdout,
     )
     .unwrap();
-    let entry = format!("user:{} deny add_file,add_subdirectory,delete_child", user.trim());
+    let entry = format!(
+        "user:{} deny add_file,add_subdirectory,delete_child",
+        user.trim()
+    );
     let (folder, plan) = built_then_changed(&env, |state| acl(state, "+a", Some(&entry)));
     let state = env.play().join("atari2600/.stage-select");
     refused_though_its_mode_allows(&env, &plan, &state, 0o700);
