@@ -49,6 +49,7 @@ use crate::screens::fetching::{FETCHING_SETTING, FETCHING_STATUS};
 use crate::screens::kept::KeptFiles;
 use crate::screens::library_folders::live_jobs;
 use crate::screens::lifecycle::{LifecycleSection, Paths, PlanAction, UnregisterAction};
+use crate::screens::permissions::{PermissionsTab, Place};
 use crate::screens::repair::{RepairDesk, RepairTab};
 use crate::screens::source_sets::{
     Proposal, ProposalStatus, RepairNow, new_library_href, preview_href, repair_plan_href,
@@ -368,6 +369,12 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                 PageTab::Kept => {
                     view! { <KeptFiles place=KeptPlace::SourceSet(name.get_value()) /> }.into_any()
                 }
+                PageTab::Permissions => view! {
+                    <PermissionsTab
+                        place=Place::SourceSet(name.get_value())
+                    />
+                }
+                .into_any(),
                 PageTab::Repair => ().into_any(),
             })
             }).into_any())

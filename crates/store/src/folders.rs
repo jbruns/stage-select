@@ -557,7 +557,7 @@ pub(super) fn open_folder(
     let root_config = roots
         .root(root)
         .ok_or_else(|| format!("no root named {root} is registered any more"))?;
-    FolderDir::open(&root_config.path, rel).map_err(|e| {
+    FolderDir::open_in(root_config, rel).map_err(|e| {
         format!("{e} (no part of a library folder's path inside its root may be a symlink)")
     })
 }
@@ -722,9 +722,9 @@ pub(super) fn check_marker(dir: &FolderDir, expected: &Marker) -> std::result::R
 
 /// Opens the folder `rel` in the Root at `root_path`, creating each missing component, and checks that it is
 /// empty. No existing component may be a symlink.
-fn create_or_check_empty(root_path: &Path, rel: &str) -> Result<FolderDir> {
+fn create_or_check_empty(root: &crate::roots::Root, rel: &str) -> Result<FolderDir> {
     let refused = |e: std::io::Error| Error::Refused(e.to_string());
-    let mut dir = FolderDir::open(root_path, "").map_err(refused)?;
+    let mut dir = FolderDir::open_in(root, "").map_err(refused)?;
     for part in rel.split('/') {
         dir = match dir.sub(part) {
             Ok(sub) => sub,
@@ -914,7 +914,7 @@ impl Store {
             active_profile_id(c, &add.profile)?;
             Ok(())
         })?;
-        let folder = create_or_check_empty(&root.path, &rel)?;
+        let folder = create_or_check_empty(root, &rel)?;
         self.fault_point(crate::Fault::FolderRegistering);
         self.write(|tx| {
             // Again where it is recorded, so that nothing registered or reserved since is overlapped, and it is bound
@@ -1078,7 +1078,7 @@ impl Store {
         let Some(root) = roots.root(&set.record.root) else {
             return Ok(Err(format!("there is no root {}", set.record.root)));
         };
-        Ok(FolderDir::open(&root.path, &set.record.path).map_err(|e| e.to_string()))
+        Ok(FolderDir::open_in(root, &set.record.path).map_err(|e| e.to_string()))
     }
 
     /// The configured path of a Source Set's folder.

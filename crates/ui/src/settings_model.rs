@@ -382,6 +382,8 @@ impl Draft {
             ingest_folders: (!ingest_folders.is_empty()).then_some(ingest_folders),
             notify: notify_changed.then_some(notify),
             romm: romm_changed.then_some(romm),
+            // Saved from the roots page, on its own.
+            permissions: None,
         })
     }
 }
@@ -603,6 +605,7 @@ mod tests {
                 token_set: true,
                 root: Some("romm".into()),
             },
+            permissions: Default::default(),
         }
     }
 

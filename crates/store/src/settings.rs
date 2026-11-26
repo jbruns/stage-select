@@ -19,6 +19,8 @@ use stage_select_api::settings::{
     SecretUpdate, SettingsUpdate, SettingsView, SourceSetChecks,
 };
 
+use stage_select_api::permissions::PermissionSettings;
+
 use crate::romm::Romm;
 use crate::roots::Roots;
 use crate::{Error, Result, Store, now};
@@ -143,6 +145,8 @@ pub struct Settings {
     /// The Host's Ceilings you set. Each Root's are kept with it.
     pub ceilings: HostOverrides,
     pub archive: ArchiveLimits,
+    /// The Permission Policy. Each Root holds the one in force for it, too ([`crate::roots::Root::permissions`]).
+    pub permissions: PermissionSettings,
 }
 
 impl Settings {
@@ -176,6 +180,7 @@ impl Settings {
             notify: self.notify.view(),
             romm: self.romm.view(),
             archive: self.archive,
+            permissions: self.permissions.clone(),
         }
     }
 }
@@ -191,6 +196,7 @@ const NOTIFY: &str = "notify";
 const ROMM: &str = "romm";
 const CEILINGS: &str = "ceilings";
 const ARCHIVE: &str = "archive";
+pub(crate) const PERMISSIONS: &str = "permissions";
 
 fn parse<T: serde::de::DeserializeOwned>(section: &str, value: &str) -> Result<T> {
     serde_json::from_str(value)
@@ -217,10 +223,24 @@ pub(crate) fn load(c: &Connection) -> Result<Settings> {
             ROMM => settings.romm = parse(&section, &value)?,
             CEILINGS => settings.ceilings = parse(&section, &value)?,
             ARCHIVE => settings.archive = parse(&section, &value)?,
+            PERMISSIONS => settings.permissions = parse(&section, &value)?,
             _ => {}
         }
     }
     Ok(settings)
+}
+
+/// Removes the Root `name`'s own Permission Policy, if it has one, as `actor`.
+pub(crate) fn forget_root_permissions(
+    tx: &rusqlite::Transaction,
+    name: &str,
+    actor: &str,
+) -> Result<()> {
+    let mut permissions = load(tx)?.permissions;
+    if permissions.roots.remove(name).is_some() {
+        put(tx, PERMISSIONS, &permissions, actor)?;
+    }
+    Ok(())
 }
 
 fn put<T: Serialize>(
@@ -345,6 +365,10 @@ impl Store {
                 settings.archive = archive;
                 put(tx, ARCHIVE, &archive, actor)?;
             }
+            if let Some(permissions) = &update.permissions {
+                settings.permissions = permissions.clone();
+                put(tx, PERMISSIONS, permissions, actor)?;
+            }
             let release = crate::romm_additions::release(tx, &was, &settings.romm)?;
             Ok((settings, release))
         })?;
@@ -353,7 +377,7 @@ impl Store {
             settings.archive.max_dictionary_mib,
             std::sync::atomic::Ordering::Relaxed,
         );
-        if ceilings.is_some() {
+        if ceilings.is_some() || update.permissions.is_some() {
             self.reload_roots()?;
         }
         if update.pace.is_some() || ceilings.is_some() {
@@ -406,6 +430,9 @@ fn check(roots: &Roots, update: &SettingsUpdate) -> Result<()> {
         return refuse(format!(
             "Set the largest 7z dictionary to a whole number of MiB from 1 to {MAX_DICTIONARY_MIB}."
         ));
+    }
+    if let Some(permissions) = &update.permissions {
+        crate::permissions::check_settings(roots, permissions)?;
     }
     if let Some(folders) = &update.ingest_folders {
         for (name, cadence) in folders {

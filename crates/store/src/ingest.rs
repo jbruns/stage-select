@@ -191,7 +191,7 @@ pub(super) fn open_ingest(
     root: &str,
 ) -> std::result::Result<FolderDir, String> {
     let root_config = ingest_root(roots, root)?;
-    FolderDir::open(&root_config.path, "").map_err(|e| e.to_string())
+    FolderDir::open_in(root_config, "").map_err(|e| e.to_string())
 }
 
 enum MarkerFound {

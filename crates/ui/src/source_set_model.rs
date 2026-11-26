@@ -292,11 +292,12 @@ pub enum PageTab {
     Additions,
     History,
     Kept,
+    Permissions,
     Repair,
 }
 
 impl PageTab {
-    pub const ALL: [PageTab; 8] = [
+    pub const ALL: [PageTab; 9] = [
         PageTab::Overview,
         PageTab::Games,
         PageTab::Entries,
@@ -304,6 +305,7 @@ impl PageTab {
         PageTab::Additions,
         PageTab::History,
         PageTab::Kept,
+        PageTab::Permissions,
         PageTab::Repair,
     ];
 
@@ -316,6 +318,7 @@ impl PageTab {
             PageTab::Additions => "additions",
             PageTab::History => "history",
             PageTab::Kept => "kept",
+            PageTab::Permissions => "permissions",
             PageTab::Repair => "repair",
         }
     }
@@ -329,6 +332,7 @@ impl PageTab {
             PageTab::Additions => "Additions",
             PageTab::History => "History",
             PageTab::Kept => "Kept files",
+            PageTab::Permissions => "Permissions",
             PageTab::Repair => "Repair",
         }
     }

@@ -540,6 +540,9 @@ pub struct SettingsView {
     pub ingest_folders: BTreeMap<String, IngestCadence>,
     pub notify: NotifyView,
     pub romm: crate::romm::RommView,
+    /// The Permission Policy, global and each Root's own.
+    #[serde(default)]
+    pub permissions: crate::permissions::PermissionSettings,
 }
 
 /// A change to some settings, as `PATCH /settings` takes it: each section given replaces that section, and the rest
@@ -571,6 +574,9 @@ pub struct SettingsUpdate {
     pub notify: Option<NotifyUpdate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub romm: Option<crate::romm::RommUpdate>,
+    /// Replaces the Permission Policy, global and each Root's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<crate::permissions::PermissionSettings>,
 }
 
 #[cfg(test)]

@@ -66,6 +66,7 @@ use crate::screens::library_romm::RommTab;
 use crate::screens::lifecycle::{
     LifecycleSection, MoveFolderAction, Paths, PlanAction, UnregisterAction,
 };
+use crate::screens::permissions::{PermissionsTab, Place};
 use crate::selection_model::capitalised;
 
 fn folder_href(id: i64) -> String {
@@ -1275,6 +1276,12 @@ fn FolderPage(
                 view! { <KeptFiles place=KeptPlace::LibraryFolder { id, path } busy refresh /> }.into_any()
             }
             FolderTab::Romm => view! { <RommTab folder=id /> }.into_any(),
+            FolderTab::Permissions => view! {
+                <PermissionsTab
+                    place=Place::Library(id)
+                />
+            }
+            .into_any(),
         }}
     }
 }

@@ -138,7 +138,7 @@ pub(crate) fn open_repairable(
     if !root.may_write(&record.path) {
         return Ok(Err(not_writable(&record.name, &record.root)));
     }
-    let dir = match FolderDir::open(&root.path, &record.path) {
+    let dir = match FolderDir::open_in(root, &record.path) {
         Ok(dir) => dir,
         Err(e) => return Ok(Err(e.to_string())),
     };
@@ -926,7 +926,7 @@ impl Store {
         let report = self.report(audit.id)?;
         let dat = Dat::read(&self.blob_path(&report.dat_revision.sha256))
             .map_err(|e| Error::Io(e.to_string()))?;
-        let dir = FolderDir::open(&root.path, &record.path).map_err(io_err)?;
+        let dir = FolderDir::open_in(root, &record.path).map_err(io_err)?;
         // Others' access to its own folder is removed only once its marker shows it is this store's Source Set. One
         // that can't be removed is refused, with how to fix it, when the plan is approved.
         let expected = SourceSetMarker {
@@ -1230,7 +1230,7 @@ impl Store {
             .next()
             .ok_or_else(|| Error::Refused(format!("audit {name} before you set it aside")))?;
         let report = self.report(audit.id)?;
-        let dir = FolderDir::open(&root.path, &record.path).map_err(io_err)?;
+        let dir = FolderDir::open_in(root, &record.path).map_err(io_err)?;
         let folder = dir.identity().map_err(io_err)?;
         let (fingerprint, files) = walk(&dir, &|| {}).map_err(io_err)?;
         if files.is_empty() {

@@ -22,6 +22,7 @@ mod fetch;
 mod headers;
 mod ingest;
 mod lifecycle;
+mod permissions;
 mod placed_recovery;
 mod placements;
 mod repair;

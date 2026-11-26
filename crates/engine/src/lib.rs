@@ -317,6 +317,11 @@ enum Item {
 struct Walked {
     items: Vec<Item>,
     files: Vec<ToRead>,
+    /// Each folder walked, the Source Set's own first: its path relative to the Source Set, and where it is.
+    folders: Vec<(String, std::path::PathBuf)>,
+    /// The paths, relative to the Source Set, of the files and folders reached through a symbolic link: the link
+    /// itself, or anything in a folder that is one.
+    linked: HashSet<String>,
 }
 
 /// Walks the Source Set at `root` as an Audit does, passing over Stage Select's own entries and confined as
@@ -334,6 +339,9 @@ fn walk(
     };
     let mut items = Vec::new();
     let mut files: Vec<ToRead> = Vec::new();
+    let mut folders = Vec::new();
+    let mut linked = HashSet::new();
+    let mut linked_folders: Vec<String> = Vec::new();
     let mut walk = walkdir::WalkDir::new(root)
         .follow_links(true)
         .sort_by_file_name()
@@ -384,6 +392,22 @@ fn walk(
                 continue;
             }
         }
+        let at = rel(item.path());
+        if item.path_is_symlink()
+            || linked_folders.iter().any(|f| {
+                at.strip_prefix(f.as_str())
+                    .is_some_and(|r| r.starts_with('/'))
+            })
+        {
+            if item.file_type().is_dir() {
+                linked_folders.push(at.clone());
+            }
+            linked.insert(at.clone());
+        }
+        if item.file_type().is_dir() {
+            folders.push((at, path));
+            continue;
+        }
         if !item.file_type().is_file() {
             continue;
         }
@@ -403,7 +427,12 @@ fn walk(
         });
     }
 
-    Ok(Some(Walked { items, files }))
+    Ok(Some(Walked {
+        items,
+        files,
+        folders,
+        linked,
+    }))
 }
 
 /// What an Audit reads of the Placed Games in one Library Folder: each recorded file still there, in path order,
@@ -461,7 +490,15 @@ fn walk_placed(placed: &Placed) -> (Walked, Vec<Option<FileStamp>>) {
             }
         }
     }
-    (Walked { items, files }, stamps)
+    (
+        Walked {
+            items,
+            files,
+            folders: Vec::new(),
+            linked: HashSet::new(),
+        },
+        stamps,
+    )
 }
 
 /// The recorded files of the Placed Games in `placed` that are still there, each statted as [`stat_walk`] does and
@@ -476,18 +513,56 @@ pub fn stat_placed(placed: &Placed) -> Vec<StatEntry> {
             Item::File { rel } => StatEntry::File {
                 rel,
                 stamp: stamps.next().expect("one stamp per file"),
+                // A Placed Game's file is its Library Folder's: that folder's check compares its permissions.
+                perm: None,
             },
         })
         .collect()
 }
 
-/// A file a stat walk found, with its stamp; none where it could not be statted or the platform has none.
+/// A file's or folder's permissions and owner, as `stat` saw them, with its identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Perm {
+    pub dev: u64,
+    pub ino: u64,
+    /// Its permission bits, setuid, setgid and sticky included.
+    pub mode: u32,
+    pub uid: u32,
+    pub gid: u32,
+}
+
+impl Perm {
+    /// From what `stat` gave; none where the platform has no owners or modes.
+    #[cfg(unix)]
+    pub fn from_metadata(m: &std::fs::Metadata) -> Option<Perm> {
+        use std::os::unix::fs::MetadataExt;
+        Some(Perm {
+            dev: m.dev(),
+            ino: m.ino(),
+            mode: m.mode() & 0o7777,
+            uid: m.uid(),
+            gid: m.gid(),
+        })
+    }
+
+    #[cfg(not(unix))]
+    pub fn from_metadata(_: &std::fs::Metadata) -> Option<Perm> {
+        None
+    }
+}
+
+/// A file a stat walk found, with its stamp and permissions; none where it could not be statted or the platform has
+/// none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatEntry {
     File {
         rel: String,
         stamp: Option<FileStamp>,
+        perm: Option<Perm>,
     },
+    /// A folder of the Source Set, its own included (`rel` empty), with its permissions: by the one `stat` the walk
+    /// takes of it.
+    Folder { rel: String, perm: Option<Perm> },
     /// A path the walk could not read, or that resolves outside the Root.
     Unreadable { rel: String },
 }
@@ -505,11 +580,28 @@ pub fn stat_walk(
             root.display()
         )));
     }
-    let Some(Walked { items, files }) = walk(root, confine, keep_going)? else {
+    let Some(Walked {
+        items,
+        files,
+        folders,
+        linked,
+    }) = walk(root, confine, keep_going)?
+    else {
         return Ok(None);
     };
     let mut files = files.into_iter();
-    let mut found = Vec::with_capacity(items.len());
+    let mut found = Vec::with_capacity(items.len() + folders.len());
+    for (rel, path) in folders {
+        if !keep_going() {
+            return Ok(None);
+        }
+        // What is reached through a symlink is the link's target's, not the Source Set's own, so it has none.
+        let perm = (!linked.contains(&rel))
+            .then(|| std::fs::metadata(&path).ok())
+            .flatten()
+            .and_then(|m| Perm::from_metadata(&m));
+        found.push(StatEntry::Folder { rel, perm });
+    }
     for item in items {
         if !keep_going() {
             return Ok(None);
@@ -518,9 +610,14 @@ pub fn stat_walk(
             Item::Unreadable { rel, .. } => StatEntry::Unreadable { rel },
             Item::File { rel } => {
                 let file = files.next().expect("one file per item");
+                let meta = std::fs::metadata(&file.path).ok();
                 StatEntry::File {
+                    perm: meta
+                        .as_ref()
+                        .filter(|_| !linked.contains(&rel))
+                        .and_then(Perm::from_metadata),
+                    stamp: meta.as_ref().and_then(FileStamp::from_metadata),
                     rel,
-                    stamp: FileStamp::of(&file.path),
                 }
             }
         });
@@ -591,8 +688,9 @@ pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Rep
         )));
     }
     let dat = Dat::read(dat_path)?;
-    let Walked { items, mut files } =
-        walk(root, options.confine, &|| true)?.expect("an audit's walk is never stopped");
+    let Walked {
+        items, mut files, ..
+    } = walk(root, options.confine, &|| true)?.expect("an audit's walk is never stopped");
     // A Source Set of a DAT that lists Disks keeps them as CHDs (ADR 0026), each read by its header.
     if dat.has_disks() {
         for file in &mut files {

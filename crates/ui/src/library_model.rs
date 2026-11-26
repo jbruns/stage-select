@@ -234,17 +234,19 @@ pub enum FolderTab {
     Plan,
     Builds,
     Drift,
+    Permissions,
     Kept,
     Romm,
 }
 
 impl FolderTab {
-    pub const ALL: [FolderTab; 7] = [
+    pub const ALL: [FolderTab; 8] = [
         FolderTab::Overview,
         FolderTab::Selection,
         FolderTab::Plan,
         FolderTab::Builds,
         FolderTab::Drift,
+        FolderTab::Permissions,
         FolderTab::Kept,
         FolderTab::Romm,
     ];
@@ -264,6 +266,7 @@ impl FolderTab {
             FolderTab::Plan => "plan",
             FolderTab::Builds => "builds",
             FolderTab::Drift => "drift",
+            FolderTab::Permissions => "permissions",
             FolderTab::Kept => "kept",
             FolderTab::Romm => "romm",
         }
@@ -276,6 +279,7 @@ impl FolderTab {
             FolderTab::Plan => "Plan",
             FolderTab::Builds => "Builds",
             FolderTab::Drift => "Drift",
+            FolderTab::Permissions => "Permissions",
             FolderTab::Kept => "Kept files",
             FolderTab::Romm => "RomM",
         }

@@ -3,17 +3,21 @@
 
 use leptos::prelude::*;
 use leptos_router::components::A;
+use stage_select_api::permissions::PermissionSettings;
 use stage_select_api::roots::{FolderSuggestions, RootEdited, RootKind, RootSpec};
+use stage_select_api::settings::{SettingsUpdate, SettingsView};
 use stage_select_api::{Root, SourceSetRecord};
+use std::collections::BTreeMap;
 
 use crate::api;
 use crate::model::when;
 use crate::parts::choice::Choice;
 use crate::parts::folder_picker::{Create, FolderPicker};
 use crate::parts::help::Help;
-use crate::parts::message::{Message, MessageKind, Problem};
+use crate::parts::message::{Message, MessageKind, Problem, Said};
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::{ActionPending, Pending};
+use crate::permissions_model::{PolicyDraft, PolicyField};
 use crate::roots_model::{
     RootDraft, access, changeable_line, changeable_sets, kind_label, kind_note, voided_lines,
 };
@@ -141,6 +145,7 @@ pub fn Roots() -> impl IntoView {
                     })
             }}
         </Pending>
+        <PolicyForm roots=Signal::derive(move || roots.get().and_then(Result::ok).unwrap_or_default()) />
         <Help summary="What a root is">
             <p>
                 "A root is a folder the service may work in. Register a root before you register anything in it. Its \
@@ -444,5 +449,202 @@ fn UnregisterRoot(
             <button type="button" on:click=move |_| cancel()>"Cancel"</button>
         </div>
         </ActionPending>
+    }
+}
+
+/// Which policy a row of the permission policy's table sets: every root's, or one root's own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PolicyRow {
+    Every,
+    Root(String),
+}
+
+impl PolicyRow {
+    /// What the row sets, as its fields' labels name it.
+    fn name(&self) -> String {
+        match self {
+            PolicyRow::Every => "every root".into(),
+            PolicyRow::Root(name) => name.clone(),
+        }
+    }
+}
+
+/// The permission policy: one for every root, and each root's own in its place, as typed.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct PolicyDrafts {
+    every: PolicyDraft,
+    roots: BTreeMap<String, PolicyDraft>,
+}
+
+impl PolicyDrafts {
+    /// The saved settings, as the form shows them.
+    fn of(settings: &PermissionSettings) -> PolicyDrafts {
+        PolicyDrafts {
+            every: PolicyDraft::of(settings.global),
+            roots: settings
+                .roots
+                .iter()
+                .map(|(name, p)| (name.clone(), PolicyDraft::of(Some(*p))))
+                .collect(),
+        }
+    }
+
+    /// What `row` sets, as typed; empty when nothing is.
+    fn get(&self, row: &PolicyRow) -> PolicyDraft {
+        match row {
+            PolicyRow::Every => self.every.clone(),
+            PolicyRow::Root(name) => self.roots.get(name).cloned().unwrap_or_default(),
+        }
+    }
+
+    /// What `row` sets, to type into.
+    fn get_mut(&mut self, row: &PolicyRow) -> &mut PolicyDraft {
+        match row {
+            PolicyRow::Every => &mut self.every,
+            PolicyRow::Root(name) => self.roots.entry(name.clone()).or_default(),
+        }
+    }
+
+    /// The settings typed for every root and for each of `shown`, or what is wrong with them. A root's own policy
+    /// that the form doesn't show, as one unregistered since it loaded, is never saved.
+    fn read(&self, shown: &[String]) -> Result<PermissionSettings, String> {
+        let mut roots = BTreeMap::new();
+        for (name, draft) in self.roots.iter().filter(|(name, _)| shown.contains(name)) {
+            if let Some(policy) = draft.read(name)? {
+                roots.insert(name.clone(), policy);
+            }
+        }
+        Ok(PermissionSettings {
+            global: self.every.read("every root")?,
+            roots,
+        })
+    }
+}
+
+/// The permission policy's form: the mode and group you want for files and folders, for every root and each root's
+/// own in its place.
+#[component]
+fn PolicyForm(roots: Signal<Vec<Root>>) -> impl IntoView {
+    let settings = LocalResource::new(|| api::get::<SettingsView>("/settings"));
+    let draft = RwSignal::new(PolicyDrafts::default());
+    Effect::new(move || {
+        if let Some(Ok(settings)) = settings.get() {
+            draft.set(PolicyDrafts::of(&settings.permissions));
+        }
+    });
+    let said = RwSignal::new(None::<Result<String, String>>);
+    let save = move |_| {
+        let shown: Vec<String> =
+            roots.with_untracked(|r| r.iter().map(|r| r.name.clone()).collect());
+        let permissions = match draft.with_untracked(|d| d.read(&shown)) {
+            Ok(p) => p,
+            Err(problem) => {
+                said.set(Some(Err(problem)));
+                return;
+            }
+        };
+        let update = SettingsUpdate {
+            permissions: Some(permissions),
+            ..Default::default()
+        };
+        leptos::task::spawn_local(async move {
+            said.set(Some(
+                match api::patch::<_, SettingsView>("/settings", &update).await {
+                    Ok(now) => {
+                        draft.set(PolicyDrafts::of(&now.permissions));
+                        Ok("Saved the permission policy. Check a folder to compare it.".into())
+                    }
+                    Err(problem) => Err(format!("Couldn't save the permission policy: {problem}")),
+                },
+            ));
+        });
+    };
+    let field = move |row: PolicyRow, which: PolicyField| {
+        let row = StoredValue::new(row);
+        let (label, placeholder) = (which.label(), which.placeholder());
+        view! {
+            <input
+                type="text"
+                inputmode="numeric"
+                size="6"
+                aria-label=move || format!("{}: {label}", row.with_value(PolicyRow::name))
+                placeholder=placeholder
+                prop:value=move || draft.with(|d| which.of(&d.get(&row.get_value())).clone())
+                on:input=move |ev| {
+                    let value = event_target_value(&ev);
+                    draft.update(|d| *which.of_mut(d.get_mut(&row.get_value())) = value);
+                }
+            />
+        }
+    };
+    let row = move |row: PolicyRow, label: String| {
+        view! {
+            <tr>
+                <th scope="row">{label}</th>
+                <td>{field(row.clone(), PolicyField::FileMode)}</td>
+                <td>{field(row.clone(), PolicyField::FolderMode)}</td>
+                <td>{field(row, PolicyField::Group)}</td>
+            </tr>
+        }
+    };
+    view! {
+        <h2 id="permission-policy">"Permission policy"</h2>
+        <div class="table-scroll">
+            <table aria-label="Permission policy">
+                <thead>
+                    <tr>
+                        <th scope="col"><span class="label">"Root"</span></th>
+                        <th scope="col"><span class="label">"File mode"</span></th>
+                        <th scope="col"><span class="label">"Folder mode"</span></th>
+                        <th scope="col"><span class="label">"Group"</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {row(PolicyRow::Every, "Every root".into())}
+                    {move || {
+                        roots
+                            .get()
+                            .into_iter()
+                            .map(|root| row(PolicyRow::Root(root.name.clone()), root.name))
+                            .collect_view()
+                    }}
+                </tbody>
+            </table>
+        </div>
+        <div class="actions">
+            <button type="button" on:click=save>"Save the permission policy"</button>
+        </div>
+        <Said said />
+        <Help summary="Leave a root's policy empty to use every root's, and every root's empty to keep the host's defaults.">
+            <p>
+                "Stage Select gives every file and folder it writes your policy's mode, and its group when you give one by number, as id -g shows it. A folder mode such as 2770 includes setgid, so new files take the folder's group."
+            </p>
+            <p>
+                "Each check of a source set or library folder compares what it sees with your policy, and its Permissions tab lists what differs. That never makes a source set stale or a library folder drift. Stage Select restores what it owns through a plan you approve, changes a group only to one it is in, and for the rest gives you the command to run on the host. A source set it may not change is only reported."
+            </p>
+        </Help>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use stage_select_api::permissions::{Mode, PermissionPolicy};
+
+    #[test]
+    fn the_policy_form_saves_a_policy_only_for_a_root_it_shows() {
+        let policy = PermissionPolicy {
+            file_mode: Mode(0o660),
+            folder_mode: Mode(0o2770),
+            group: None,
+        };
+        let saved = PermissionSettings {
+            global: None,
+            roots: [("gone".to_owned(), policy), ("sets".to_owned(), policy)].into(),
+        };
+
+        let read = PolicyDrafts::of(&saved).read(&["sets".to_owned()]).unwrap();
+
+        assert_eq!(read.roots.keys().collect::<Vec<_>>(), ["sets"]);
     }
 }

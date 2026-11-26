@@ -3,7 +3,7 @@
 //! lead the creation elsewhere. What was made is undone unless the registration it is for is kept.
 
 use std::ffi::OsString;
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsFd, OwnedFd};
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 
@@ -107,7 +107,7 @@ pub(crate) fn create_folder(path: &Path, what: &str) -> Result<Made> {
         let e = Errno::from_io_error(&e).unwrap_or(Errno::INVAL);
         refusal(what, path)(e, base)
     })?;
-    create_beneath(pinned, rel, what, path)
+    create_beneath(pinned, rel, what, path, None)
 }
 
 /// What a refusal to create `shown` says for an error at `at`.
@@ -138,8 +138,14 @@ fn refusal<'a>(what: &'a str, shown: &'a Path) -> impl Fn(Errno, &Path) -> Error
 }
 
 /// Creates the folder `rel` in the pinned folder `base`, and each missing folder between, as [`create_folder`]
-/// does, `shown` being the path a refusal shows.
-pub(crate) fn create_beneath(base: Pinned, rel: &Path, what: &str, shown: &Path) -> Result<Made> {
+/// does, `shown` being the path a refusal shows, giving each folder it makes `policy` when there is one.
+pub(crate) fn create_beneath(
+    base: Pinned,
+    rel: &Path,
+    what: &str,
+    shown: &Path,
+    policy: Option<&stage_select_api::permissions::PermissionPolicy>,
+) -> Result<Made> {
     let failed = refusal(what, shown);
     // Opens `name` in `dir` as a folder, a symlink refused as such.
     let open = |dir: &OwnedFd, name: &std::ffi::OsStr, at: &Path| {
@@ -171,6 +177,9 @@ pub(crate) fn create_beneath(base: Pinned, rel: &Path, what: &str, shown: &Path)
                             name: name.to_owned(),
                             id: Identity::of(&st),
                         });
+                        if let (Some(policy), Some(name)) = (policy, name.to_str()) {
+                            crate::permissions::give(current.as_fd(), Some(name), policy);
+                        }
                         open(&current, name, &at)?
                     }
                     // Made meanwhile by someone else: opened as any folder that is there.

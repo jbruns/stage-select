@@ -505,6 +505,7 @@ mod tests {
             write_mib_per_s: write,
             updated_by: "test".into(),
             updated_at: "then".into(),
+            permissions: None,
         }
     }
 

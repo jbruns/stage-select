@@ -27,6 +27,7 @@ mod lifecycle;
 mod made_folders;
 mod migrations;
 pub mod observe;
+mod permissions;
 mod placements;
 pub mod plan_meter;
 mod plans;
@@ -177,6 +178,8 @@ pub struct Store {
     free_space: std::sync::atomic::AtomicU64,
     /// How many of this store's syncs of the RomM Additions collection wait their turn, for tests.
     romm_syncs_waiting: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// What the latest check of each folder found of its permissions, since the service started.
+    permissions: permissions::Checked,
 }
 
 // The seams let a caller make an entry read as another user's, so no optimized build, which every shipped binary is,
@@ -204,6 +207,15 @@ pub fn pretend_owner(path: &Path, owner: Option<(u32, u32)>) -> std::io::Result<
         owner,
     );
     Ok(())
+}
+
+/// Makes the folder at `path` a mount of its own while `on`: a rename into it from outside it, or out of it, fails
+/// with `EXDEV`, as one between two bind mounts of a filesystem does though both report its device. Only with the
+/// `test-seams` feature.
+#[cfg(feature = "test-seams")]
+#[doc(hidden)]
+pub fn pretend_mount(path: &Path, on: bool) {
+    folder_dir::pretend_mount(path, on);
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -593,6 +605,7 @@ impl Store {
             roots: std::sync::RwLock::default(),
             chdman: std::sync::RwLock::default(),
             settings_update: std::sync::Mutex::default(),
+            permissions: permissions::Checked::default(),
             regions: std::sync::OnceLock::new(),
             meter: stage_select_engine::meter::Meter::default(),
             copy_across: std::sync::atomic::AtomicBool::new(false),
@@ -662,7 +675,8 @@ impl Store {
     /// treat them as if they were.
     fn across_filesystems(&self, e: Option<&std::io::Error>) -> bool {
         self.copy_across.load(std::sync::atomic::Ordering::SeqCst)
-            || e.is_some_and(|e| e.raw_os_error() == Some(rustix::io::Errno::XDEV.raw_os_error()))
+            // By its kind: a rename's error names the path, which keeps the kind and drops the code.
+            || e.is_some_and(|e| e.kind() == std::io::ErrorKind::CrossesDevices)
     }
 
     #[doc(hidden)]

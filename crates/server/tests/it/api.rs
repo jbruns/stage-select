@@ -5006,3 +5006,67 @@ fn a_missing_root_or_source_set_folder_is_created_when_asked() {
     assert_eq!(added.folder_created.unwrap().by, TOKEN_ACTOR);
     assert!(folder.is_dir());
 }
+
+#[cfg(unix)]
+#[test]
+fn the_api_takes_a_permission_policy_and_says_what_a_check_found_of_a_source_sets_permissions() {
+    use stage_select_api::permissions::{
+        Mode, PermissionCause, PermissionsRestored, PermissionsView,
+    };
+    const ESCAPED: &str = "Test%20-%20System";
+    let env = Env::new();
+    let service = env.start();
+    let client = Client::new(&service);
+    client.upload("Test - System.dat", &env.dat());
+    client.add_set();
+    let file = env.tmp.path().join("roots/sets").join(SET).join("new.bin");
+    write_file(&file, b"new");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o604)).unwrap();
+    }
+    let audit: Job = client.start_audit().body_mut().read_json().unwrap();
+    client.follow(audit.id);
+    let (status, refused) = client.change_settings(serde_json::json!({
+        "permissions": {"global": {"file_mode": "0440", "folder_mode": "2770"}}
+    }));
+    assert_eq!(status, 400, "{refused}");
+    let (status, settings) = client.change_settings(serde_json::json!({
+        "permissions": {"global": {"file_mode": "0660", "folder_mode": "2770"}}
+    }));
+    assert_eq!(status, 200, "{settings}");
+    assert_eq!(settings["permissions"]["global"]["folder_mode"], "2770");
+
+    let mut response = client
+        .post(&format!("/source-sets/{ESCAPED}/stat-walks"))
+        .send_empty()
+        .unwrap();
+    let job: Job = response.body_mut().read_json().unwrap();
+    assert_eq!(client.follow(job.id).1.state, JobState::Succeeded);
+    let view: PermissionsView = client.json(&format!("/source-sets/{ESCAPED}/permissions"));
+
+    let report = view.report.unwrap();
+    let new = report
+        .differences
+        .iter()
+        .find(|d| d.path == "new.bin")
+        .unwrap();
+    assert_eq!(
+        (new.mode, new.cause),
+        (Mode(0o604), PermissionCause::Restorable)
+    );
+    let refused = client
+        .post(&format!("/source-sets/{ESCAPED}/permissions/restore"))
+        .send_json(serde_json::json!({"digest": "none"}));
+    assert_eq!(status_of(refused), 409);
+    let mut response = client
+        .post(&format!("/source-sets/{ESCAPED}/permissions/restore"))
+        .send_json(serde_json::json!({"digest": report.plan_digest.unwrap()}))
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let restored: PermissionsRestored = response.body_mut().read_json().unwrap();
+    assert!(
+        restored.restored >= 1 && restored.failed.is_empty(),
+        "{restored:?}"
+    );
+}

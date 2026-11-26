@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 use rustix::fs::{AtFlags, Dir, FileType, Mode, OFlags, RenameFlags, Stat};
 use stage_select_api::build::{FileStat, STATE};
+use stage_select_api::permissions::PermissionPolicy;
 
 /// An open directory and the path it was opened at, for messages.
 pub(super) struct FolderDir {
@@ -25,6 +26,9 @@ pub(super) struct FolderDir {
     /// as it is until the folder's marker shows it is this store's ([`FolderDir::close_state`]): what a write in it
     /// is refused with.
     exposed: Option<String>,
+    /// The Permission Policy of the Root it is in, given to what is written in it (ADR 0031); none in Stage Select's
+    /// own folders, which keep their own rule ([`closed_to_others`]), and where the Root has none.
+    policy: Option<PermissionPolicy>,
 }
 
 const DIR_FLAGS: OFlags = OFlags::RDONLY
@@ -228,11 +232,48 @@ pub(super) fn pretend_owner(id: Identity, owner: Option<(u32, u32)>) {
     }
 }
 
-/// The user and group that own the entry `st` describes: its filesystem's answer, or what a test said.
-fn owner_of(st: &Stat) -> (u32, u32) {
+/// The folders a test says are mounts of their own: a rename into one from outside it fails with `EXDEV`, as one
+/// between two bind mounts of a filesystem does though both report its device. By path, as a mount is. Built only
+/// with the `test-seams` feature.
+#[cfg(feature = "test-seams")]
+static MOUNTS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+/// Makes the folder at `path` a mount of its own, as [`MOUNTS`] says, while `on`.
+#[cfg(feature = "test-seams")]
+pub(super) fn pretend_mount(path: &Path, on: bool) {
+    let mut mounts = MOUNTS.lock().unwrap_or_else(|e| e.into_inner());
+    mounts.retain(|of| of != path);
+    if on {
+        mounts.push(path.to_path_buf());
+    }
+}
+
+/// Whether a test said a rename from the folder at `from` to the one at `to` crosses a mount: never without the
+/// `test-seams` feature.
+#[cfg_attr(not(feature = "test-seams"), allow(unused_variables))]
+fn crosses_mount(from: &Path, to: &Path) -> bool {
     #[cfg(feature = "test-seams")]
     {
-        let id = Identity::of(st);
+        MOUNTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .any(|m| to.starts_with(m) != from.starts_with(m))
+    }
+    #[cfg(not(feature = "test-seams"))]
+    false
+}
+
+/// The user and group that own the entry `st` describes: its filesystem's answer, or what a test said.
+pub(super) fn owner_of(st: &Stat) -> (u32, u32) {
+    owner_of_id(Identity::of(st), (st.st_uid, st.st_gid))
+}
+
+/// The user and group that own the entry `id`, which its filesystem says are `recorded`, or what a test said.
+#[cfg_attr(not(feature = "test-seams"), allow(unused_variables))]
+pub(super) fn owner_of_id(id: Identity, recorded: (u32, u32)) -> (u32, u32) {
+    #[cfg(feature = "test-seams")]
+    {
         if let Some((_, owner)) = PRETENDED_OWNERS
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -242,7 +283,7 @@ fn owner_of(st: &Stat) -> (u32, u32) {
             return *owner;
         }
     }
-    (st.st_uid, st.st_gid)
+    recorded
 }
 
 /// What Stage Select changed of the permissions of its own entries, by the entry's path, in sentences, until the
@@ -262,7 +303,7 @@ pub(super) fn take_repaired(folder: &Path) -> Vec<String> {
 }
 
 /// `path` quoted for a POSIX shell.
-fn quoted(path: &Path) -> String {
+pub(super) fn quoted(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
 }
 
@@ -552,6 +593,7 @@ impl FolderDir {
             path: root.to_path_buf(),
             own: false,
             exposed: None,
+            policy: None,
         };
         if !rel.is_empty() {
             for part in rel.split('/') {
@@ -559,6 +601,23 @@ impl FolderDir {
             }
         }
         Ok(dir)
+    }
+
+    /// Opens the folder `rel` in `root` as [`FolderDir::open`] does, to give what is written in it the Root's
+    /// Permission Policy.
+    pub fn open_in(root: &crate::roots::Root, rel: &str) -> io::Result<FolderDir> {
+        Ok(FolderDir::open(&root.path, rel)?.governed(root.permissions))
+    }
+
+    /// This folder, giving what is written in it, and in the folders opened through it, `policy`.
+    pub fn governed(mut self, policy: Option<PermissionPolicy>) -> FolderDir {
+        self.policy = if self.own { None } else { policy };
+        self
+    }
+
+    /// The policy given to what is written in this folder.
+    fn governs(&self) -> Option<&PermissionPolicy> {
+        self.policy.as_ref().filter(|_| !self.own)
     }
 
     pub fn path(&self) -> &Path {
@@ -617,6 +676,7 @@ impl FolderDir {
             path: self.at(name),
             own,
             exposed: holder.exposed.clone(),
+            policy: if own { None } else { holder.policy },
         };
         if state {
             // Others' access is not removed here: this may be another store's folder, as a backup of one is, until its
@@ -725,11 +785,15 @@ impl FolderDir {
         io::Error::other(why.explain(|why| self.not_state(&why).to_string()))
     }
 
-    /// Creates the directory `name`, failing if anything is there.
+    /// Creates the directory `name`, failing if anything is there, and gives it the Permission Policy.
     pub fn mkdir(&self, name: &str) -> io::Result<()> {
         let name = component(name)?;
         FolderDir::writable(self)?;
-        rustix::fs::mkdirat(&self.fd, name, dir_mode()).map_err(|e| self.error(name, e))
+        rustix::fs::mkdirat(&self.fd, name, dir_mode()).map_err(|e| self.error(name, e))?;
+        if let Some(policy) = self.governs() {
+            crate::permissions::give(self.fd.as_fd(), Some(name), policy);
+        }
+        Ok(())
     }
 
     /// Creates the directory `name` for this service's user only, failing if anything is there.
@@ -803,6 +867,7 @@ impl FolderDir {
             path: self.path.clone(),
             own: self.own,
             exposed: self.exposed.clone(),
+            policy: self.policy,
         })
     }
 
@@ -811,19 +876,19 @@ impl FolderDir {
         Identity::of_fd(&self.fd).map_err(|e| with_path(&self.path, e))
     }
 
-    /// Creates the new file `name` for reading and writing, failing if anything, a symlink included, is there.
+    /// Creates the new file `name` for reading and writing, failing if anything, a symlink included, is there, and
+    /// gives it the Permission Policy.
     pub fn create_new(&self, name: &str) -> io::Result<File> {
         let (parent, leaf) = self.resolve(name)?;
-        FolderDir::writable(parent.as_ref().unwrap_or(self))?;
+        let holder = parent.as_ref().unwrap_or(self);
+        FolderDir::writable(holder)?;
         let flags =
             OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-        let fd = rustix::fs::openat(
-            &parent.as_ref().unwrap_or(self).fd,
-            leaf,
-            flags,
-            file_mode(),
-        )
-        .map_err(|e| self.error(name, e))?;
+        let fd = rustix::fs::openat(&holder.fd, leaf, flags, file_mode())
+            .map_err(|e| self.error(name, e))?;
+        if let Some(policy) = holder.governs() {
+            crate::permissions::give(fd.as_fd(), None, policy);
+        }
         Ok(File::from(fd))
     }
 
@@ -901,6 +966,46 @@ impl FolderDir {
         }
     }
 
+    /// Gives the entry `rel` in this folder (this folder itself, when empty) `policy`, while it is still `id`, a
+    /// regular file or a folder reached without following a symlink. Returns the `lstat` after, or why it was not
+    /// changed.
+    pub fn restore(
+        &self,
+        rel: &str,
+        id: Identity,
+        policy: &PermissionPolicy,
+    ) -> std::result::Result<Stat, String> {
+        let found = if rel.is_empty() {
+            rustix::fs::fstat(&self.fd).map(|st| (None, st))
+        } else {
+            let (parent, leaf) = self.resolve(rel).map_err(|e| e.to_string())?;
+            rustix::fs::statat(
+                &parent.as_ref().unwrap_or(self).fd,
+                leaf,
+                AtFlags::SYMLINK_NOFOLLOW,
+            )
+            .map(|st| (Some((parent, leaf)), st))
+        };
+        let (at, st) = found.map_err(|e| format!("it can't be found: {e}"))?;
+        if Identity::of(&st) != id
+            || !matches!(
+                FolderDir::kind(&st),
+                FileType::RegularFile | FileType::Directory
+            )
+        {
+            return Err(
+                "it is no longer the file the check saw, so it was left as it is; check again"
+                    .into(),
+            );
+        }
+        let (dir, leaf) = match &at {
+            Some((parent, leaf)) => (parent.as_ref().unwrap_or(self).fd.as_fd(), Some(*leaf)),
+            None => (self.fd.as_fd(), None),
+        };
+        crate::permissions::give(dir, leaf, policy)
+            .ok_or_else(|| "Stage Select can't change it".to_owned())
+    }
+
     pub fn kind(st: &Stat) -> FileType {
         FileType::from_raw_mode(st.st_mode)
     }
@@ -912,14 +1017,33 @@ impl FolderDir {
         let (to_parent, to_leaf) = dest.resolve(to)?;
         FolderDir::writable(from_parent.as_ref().unwrap_or(self))?;
         FolderDir::writable(to_parent.as_ref().unwrap_or(dest))?;
-        match rustix::fs::renameat_with(
-            &from_parent.as_ref().unwrap_or(self).fd,
-            from_leaf,
-            &to_parent.as_ref().unwrap_or(dest).fd,
-            to_leaf,
-            RenameFlags::NOREPLACE,
+        let renamed = if crosses_mount(
+            &from_parent.as_ref().unwrap_or(self).path,
+            &to_parent.as_ref().unwrap_or(dest).path,
         ) {
-            Ok(()) => Ok(()),
+            Err(rustix::io::Errno::XDEV)
+        } else {
+            rustix::fs::renameat_with(
+                &from_parent.as_ref().unwrap_or(self).fd,
+                from_leaf,
+                &to_parent.as_ref().unwrap_or(dest).fd,
+                to_leaf,
+                RenameFlags::NOREPLACE,
+            )
+        };
+        match renamed {
+            Ok(()) => {
+                // Given the policy of where it went once it is there, never before: a rename that fails leaves the
+                // original as it was, for a copy to find it still the file its plan saw.
+                if let Some(policy) = to_parent.as_ref().unwrap_or(dest).governs() {
+                    crate::permissions::give(
+                        to_parent.as_ref().unwrap_or(dest).fd.as_fd(),
+                        Some(to_leaf),
+                        policy,
+                    );
+                }
+                Ok(())
+            }
             Err(rustix::io::Errno::EXIST) => Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
                 format!("{} already exists", dest.at(to).display()),
@@ -952,7 +1076,16 @@ impl FolderDir {
             &to_parent.as_ref().unwrap_or(self).fd,
             to_leaf,
         )
-        .map_err(|e| self.error(to, e))
+        .map_err(|e| self.error(to, e))?;
+        // Given the policy once it is in place, as [`FolderDir::rename_new`] does.
+        if let Some(policy) = to_parent.as_ref().unwrap_or(self).governs() {
+            crate::permissions::give(
+                to_parent.as_ref().unwrap_or(self).fd.as_fd(),
+                Some(to_leaf),
+                policy,
+            );
+        }
+        Ok(())
     }
 
     /// Removes the file or symlink `name`; a symlink's target is never touched.

@@ -28,6 +28,7 @@ use stage_select_api::ingest::{
     DismissIngestItems, IngestFolder, IngestItem, IngestKeptFile, IngestPlan, PlanIngest,
     RegisterIngestFolder,
 };
+use stage_select_api::permissions::{PermissionsApproval, PermissionsRestored, PermissionsView};
 use stage_select_api::repair::{PlanRepair, RepairPlan, SourceKeptDeletion, SourceKeptFile};
 use stage_select_api::romm::{
     RommCheck, RommFolderPlatform, RommReconciliation, RommRescan, RommRescanRequest,
@@ -157,6 +158,14 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
             get(followed_revisions),
         )
         .route("/source-sets/{name}/ingests", get(source_set_ingests))
+        .route(
+            "/source-sets/{name}/permissions",
+            get(source_set_permissions),
+        )
+        .route(
+            "/source-sets/{name}/permissions/restore",
+            post(restore_source_set_permissions),
+        )
         .route("/fetch", get(fetch_status))
         .route("/fetch/{provider}", post(start_fetch))
         .route("/audits", post(start_audit))
@@ -198,6 +207,11 @@ pub fn router(state: AppState, auth: Arc<Auth>, ui: Option<&std::path::Path>) ->
         .route("/libraries/{id}/cleanups", post(plan_cleanup))
         .route("/libraries/{id}/checks", post(start_check))
         .route("/libraries/{id}/check", get(latest_check))
+        .route("/libraries/{id}/permissions", get(library_permissions))
+        .route(
+            "/libraries/{id}/permissions/restore",
+            post(restore_library_permissions),
+        )
         .route("/libraries/{id}/incomplete", get(incomplete))
         .route("/libraries/{id}/kept-files", get(kept_files))
         .route("/libraries/{id}/kept-deletions", post(plan_kept_deletion))
@@ -1798,6 +1812,62 @@ async fn stat_walks(
     let Path(name) = name?;
     Ok(Json(
         blocking(&state, move |store| store.stat_walks(&name)).await?,
+    ))
+}
+
+/// A Source Set's Permission Policy and what its latest stat walk found of its permissions.
+async fn source_set_permissions(
+    State(state): State<AppState>,
+    name: Result<Path<String>, PathRejection>,
+) -> ApiResult<Json<PermissionsView>> {
+    let Path(name) = name?;
+    Ok(Json(
+        blocking(&state, move |store| store.source_set_permissions(&name)).await?,
+    ))
+}
+
+/// Restores what the latest stat walk of a Source Set found Stage Select can restore, by the plan's digest.
+async fn restore_source_set_permissions(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    name: Result<Path<String>, PathRejection>,
+    body: Result<Json<PermissionsApproval>, JsonRejection>,
+) -> ApiResult<Json<PermissionsRestored>> {
+    let Path(name) = name?;
+    let Json(approval) = body?;
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.restore_source_set_permissions(&name, &approval.digest, &actor)
+        })
+        .await?,
+    ))
+}
+
+/// A Library Folder's Permission Policy and what its latest check found of its permissions.
+async fn library_permissions(
+    State(state): State<AppState>,
+    id: Result<Path<i64>, PathRejection>,
+) -> ApiResult<Json<PermissionsView>> {
+    let Path(id) = id?;
+    Ok(Json(
+        blocking(&state, move |store| store.library_permissions(id)).await?,
+    ))
+}
+
+/// Restores what the latest check of a Library Folder found Stage Select can restore, by the plan's digest.
+async fn restore_library_permissions(
+    State(state): State<AppState>,
+    Extension(Actor(actor)): Extension<Actor>,
+    id: Result<Path<i64>, PathRejection>,
+    body: Result<Json<PermissionsApproval>, JsonRejection>,
+) -> ApiResult<Json<PermissionsRestored>> {
+    let Path(id) = id?;
+    let Json(approval) = body?;
+    Ok(Json(
+        blocking(&state, move |store| {
+            store.restore_library_permissions(id, &approval.digest, &actor)
+        })
+        .await?,
     ))
 }
 

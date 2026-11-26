@@ -1367,7 +1367,7 @@ impl Store {
 
     fn additions_root(&self) -> std::result::Result<FolderDir, String> {
         match self.roots().additions() {
-            Some(root) => FolderDir::open(&root.path, "").map_err(|e| e.to_string()),
+            Some(root) => FolderDir::open_in(root, "").map_err(|e| e.to_string()),
             None => Err(
                 "no additions root is registered; register a root of kind additions to hold the additions sets"
                     .into(),

@@ -406,6 +406,7 @@ impl Store {
                     Path::new(&rel),
                     &format!("Source set {name}"),
                     &folder,
+                    roots.root(root).and_then(|r| r.permissions).as_ref(),
                 )?);
                 self.fault_point(crate::Fault::FolderCreated);
                 resolve(roots, root, &rel)?;

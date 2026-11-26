@@ -7,6 +7,7 @@ use stage_select_api::JobState;
 use stage_select_api::additions::AdditionState;
 use stage_select_api::build::{FileOutcome, ItemKind, ItemState};
 use stage_select_api::ingest::IngestAction;
+use stage_select_api::permissions::PermissionCause;
 use stage_select_api::repair::RepairKind;
 use stage_select_api::report::{Finding, GameStatus};
 use stage_select_api::romm::{RommAdditionsOutcome, RommFlag, RommScanOutcome};
@@ -1885,6 +1886,48 @@ pub enum CleanupKind {
     Kept,
 }
 
+/// Who can give a file that differs from your permission policy that policy, in a source set's or library folder's
+/// Permissions tab.
+impl Status for PermissionCause {
+    const ALL: &'static [Self] = &[
+        PermissionCause::OtherOwner,
+        PermissionCause::NotInGroup,
+        PermissionCause::ReadOnly,
+        PermissionCause::Restorable,
+    ];
+
+    fn look(self) -> Look {
+        match self {
+            PermissionCause::OtherOwner => look(
+                Glyph::TriangleAlert,
+                Tone::Review,
+                "Another owner",
+                "Another user owns it, so Stage Select can't change its mode: run the command shown on the host.",
+            ),
+            PermissionCause::NotInGroup => look(
+                Glyph::CircleMinus,
+                Tone::Review,
+                "Not its group",
+                "Stage Select isn't in your policy's group, so it can't give it that group: run the command shown \
+                 on the host.",
+            ),
+            PermissionCause::ReadOnly => look(
+                Glyph::Eye,
+                Tone::Neutral,
+                "Read-only",
+                "Stage Select may not change this source set, so it only reports it: run the command shown on the \
+                 host.",
+            ),
+            PermissionCause::Restorable => look(
+                Glyph::Wrench,
+                Tone::Active,
+                "Restorable",
+                "Stage Select owns it, so the plan restores it once you approve it.",
+            ),
+        }
+    }
+}
+
 impl Status for CleanupKind {
     const ALL: &'static [Self] = &[
         CleanupKind::Conflict,
@@ -2133,6 +2176,7 @@ pub(crate) mod tests {
             ("build items", vocabulary::<ItemState>()),
             ("plan outcomes", vocabulary::<ItemOutcome>()),
             ("cleanup candidates", vocabulary::<CleanupKind>()),
+            ("permission differences", vocabulary::<PermissionCause>()),
             ("the stream", vocabulary::<Stream>()),
         ]
     }

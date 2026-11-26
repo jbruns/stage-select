@@ -12,6 +12,7 @@ pub mod fetch;
 pub mod ingest;
 pub mod lifecycle;
 pub mod paths;
+pub mod permissions;
 pub mod planning;
 pub mod repair;
 pub mod report;

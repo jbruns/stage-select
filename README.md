@@ -606,6 +606,35 @@ stage-select root holds <name>
 what you give, and `default` clears your value of a ceiling. To switch one source set, use `set edit` (see "Source sets"). The commands work on the store directly, so stop the service first, or use the workbench or
 the API while it runs.
 
+### Permission policy
+
+Your permission policy is the mode and group you want your files and folders to have: a file mode such as `0660`, a
+folder mode such as `2770` (setgid included, so new files take the folder's group), and, if you like, a group by its
+number, as `id -g` shows it. You set one for every root, and any root's own in its place, under Settings, then Roots,
+in the workbench, or with `PATCH /api/v1/settings` (`"permissions": {"global": {"file_mode": "0660", "folder_mode":
+"2770", "group": 1000}, "roots": {"NAME": {…}}}`). Without one, files keep the host's defaults and nothing is compared.
+A policy that wouldn't let a file's owner read and write it, or a folder's owner read, write and open it, is refused,
+as is a group Stage Select isn't in.
+
+- **What Stage Select writes gets it.** Every file and folder a build, a repair, an ingest move, a placement or an
+  addition writes, and each folder it creates for a source set or a library folder, is given your policy as it is
+  written. It changes a mode only of what it owns, and a group only to one it is in. What comes out otherwise, as an
+  access control list's mask may make it, is what the next check reports. Its own `.stage-select` folders keep their
+  own rule (see "Library folders and builds").
+- **Each check compares it.** A check for changes of a source set, and a library folder's check, compare the
+  permissions of what they already look at with your policy: no other pass is made. The source set's or library
+  folder's **Permissions** tab lists what differs, from its latest check since the service started. A difference
+  never makes a source set stale or a library folder drift, and never stops an audit or a build.
+- **What Stage Select owns, it restores through a plan.** In a library folder, and a source set Stage Select may
+  change, the Permissions tab offers to restore what differs. It restores only what you reviewed: once your policy
+  or the folder changed since the check, it changes nothing and asks you to check again.
+- **What it can't restore, it explains.** A file another user owns, a group Stage Select isn't in, and every file of
+  a source set it may not change come with what is wrong, what you chose, and one command to run on the host, such
+  as `find '/data/games/nes' -name .stage-select -prune -o \( -type d -o -type f \) -exec chown -h 4015 {} +` as root,
+  then check again. The command leaves every `.stage-select` folder as it is, since those keep their own permissions.
+  The path is as Stage Select sees it: if it runs in a container, use the host folder mounted there. Stage Select never
+  re-creates a file to change its owner.
+
 ### Starting the service
 
 A few things come from `serve`'s flags, or the environment variables that match them, because the service needs them
@@ -2187,6 +2216,8 @@ What these versions promise you:
 | `POST /api/v1/source-sets/{name}/stat-walks`       | queue a check for changes; `202`, or `400` when it has never been audited |
 | `GET /api/v1/source-sets/{name}/followed-revisions` | the newer DAT revisions that made it stale while it followed its DAT, newest first: `{"source_set", "sha256", "version", "imported_at", "found_at"}` |
 | `GET /api/v1/source-sets/{name}/stat-walks`        | the checks that found changes since an audit, newest first: `{"id", "source_set", "audit", "found_at", "checked_at", "changed", "added", "removed"}` |
+| `GET /api/v1/source-sets/{name}/permissions`       | your permission policy for it, `policy`, and its latest check's `report`, if any since the service started: `{"path", "checked_at", "policy", "current", "compared", "differences", "fixes", "plan_digest"}`, each difference `{"path", "folder", "mode", "uid", "gid", "expected_mode", "expected_group", "cause"}`, `cause` one of `restorable`, `other_owner`, `not_in_group` or `read_only`, and each fix `{"cause", "count", "explanation", "command"}` |
+| `POST /api/v1/source-sets/{name}/permissions/restore` | restore what its latest check found Stage Select can restore, `{"digest"}` from `plan_digest`; returns `{"restored", "failed"}`, or `409` when the policy or the folder changed since |
 | `POST /api/v1/audits`                              | queue an audit job: `{"source_set", "revision"?, "evidence"?}`, `evidence` being `quick`, `incremental` (the default) or `full`; `202` |
 | `GET /api/v1/audits/{id}`                          | an audit's summary                                           |
 | `GET /api/v1/audits/{id}/report`                   | the full `stage-select.audit/1` report                        |
@@ -2205,7 +2236,7 @@ What these versions promise you:
 | `GET /api/v1/profiles/{name}/versions/{version}`   | one version                                                  |
 | `GET /api/v1/storage-policy`                       | the storage policy: `{"source_sets", "play_libraries"}`, each `{"format", "delete_originals", "layout", "systems"}`, `format` being `torrent_zip`, `loose`, `loose_folder` or `chd`, `layout` `es_de` or `flat`, `set_layout` `non_merged` (the default, left out), `split` or `merged`, and `systems` each system's own `{"format"?, "delete_originals"?, "layout"?, "sbi"?, "set_layout"?}`; only a disc system's play libraries take `layout` and `sbi`, and only a MAME system's source sets `set_layout` |
 | `PUT /api/v1/storage-policy`                       | replace it; changes no file, and the next plans propose the conversions |
-| `GET /api/v1/settings`                             | your operations settings: `jobs` (`pace`; `host`, its `concurrent`, `hashers`, `readers` and `archive_workers`; and `roots`, each `{"root", "readers", "read_mib_per_s", "write_mib_per_s", "observed_write_mib_per_s"}`; each ceiling `{"ceiling", "in_force", "source", "yours", "measured"}`, its `source` one of `yours`, `calibration`, `cpus` or `default`, and `in_force` what the pace allows now), `archive` (`max_dictionary_mib`), `retention`, `path_templates`, `source_sets`, `fetch`, `chd`, `ingest_folders` (every ingest root's `{"settle_secs", "scan_every_minutes"}`), `notify` (`url_set`, `secret_set`, `events`, `workbench_url`) and `romm` (`enabled`, `base_url`, `token_set`, `root`); never the webhook's URL or secret or the RomM token |
+| `GET /api/v1/settings`                             | your operations settings: `jobs` (`pace`; `host`, its `concurrent`, `hashers`, `readers` and `archive_workers`; and `roots`, each `{"root", "readers", "read_mib_per_s", "write_mib_per_s", "observed_write_mib_per_s"}`; each ceiling `{"ceiling", "in_force", "source", "yours", "measured"}`, its `source` one of `yours`, `calibration`, `cpus` or `default`, and `in_force` what the pace allows now), `archive` (`max_dictionary_mib`), `retention`, `path_templates`, `source_sets`, `fetch`, `chd`, `ingest_folders` (every ingest root's `{"settle_secs", "scan_every_minutes"}`), `notify` (`url_set`, `secret_set`, `events`, `workbench_url`), `romm` (`enabled`, `base_url`, `token_set`, `root`) and `permissions` (see "Permission policy"); never the webhook's URL or secret or the RomM token |
 | `PATCH /api/v1/settings`                           | replace each section the body gives, as above without `jobs` but with `pace` and `ceilings`, `{"host": {…}, "roots": {"NAME": {…}}}`, every ceiling of yours at once: one left out or `null` is cleared; `notify` takes `url` and `secret`, and `romm` its `token`, each as `"keep"`, `"clear"` or `{"set": "…"}`; applies at once and returns the settings; `400` when a value is refused, and nothing changes |
 | `POST /api/v1/romm/test`                           | test the RomM connection without saving it: `{"base_url"?, "token"?}`, each by default the saved one; returns `{"version", "version_tested", "user" ({"username", "admin"}, with `me.read`), "missing_scopes", "failure"}`; `400` for a new address with the saved token |
 | `GET /api/v1/romm/platforms`                       | each library folder's RomM platform: `{"folder_id", "root", "path", "platform"}`, `platform` being `{"mapping": "mapped", "fs_slug"}` or a `mapping` of `no_root`, `outside_root`, `nested`, `is_root` or `unresolved` (the folder or the RomM root can't be found on disk) |
@@ -2228,6 +2259,8 @@ What these versions promise you:
 | `POST /api/v1/libraries/{id}/plannings`            | the same plan, made in the background: `202` with the planning, read at `GET /plannings/{id}` |
 | `POST /api/v1/libraries/{id}/cleanups`             | plan a cleanup: `{"entries"?: {name: "keep_aside" \| "adopt" \| "acknowledge" \| "add_addition"}, "restore"?: [kept id], "repack"?: [target], "additions"?: {name: {"system", "name", "parent"?}}}`; `201`, approved as a plan |
 | `POST /api/v1/libraries/{id}/checks`               | check it; `202` with the check job                           |
+| `GET /api/v1/libraries/{id}/permissions`           | as for a source set, from the folder's latest check |
+| `POST /api/v1/libraries/{id}/permissions/restore`  | as for a source set |
 | `GET /api/v1/libraries/{id}/check`                 | its latest check: each built file, the drift and the acknowledged entries; `404` when never checked |
 | `GET /api/v1/libraries/{id}/incomplete`            | what its current build lacks, by reason                      |
 | `GET /api/v1/libraries/{id}/kept-files`            | the files builds set aside in it, newest generation first    |
@@ -2659,7 +2692,7 @@ Its screens:
   shows no **Edit coverage**: its **Coverage** section says in one line why it has none. **Library folders** lists its
   library folders with their status. **Additions** shows
   its DAT's additions set. **History** is one timeline of its audits, repairs, ingests into it, builds from it and
-  what made it stale (checks that found changes and newer revisions of the DAT it follows), newest first; **Change DAT…**, under its more actions menu, binds it to another DAT of the same DAT format, showing what that changes first; a past audit opens read-only. **Kept files** lists what its repairs set aside, where you pick some
+  what made it stale (checks that found changes and newer revisions of the DAT it follows), newest first; **Change DAT…**, under its more actions menu, binds it to another DAT of the same DAT format, showing what that changes first; a past audit opens read-only. **Permissions** lists what its latest check for changes found differs from your permission policy, as a library folder's does; **Kept files** lists what its repairs set aside, where you pick some
   and approve deleting them. **Repair** shows while a repair is under way, or when a link names a plan.
 - **DATs** (`/dats`) lists every DAT revision, newest first within each DAT, with its name, provider ("Unknown" when
   its header doesn't show one), version, date, whether its file is kept and how many source sets use its DAT. Its
@@ -2749,7 +2782,8 @@ Its screens:
   You switch each on its source set: the **Stage Select may change this source set** choice when you register it, on
   by default, and in its overview's **About it**, where turning it off lists the approved plans it voided. You register a root there, with **Browse…** beside its path to
   browse from `/` and **Create this folder** for a folder that doesn't exist yet, edit one, its name aside, or
-  unregister one after you confirm; a refusal says why, and an edit that voids approved plans lists them. **About**, also linked
+  unregister one after you confirm; a refusal says why, and an edit that voids approved plans lists them. Under them, **Permission policy** sets the file mode, folder mode and group for every root, and any root's own;
+  see "Permission policy". **About**, also linked
   from every screen's footer, says where selection comes from, explains the default orders, and shows the licence
   texts of Stage Select, the selection engine and its clone lists and metadata, and the Lucide icons, served from
   the bundle's `licences/` folder.
@@ -2772,7 +2806,9 @@ Its screens:
   from, planning a build of another, and rebinding it; **Plan**, its latest plan, shown by kind of item, with what
   blocks it, the games it places and returns under single copy with how each moves and the space it frees and needs, its
   choices, the built files no longer selected, approval and the build live, with a way to cancel it; **Builds**;
-  **Drift**, its latest check, which you can run again, and a cleanup of what it found; and **Kept files**, by
+  **Drift**, its latest check, which you can run again, and a cleanup of what it found; **Permissions**, what that check
+  found differs from your permission policy, with a plan to restore it and the commands to run on the host for the
+  rest; and **Kept files**, by
   generation, where you pick some or all and approve deleting them. A plan with unresolved game groups offers to build
   resolved game groups only, each conflict you can adopt has a choice to leave or adopt it, and each conflict you can
   set aside has a choice to set it aside and rebuild. A cleanup offers an action for each entry not built here, kept files
