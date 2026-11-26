@@ -2831,6 +2831,81 @@ fn a_stage_select_folder_stage_select_cannot_fix_is_refused_with_the_command_tha
     }
 }
 
+/// Checks that a plan of `folder` is blocked by `.stage-select`, whose mode lets Stage Select use it though the kernel
+/// keeps it out, with no command that can't fix it, and left as it is.
+fn refused_though_its_mode_allows(env: &Env, plan: &Plan, state: &Path, mode: u32) {
+    assert_eq!(blockers(plan), BTreeSet::from([BlockerKind::Marker]));
+    let message = &plan.content.blockers[0].message;
+    assert!(
+        message.starts_with(&format!(
+            "{} can't be used: Stage Select can't read and write it, though its permissions allow that (",
+            state.display()
+        )),
+        "{message}"
+    );
+    assert!(
+        message.ends_with(
+            "An access control list or the mount keeps Stage Select out. To fix it, let Stage Select read and \
+             write it on the host, as its owner or as root, then try again."
+        ),
+        "{message}"
+    );
+    assert!(!message.contains("chmod"), "{message}");
+    assert_eq!(mode_of(state), mode, "left as it is");
+    let _ = env;
+}
+
+/// What the kernel says Stage Select can do counts, not what the mode seems to allow: here the mode reads as giving
+/// another owner's group, Stage Select's, everything, while Stage Select, its real owner, has nothing.
+#[cfg(unix)]
+#[test]
+fn a_stage_select_folder_the_kernel_keeps_stage_select_out_of_is_refused_though_its_mode_allows() {
+    let env = Env::new();
+    let (folder, plan) = built_then_changed(&env, |state| {
+        set_mode(state, 0o070);
+        owned_by_another(state, false);
+    });
+    let state = env.play().join("atari2600/.stage-select");
+    refused_though_its_mode_allows(&env, &plan, &state, 0o070);
+
+    stage_select_store::pretend_owner(&state, None).unwrap();
+    set_mode(&state, 0o770);
+    let plan = env.plan(&folder, plan.content.selection);
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+}
+
+/// An access control list that denies Stage Select writing in `.stage-select`, whose mode allows it.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_stage_select_folder_an_access_control_list_keeps_stage_select_out_of_is_refused() {
+    let acl = |state: &Path, change: &str, entry: Option<&str>| {
+        let mut chmod = std::process::Command::new("chmod");
+        chmod.arg(change);
+        if let Some(entry) = entry {
+            chmod.arg(entry);
+        }
+        assert!(chmod.arg(state).status().unwrap().success());
+    };
+    let env = Env::new();
+    let user = String::from_utf8(
+        std::process::Command::new("id")
+            .arg("-un")
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    let entry = format!("user:{} deny add_file,add_subdirectory,delete_child", user.trim());
+    let (folder, plan) = built_then_changed(&env, |state| acl(state, "+a", Some(&entry)));
+    let state = env.play().join("atari2600/.stage-select");
+    refused_though_its_mode_allows(&env, &plan, &state, 0o700);
+
+    acl(&state, "-N", None);
+    let plan = env.plan(&folder, plan.content.selection);
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+}
+
 #[cfg(unix)]
 #[test]
 fn a_stage_select_folder_that_is_not_a_directory_is_never_trusted() {

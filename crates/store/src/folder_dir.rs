@@ -1063,6 +1063,22 @@ mod tests {
         assert!(synced.contains(&tmp.path().to_path_buf()), "{synced:?}");
     }
 
+    #[test]
+    fn a_repair_says_the_permissions_read_back_and_a_setgid_bit_the_filesystem_cleared() {
+        let path = Path::new("/library/.stage-select");
+        assert_eq!(
+            repair_note(path, 0o2777, 0o2770, 0o2770),
+            "Others had access to /library/.stage-select (its permissions were 2777), so Stage Select removed their \
+             access: its permissions are now 2770."
+        );
+        assert_eq!(
+            repair_note(path, 0o2777, 0o2770, 0o770),
+            "Others had access to /library/.stage-select (its permissions were 2777), so Stage Select removed their \
+             access: its permissions are now 770. The filesystem cleared its setgid bit, so new entries in it no \
+             longer take its group; set it again with chmod g+s if you need that."
+        );
+    }
+
     /// Two folders of one mount are proven to rename between; a folder and one on another mount, `/dev`, are not.
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "freebsd"))]
     #[test]

@@ -1516,13 +1516,20 @@ Registering a library folder needs a folder that is empty or missing; registrati
 marker, `.stage-select/marker`, holding the store's id, the folder's id and its build generation. Everything Stage
 Select keeps in a folder it manages is inside `.stage-select/`: the marker, the folder a build stages files in, and
 the kept files under `retained/`. It is made private to the service's user. Whoever owns it, Stage Select uses it,
-and each folder in it, while the service can read and write it and no one beyond its owner and group has access: a
-`.stage-select` at `2770` or `2700`, or one another user owns that the service's group can read and write, is fine.
-Where Stage Select owns one of these folders and others have access to it, it removes that access itself, keeping the
-owner's and group's, and the next plan's notes say so. One it can't fix blocks the folder with a message that says
-what is wrong, what is expected and the command to run on the host, such as `chmod o-rwx '<path>'` as its owner or
-root; once you run it, the next plan goes ahead, with nothing left to clear. A `.stage-select` that is a symlink or a
-file blocks the folder until you move it out. Nothing else in the folder is Stage Select's. Audits never read `.stage-select/`,
+and each folder in it, while the service can read and write it and its permissions give others, beyond its owner and
+group, no access: a `.stage-select` at `2770` or `2700`, or one another user owns that the service's group can read and
+write, is fine. Whether the service can read and write it is what the system answers when asked, so an access control
+list or a mount that keeps the service out counts. Whether others have access is read from the permissions alone: an
+access control list entry that gives another user access is not looked for, so if you add one, keeping that user out
+is up to you.
+Where Stage Select owns one of these folders and others have access to it, it removes that access itself once the
+folder's marker shows it is this store's, keeping the owner's and group's, and the next plan's notes say so, with the
+permissions as they are after. Until then it reads the folder but writes nothing in it, so a backup of another
+store's folder is left as it is. One it can't fix blocks the folder with a message that says what is wrong, what is
+expected and the command to run on the host, such as `chmod o-rwx '<path>'` as its owner or root. The path in it is
+the one Stage Select sees: if it runs in a container, use the host folder you mounted there. Once you run it, the next
+plan goes ahead, with nothing left to clear. A `.stage-select` that is a symlink or a file blocks the folder until you
+move it out. Nothing else in the folder is Stage Select's. Audits never read `.stage-select/`,
 and a check never reports what is in it as a change to the folder. A plan refuses a folder whose
 marker is missing, names another store or folder, or has another generation, as after restoring a backup or mounting
 the wrong share.
