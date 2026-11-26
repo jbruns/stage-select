@@ -847,3 +847,30 @@ fn a_placed_file_moved_home_is_recorded_home_by_its_own_sha256_where_its_roms_ca
 
     assert!(env.store.placed_files(SET).unwrap().is_empty());
 }
+
+#[test]
+fn a_store_whose_placed_files_rom_disagrees_with_its_read_on_any_checksum_opens_with_no_sha256_for_it()
+ {
+    for field in ["sha256", "sha1", "md5", "crc"] {
+        let env = Env::new();
+        env.place_pong(StorageFormat::Loose, loose_pong);
+        // As a store made by 0.13.3 has it, with the ROM it was placed as listed with another checksum than its read.
+        let db =
+            rusqlite::Connection::open(env.store.dir().join(stage_select_store::DATABASE)).unwrap();
+        db.execute_batch(&format!(
+            "UPDATE placed_files SET sha256 = NULL;
+             UPDATE built_files SET roms = json_set(roms, '$[0].{field}', '00');
+             PRAGMA user_version = 8;"
+        ))
+        .unwrap();
+        drop(db);
+
+        let (env, _) = env.restart();
+
+        assert_eq!(
+            env.store.placed_files(SET).unwrap()[0].sha256,
+            None,
+            "{field}"
+        );
+    }
+}
