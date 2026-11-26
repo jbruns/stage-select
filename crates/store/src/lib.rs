@@ -209,6 +209,15 @@ pub fn pretend_owner(path: &Path, owner: Option<(u32, u32)>) -> std::io::Result<
     Ok(())
 }
 
+/// Makes the folder at `path` a mount of its own while `on`: a rename into it from outside it, or out of it, fails
+/// with `EXDEV`, as one between two bind mounts of a filesystem does though both report its device. Only with the
+/// `test-seams` feature.
+#[cfg(feature = "test-seams")]
+#[doc(hidden)]
+pub fn pretend_mount(path: &Path, on: bool) {
+    folder_dir::pretend_mount(path, on);
+}
+
 /// What a test runs at each [`Fault`] point.
 #[doc(hidden)]
 pub type FaultHook = std::sync::Arc<dyn Fn(Fault) + Send + Sync>;
@@ -666,7 +675,8 @@ impl Store {
     /// treat them as if they were.
     fn across_filesystems(&self, e: Option<&std::io::Error>) -> bool {
         self.copy_across.load(std::sync::atomic::Ordering::SeqCst)
-            || e.is_some_and(|e| e.raw_os_error() == Some(rustix::io::Errno::XDEV.raw_os_error()))
+            // By its kind: a rename's error names the path, which keeps the kind and drops the code.
+            || e.is_some_and(|e| e.kind() == std::io::ErrorKind::CrossesDevices)
     }
 
     #[doc(hidden)]

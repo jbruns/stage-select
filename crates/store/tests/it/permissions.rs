@@ -489,3 +489,33 @@ fn a_policy_stage_select_would_lock_itself_out_with_or_for_no_root_is_refused() 
         "in force at once"
     );
 }
+
+#[test]
+fn a_game_placed_by_a_copy_where_its_rename_fails_across_mounts_comes_out_as_declared() {
+    use crate::single_copy as sc;
+    use stage_select_api::build::{ItemState, PlaceHow};
+    use stage_select_api::storage::StorageFormat;
+    let env = sc::Env::new();
+    let bytes = sc::pong_zip(&env);
+    set_mode(&env.set().join("Pong (USA).zip"), 0o644);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    declare(&env.store);
+    let plan = env.plan(&env.folder, env.select(&["Pong (USA)"]));
+    assert_eq!(
+        sc::item(&plan, "Pong (USA)").place.as_ref().unwrap().how,
+        PlaceHow::Rename
+    );
+    // Two bind mounts of one filesystem: the same device, and still no rename between them.
+    stage_select_store::pretend_mount(&env.library(), true);
+
+    let job = env.build(&plan);
+
+    stage_select_store::pretend_mount(&env.library(), false);
+    assert_eq!(job.state, JobState::Succeeded, "{job:?}");
+    let pong = env.item(job.id, "Pong (USA)");
+    assert_eq!(pong.state, ItemState::Applied, "{pong:?}");
+    let placed = env.library().join("Pong (USA).zip");
+    assert_eq!(std::fs::read(&placed).unwrap(), bytes);
+    assert_declared(&[placed]);
+}

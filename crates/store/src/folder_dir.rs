@@ -232,6 +232,32 @@ pub(super) fn pretend_owner(id: Identity, owner: Option<(u32, u32)>) {
     }
 }
 
+/// The folders a test says are mounts of their own: a rename into one from outside it fails with `EXDEV`, as one
+/// between two bind mounts of a filesystem does though both report its device. By path, as a mount is. Built only
+/// with the `test-seams` feature.
+#[cfg(feature = "test-seams")]
+static MOUNTS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+/// Makes the folder at `path` a mount of its own, as [`MOUNTS`] says, while `on`.
+#[cfg(feature = "test-seams")]
+pub(super) fn pretend_mount(path: &Path, on: bool) {
+    let mut mounts = MOUNTS.lock().unwrap_or_else(|e| e.into_inner());
+    mounts.retain(|of| of != path);
+    if on {
+        mounts.push(path.to_path_buf());
+    }
+}
+
+/// Whether a test said a rename from the folder at `from` to the one at `to` crosses a mount.
+#[cfg(feature = "test-seams")]
+fn crosses_mount(from: &Path, to: &Path) -> bool {
+    MOUNTS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .any(|m| to.starts_with(m) != from.starts_with(m))
+}
+
 /// The user and group that own the entry `st` describes: its filesystem's answer, or what a test said.
 pub(super) fn owner_of(st: &Stat) -> (u32, u32) {
     owner_of_id(Identity::of(st), (st.st_uid, st.st_gid))
@@ -985,22 +1011,39 @@ impl FolderDir {
         let (to_parent, to_leaf) = dest.resolve(to)?;
         FolderDir::writable(from_parent.as_ref().unwrap_or(self))?;
         FolderDir::writable(to_parent.as_ref().unwrap_or(dest))?;
-        // What is put in place is given the policy of where it goes, before it is there.
-        if let Some(policy) = to_parent.as_ref().unwrap_or(dest).governs() {
-            crate::permissions::give(
-                from_parent.as_ref().unwrap_or(self).fd.as_fd(),
-                Some(from_leaf),
-                policy,
-            );
-        }
-        match rustix::fs::renameat_with(
-            &from_parent.as_ref().unwrap_or(self).fd,
-            from_leaf,
-            &to_parent.as_ref().unwrap_or(dest).fd,
-            to_leaf,
-            RenameFlags::NOREPLACE,
+        let rename = || {
+            rustix::fs::renameat_with(
+                &from_parent.as_ref().unwrap_or(self).fd,
+                from_leaf,
+                &to_parent.as_ref().unwrap_or(dest).fd,
+                to_leaf,
+                RenameFlags::NOREPLACE,
+            )
+        };
+        #[cfg(feature = "test-seams")]
+        let renamed = if crosses_mount(
+            &from_parent.as_ref().unwrap_or(self).path,
+            &to_parent.as_ref().unwrap_or(dest).path,
         ) {
-            Ok(()) => Ok(()),
+            Err(rustix::io::Errno::XDEV)
+        } else {
+            rename()
+        };
+        #[cfg(not(feature = "test-seams"))]
+        let renamed = rename();
+        match renamed {
+            Ok(()) => {
+                // Given the policy of where it went once it is there, never before: a rename that fails leaves the
+                // original as it was, for a copy to find it still the file its plan saw.
+                if let Some(policy) = to_parent.as_ref().unwrap_or(dest).governs() {
+                    crate::permissions::give(
+                        to_parent.as_ref().unwrap_or(dest).fd.as_fd(),
+                        Some(to_leaf),
+                        policy,
+                    );
+                }
+                Ok(())
+            }
             Err(rustix::io::Errno::EXIST) => Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
                 format!("{} already exists", dest.at(to).display()),
@@ -1027,20 +1070,22 @@ impl FolderDir {
         let (to_parent, to_leaf) = self.resolve(to)?;
         FolderDir::writable(from_parent.as_ref().unwrap_or(self))?;
         FolderDir::writable(to_parent.as_ref().unwrap_or(self))?;
-        if let Some(policy) = to_parent.as_ref().unwrap_or(self).governs() {
-            crate::permissions::give(
-                from_parent.as_ref().unwrap_or(self).fd.as_fd(),
-                Some(from_leaf),
-                policy,
-            );
-        }
         rustix::fs::renameat(
             &from_parent.as_ref().unwrap_or(self).fd,
             from_leaf,
             &to_parent.as_ref().unwrap_or(self).fd,
             to_leaf,
         )
-        .map_err(|e| self.error(to, e))
+        .map_err(|e| self.error(to, e))?;
+        // Given the policy once it is in place, as [`FolderDir::rename_new`] does.
+        if let Some(policy) = to_parent.as_ref().unwrap_or(self).governs() {
+            crate::permissions::give(
+                to_parent.as_ref().unwrap_or(self).fd.as_fd(),
+                Some(to_leaf),
+                policy,
+            );
+        }
+        Ok(())
     }
 
     /// Removes the file or symlink `name`; a symlink's target is never touched.
