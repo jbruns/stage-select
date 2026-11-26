@@ -97,6 +97,8 @@ pub(super) struct Scan {
     pub probes: HashMap<String, (Seen, Probe)>,
     /// The acknowledgements the check was made with: only these can it find changed.
     acks: HashMap<String, Ack>,
+    /// Every entry the check statted, as it saw it: what its permissions are compared from.
+    pub seen: Vec<crate::permissions::Seen>,
 }
 
 /// A Placed Game's file a check read again and proved: as it was recorded, and as it now is and was read.
@@ -452,6 +454,7 @@ pub(super) fn scan(
         placed_updates: Vec::new(),
         probes: HashMap::new(),
         acks: input.acks.clone(),
+        seen: Vec::new(),
     };
     let by_lower: HashMap<String, &str> = entries
         .iter()
@@ -503,7 +506,13 @@ pub(super) fn scan(
                 None
             }
             Some(_) => match dir.stat(target) {
-                Ok(st) => st,
+                Ok(st) => {
+                    out.seen.extend(
+                        st.as_ref()
+                            .and_then(|st| crate::permissions::Seen::of(target, st)),
+                    );
+                    st
+                }
                 Err(e) => {
                     file.outcome = FileOutcome::Unreadable;
                     file.detail = Some(e.to_string());
@@ -670,7 +679,11 @@ pub(super) fn scan(
         if let Some(name) = found {
             consumed.insert(name.to_owned());
         }
-        match found.map(|name| (name, dir.stat(name))) {
+        let found = found.map(|name| (name, dir.stat(name)));
+        if let Some((name, Ok(Some(st)))) = &found {
+            out.seen.extend(crate::permissions::Seen::of(*name, st));
+        }
+        match found {
             None => {
                 file.outcome = FileOutcome::Missing;
                 file.detail = found_home(input.home, placed);
@@ -734,7 +747,12 @@ pub(super) fn scan(
             hashed: false,
             detail: None,
         };
-        match dir.stat(name) {
+        let stat = dir.stat(name);
+        if let Ok(Some(st)) = &stat {
+            out.seen
+                .extend(crate::permissions::Seen::of(name.as_str(), st));
+        }
+        match stat {
             Ok(None) => {
                 tick();
                 continue;
@@ -1295,6 +1313,19 @@ impl Store {
                     progress,
                 );
                 check.summary = scan.summary();
+                if let Some(root) = roots.root(&inputs.folder.root) {
+                    let mut seen = scan.seen.clone();
+                    if let Ok(st) = rustix::fs::fstat(&dir) {
+                        seen.extend(crate::permissions::Seen::of("", &st));
+                    }
+                    self.record_permissions(
+                        crate::permissions::Scope::Library(folder),
+                        root,
+                        &inputs.folder.path,
+                        root.writable,
+                        seen,
+                    );
+                }
                 check.files = scan.files.clone();
                 check.drift = scan.drift.clone();
                 check.acknowledged = scan.acknowledged.clone();

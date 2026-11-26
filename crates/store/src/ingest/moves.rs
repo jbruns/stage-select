@@ -1650,7 +1650,7 @@ impl Store {
             return Ok(check_marker(&dir, &expected).map(|()| dir));
         }
         Ok(match roots.root(root) {
-            Some(r) if r.writable => FolderDir::open(&r.path, rel).map_err(|e| e.to_string()),
+            Some(r) if r.writable => FolderDir::open_in(r, rel).map_err(|e| e.to_string()),
             Some(_) => Err(format!(
                 "root {root} is not writable now: it is a sources root, which Stage Select changes only where you let it"
             )),

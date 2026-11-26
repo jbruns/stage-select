@@ -7574,3 +7574,84 @@ fn a_build_after_a_change_of_permissions_alone_needs_no_new_audit() {
     let build = env.store.library_folder(folder.id).unwrap().build.unwrap();
     assert_eq!((build.applied, build.failed), (5, 0), "{build:?}");
 }
+
+/// Every file and folder in the folder at `dir` but Stage Select's own, the folder itself included.
+#[cfg(unix)]
+fn games_and_folders(dir: &Path) -> Vec<PathBuf> {
+    walkdir::WalkDir::new(dir)
+        .into_iter()
+        .filter_entry(|e| e.file_name() != ".stage-select")
+        .map(|e| e.unwrap().into_path())
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_build_gives_the_folder_it_makes_and_every_file_it_writes_the_permission_policy() {
+    let env = Env::new();
+    crate::permissions::declare(&env.store);
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+
+    assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
+
+    let written = games_and_folders(&env.play().join("atari2600"));
+    assert!(written.len() > 3, "{written:?}");
+    crate::permissions::assert_declared(&written);
+    let checked = check(&env, &folder);
+    assert!(checked.drift.is_empty(), "{:?}", checked.drift);
+    let view = env.store.library_permissions(folder.id).unwrap();
+    assert_eq!(view.differing(), 0, "{view:?}");
+    assert!(view.report.unwrap().compared as usize >= written.len());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_library_folders_permissions_differing_are_restored_and_never_drift_or_conflict() {
+    let env = Env::new();
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+    assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
+    crate::permissions::declare(&env.store);
+
+    let checked = check(&env, &folder);
+
+    assert!(checked.drift.is_empty(), "{:?}", checked.drift);
+    assert!(
+        checked
+            .files
+            .iter()
+            .all(|f| f.outcome == FileOutcome::Unchanged),
+        "{:?}",
+        checked.files
+    );
+    let view = env.store.library_permissions(folder.id).unwrap();
+    let report = view.report.unwrap();
+    assert!(!report.differences.is_empty(), "built at the umask's modes");
+    assert!(report.fixes.is_empty(), "all Stage Select's own");
+    let restored = env
+        .store
+        .restore_library_permissions(
+            folder.id,
+            report.plan_digest.as_deref().unwrap(),
+            "Operator",
+        )
+        .unwrap();
+    assert_eq!(
+        restored.restored as usize,
+        report.differences.len(),
+        "{restored:?}"
+    );
+    crate::permissions::assert_declared(&games_and_folders(&env.play().join("atari2600")));
+    let checked = check(&env, &folder);
+    assert!(checked.drift.is_empty(), "{:?}", checked.drift);
+    assert_eq!(
+        env.store
+            .library_permissions(folder.id)
+            .unwrap()
+            .differing(),
+        0
+    );
+}

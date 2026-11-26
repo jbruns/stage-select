@@ -14,6 +14,7 @@ use std::sync::Arc;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use stage_select_api::JobState;
 use stage_select_api::paths::relative_path;
+use stage_select_api::permissions::PermissionPolicy;
 use stage_select_api::repair::{RepairPlanContent, RepairStep};
 use stage_select_api::roots::{
     Folder, FolderListing, FolderSuggestion, FolderSuggestions, RootChange, RootEdited, RootSpec,
@@ -55,6 +56,9 @@ pub struct Root {
     pub write_mib_per_s: Option<u64>,
     pub updated_by: String,
     pub updated_at: String,
+    /// The Permission Policy in force for it, its own or the global one, as the settings held it when the snapshot
+    /// was taken: what Stage Select gives what it writes here (ADR 0031). None leaves the Host's defaults.
+    pub permissions: Option<PermissionPolicy>,
 }
 
 impl Root {
@@ -72,6 +76,7 @@ impl Root {
             write_mib_per_s: None,
             updated_by: "test".into(),
             updated_at: "then".into(),
+            permissions: None,
         }
     }
 
@@ -174,6 +179,7 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<(Root, String)> {
             write_mib_per_s: r.get::<_, Option<i64>>(7)?.map(|v| v as u64),
             updated_by: r.get(8)?,
             updated_at: r.get(9)?,
+            permissions: None,
         },
         r.get(4)?,
     ))
@@ -189,15 +195,20 @@ fn with_paths((mut root, paths): (Root, String)) -> Result<Root> {
     Ok(root)
 }
 
-/// Every Root as stored.
+/// Every Root as stored, each with the Permission Policy in force for it.
 pub(crate) fn load(c: &Connection) -> Result<Roots> {
     let rows = c
         .prepare(&format!("SELECT {COLUMNS} FROM roots ORDER BY name"))?
         .query_map([], row)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let permissions = crate::settings::load(c)?.permissions;
     Ok(Roots::of(
         rows.into_iter()
-            .map(with_paths)
+            .map(|r| {
+                let mut root = with_paths(r)?;
+                root.permissions = permissions.of(&root.name);
+                Ok(root)
+            })
             .collect::<Result<Vec<_>>>()?,
     ))
 }

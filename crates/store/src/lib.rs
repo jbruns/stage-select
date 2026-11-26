@@ -27,6 +27,7 @@ mod lifecycle;
 mod made_folders;
 mod migrations;
 pub mod observe;
+mod permissions;
 mod placements;
 pub mod plan_meter;
 mod plans;
@@ -177,6 +178,8 @@ pub struct Store {
     free_space: std::sync::atomic::AtomicU64,
     /// How many of this store's syncs of the RomM Additions collection wait their turn, for tests.
     romm_syncs_waiting: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// What the latest check of each folder found of its permissions, since the service started.
+    permissions: permissions::Checked,
 }
 
 // The seams let a caller make an entry read as another user's, so no optimized build, which every shipped binary is,
@@ -593,6 +596,7 @@ impl Store {
             roots: std::sync::RwLock::default(),
             chdman: std::sync::RwLock::default(),
             settings_update: std::sync::Mutex::default(),
+            permissions: permissions::Checked::default(),
             regions: std::sync::OnceLock::new(),
             meter: stage_select_engine::meter::Meter::default(),
             copy_across: std::sync::atomic::AtomicBool::new(false),

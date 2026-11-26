@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use super::jobs::{check_no_active, finish_running, job_by_id};
+use super::permissions::{Scope, Seen};
 use super::sets::{resolve, set_by_name};
 use super::{Error, Result, Store, now};
 use stage_select_api::{FollowedRevision, Job, JobKind, JobState, StatWalk};
@@ -63,8 +64,10 @@ impl Counts {
         let mut seen = BTreeSet::new();
         for entry in walked {
             let (rel, stamp) = match entry {
-                StatEntry::File { rel, stamp } => (rel, Some(stamp.as_ref())),
+                StatEntry::File { rel, stamp, .. } => (rel, Some(stamp.as_ref())),
                 StatEntry::Unreadable { rel } => (rel, None),
+                // A folder's permissions are a finding of their own, never a change (ADR 0031).
+                StatEntry::Folder { .. } => continue,
             };
             seen.insert(rel.as_str());
             match baseline.stamps.get(rel) {
@@ -541,6 +544,31 @@ impl Store {
         else {
             return Ok(None);
         };
+        // Its files' and folders' permissions, compared with the Permission Policy apart from what counts as changed.
+        if let Some(root) = roots.root(&set.record.root) {
+            let seen = walked
+                .iter()
+                .filter_map(|entry| match entry {
+                    StatEntry::File {
+                        rel,
+                        perm: Some(perm),
+                        ..
+                    } => Some(Seen::of_perm(rel.as_str(), false, perm)),
+                    StatEntry::Folder {
+                        rel,
+                        perm: Some(perm),
+                    } => Some(Seen::of_perm(rel.as_str(), true, perm)),
+                    _ => None,
+                })
+                .collect();
+            self.record_permissions(
+                Scope::SourceSet(set.id),
+                root,
+                &set.record.path,
+                root.may_write(&set.record.path),
+                seen,
+            );
+        }
         // Its Placed Games' files are its own too, where they are placed.
         for (folder, placed, files) in self.placed_folders(set.id)? {
             walked.extend(stage_select_engine::stat_placed(
