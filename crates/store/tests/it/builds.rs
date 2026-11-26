@@ -2957,6 +2957,9 @@ fn a_stage_select_folder_stage_select_cannot_fix_is_refused_with_the_command_tha
             job.error,
             env.store.library_folder(folder.id).unwrap().build
         );
+        // Forgotten before its folder goes: a later case's entry may be given the same inode, and would read as
+        // owned by the user pretended here.
+        stage_select_store::pretend_owner(&state, None).unwrap();
     }
 }
 
