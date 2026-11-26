@@ -19,6 +19,8 @@ use stage_select_api::build::{FileStat, STATE};
 pub(super) struct FolderDir {
     fd: OwnedFd,
     path: PathBuf,
+    /// Whether it is the folder's [`STATE`] directory or a folder in it: one Stage Select keeps its own things in.
+    own: bool,
 }
 
 const DIR_FLAGS: OFlags = OFlags::RDONLY
@@ -169,10 +171,10 @@ pub(super) enum Unusable {
 }
 
 impl Unusable {
-    /// The message for this: [`Unusable::Access`]'s own, or what `kind` makes of [`Unusable::Kind`]'s fragment.
-    pub fn explain(self, kind: impl FnOnce(String) -> String) -> String {
+    /// The message for this: [`Unusable::Access`]'s own, or what `sentence` makes of [`Unusable::Kind`]'s fragment.
+    pub fn explain(self, sentence: impl FnOnce(String) -> String) -> String {
         match self {
-            Unusable::Kind(why) => kind(why),
+            Unusable::Kind(why) => sentence(why),
             Unusable::Access(why) => why,
         }
     }
@@ -187,11 +189,19 @@ pub(super) enum Needs {
 }
 
 impl Needs {
-    /// The permission bits of one class that give what is needed: `rwx` or `rw-`.
-    fn bits(self) -> u32 {
+    /// The permission bits of one class that give what is needed, and how `chmod` names them.
+    fn bits(self) -> (u32, &'static str) {
         match self {
-            Needs::Folder => 0o7,
-            Needs::File => 0o6,
+            Needs::Folder => (0o7, "rwx"),
+            Needs::File => (0o6, "rw"),
+        }
+    }
+
+    /// What the entry is, in a sentence.
+    fn noun(self) -> &'static str {
+        match self {
+            Needs::Folder => "folder",
+            Needs::File => "file",
         }
     }
 }
@@ -244,14 +254,14 @@ fn quoted(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
 }
 
-/// Whether Stage Select may keep its own things in the entry `fd`, at `path` and described by `st`: whether it can
-/// use it as `needs` says and others, beyond its owner and group, have no access to it (ADR 0031). Group bits and
-/// setgid are allowed, whoever owns it. Where Stage Select owns it and others have access, that access is removed,
-/// its other bits kept, and [`take_repaired`] says so. Otherwise returns what is wrong, what is expected and the
+/// Whether Stage Select may keep its own things in the entry at `path`, described by `st` and open as `fd` where it
+/// could be opened: whether it can use it as `needs` says and others, beyond its owner and group, have no access to
+/// it (ADR 0031). Group bits and setgid are allowed, whoever owns it. Where Stage Select owns it, can use it and
+/// others have access, that access is removed through `fd`, its other bits kept, and [`take_repaired`] says so. Otherwise returns what is wrong, what is expected and the
 /// command to run on the Host. What the owner and group classes allow is read from the mode alone: an access control
 /// list granting more is not looked for.
 pub(super) fn closed_to_others(
-    fd: impl AsFd,
+    fd: Option<std::os::fd::BorrowedFd>,
     st: &Stat,
     path: &Path,
     needs: Needs,
@@ -262,7 +272,7 @@ pub(super) fn closed_to_others(
     let in_group = rustix::process::getegid().as_raw() == gid
         || rustix::process::getgroups()
             .is_ok_and(|groups| groups.iter().any(|g| g.as_raw() == gid));
-    let want = needs.bits();
+    let (want, class) = needs.bits();
     let ours = owner == uid;
     // Only the class that applies to Stage Select counts: the owner's if it is the owner, else the group's.
     let usable = uid == 0
@@ -275,25 +285,25 @@ pub(super) fn closed_to_others(
     if usable && !open {
         return Ok(());
     }
-    if usable && ours {
+    if usable
+        && ours
+        && let Some(fd) = fd
+    {
         let closed = mode & !0o007;
         // Where the change fails, as on a read-only mount, it is refused with the command that fixes it.
-        if rustix::fs::fchmod(&fd, Mode::from_raw_mode(closed as _)).is_ok() {
+        if rustix::fs::fchmod(fd, Mode::from_raw_mode(closed as _)).is_ok() {
             REPAIRED.lock().unwrap_or_else(|e| e.into_inner()).push((
                 path.to_path_buf(),
                 format!(
-                    "Others had access to {} (its permissions were {mode:o}), so Stage Select removed it: its \
-                     permissions are now {closed:o}.",
+                    "Others had access to {} (its permissions were {mode:o}), so Stage Select removed their \
+                     access: its permissions are now {closed:o}.",
                     path.display()
                 ),
             ));
             return Ok(());
         }
     }
-    let kind = match needs {
-        Needs::Folder => "folder",
-        Needs::File => "file",
-    };
+    let kind = needs.noun();
     let mut wrong = Vec::new();
     if !usable {
         wrong.push("Stage Select can't read and write it".to_owned());
@@ -301,10 +311,6 @@ pub(super) fn closed_to_others(
     if open {
         wrong.push("others have access to it".to_owned());
     }
-    let class = match needs {
-        Needs::Folder => "rwx",
-        Needs::File => "rw",
-    };
     let at = quoted(path);
     let (command, who) = if usable || ours || in_group {
         let mut changes = Vec::new();
@@ -358,6 +364,7 @@ impl FolderDir {
         let mut dir = FolderDir {
             fd,
             path: root.to_path_buf(),
+            own: false,
         };
         if !rel.is_empty() {
             for part in rel.split('/') {
@@ -389,21 +396,32 @@ impl FolderDir {
     pub fn sub(&self, name: &str) -> io::Result<FolderDir> {
         let (parent, leaf) = self.resolve(name)?;
         let state = parent.is_none() && leaf == STATE;
-        let fd = rustix::fs::openat(
-            &parent.as_ref().unwrap_or(self).fd,
-            leaf,
-            DIR_FLAGS,
-            Mode::empty(),
-        )
-        .map_err(|e| match e {
-            rustix::io::Errno::NOTDIR | rustix::io::Errno::LOOP if state => {
-                self.not_state("it is not a directory")
+        let holder = parent.as_ref().unwrap_or(self);
+        let own = state || holder.own;
+        let fd = rustix::fs::openat(&holder.fd, leaf, DIR_FLAGS, Mode::empty()).map_err(|e| {
+            match e {
+                rustix::io::Errno::NOTDIR | rustix::io::Errno::LOOP if state => {
+                    self.not_state("it is not a directory")
+                }
+                // One of Stage Select's own folders it can't even open is explained as any other it can't use.
+                rustix::io::Errno::ACCESS if own => {
+                    match rustix::fs::statat(&holder.fd, leaf, AtFlags::SYMLINK_NOFOLLOW) {
+                        Ok(st) if FolderDir::kind(&st) == FileType::Directory => {
+                            match closed_to_others(None, &st, &self.at(name), Needs::Folder) {
+                                Err(why) => io::Error::new(io::ErrorKind::PermissionDenied, why),
+                                Ok(()) => self.error(name, e),
+                            }
+                        }
+                        _ => self.error(name, e),
+                    }
+                }
+                e => self.error(name, e),
             }
-            e => self.error(name, e),
         })?;
         let found = FolderDir {
             fd,
             path: self.at(name),
+            own,
         };
         if state && let Err(why) = found.closed(false)? {
             return Err(self.unusable_state(why));
@@ -450,7 +468,7 @@ impl FolderDir {
         if FolderDir::kind(&st) != FileType::Directory {
             return Ok(Err(Unusable::Kind("it is not a directory".into())));
         }
-        if let Err(why) = closed_to_others(&self.fd, &st, &self.path, Needs::Folder) {
+        if let Err(why) = closed_to_others(Some(self.fd.as_fd()), &st, &self.path, Needs::Folder) {
             return Ok(Err(Unusable::Access(why)));
         }
         if empty && !self.entries()?.is_empty() {
@@ -464,6 +482,7 @@ impl FolderDir {
         Ok(FolderDir {
             fd: self.fd.try_clone()?,
             path: self.path.clone(),
+            own: self.own,
         })
     }
 

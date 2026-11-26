@@ -2545,7 +2545,14 @@ fn a_folder_that_is_not_the_empty_closed_one_just_made_is_never_used() {
         assert!(env.store.kept_files(folder.id).unwrap().is_empty());
         let (env, _) = env.restart();
         let next = env.plan(&folder, plan.content.selection);
-        assert!(blockers(&next).contains(&BlockerKind::Recovery), "{tamper}");
+        if tamper == "a file in it" {
+            assert!(blockers(&next).contains(&BlockerKind::Recovery), "{tamper}");
+        } else {
+            // Still the folder Stage Select made, only not usable as it was: recorded as this store's leftover, so
+            // nothing is left to clear and the next plan runs.
+            assert!(next.approvable(), "{tamper}: {:?}", next.content.blockers);
+            assert_eq!(env.build(&next).state, JobState::Succeeded, "{tamper}");
+        }
     }
 
     // A recorded retention area another user owns whose mode was opened up to others is no longer trusted.
@@ -2677,8 +2684,8 @@ fn a_stage_select_folder_open_to_others_that_stage_select_owns_is_closed_and_the
     assert_eq!(
         plan.content.repaired,
         [format!(
-            "Others had access to {} (its permissions were 777), so Stage Select removed it: its permissions are \
-             now 770.",
+            "Others had access to {} (its permissions were 777), so Stage Select removed their access: its \
+             permissions are now 770.",
             state.display()
         )]
     );
@@ -2691,7 +2698,13 @@ fn a_stage_select_folder_open_to_others_that_stage_select_owns_is_closed_and_the
 fn a_stage_select_folder_stage_select_cannot_fix_is_refused_with_the_command_that_fixes_it() {
     // What is wrong, how the folder is left so, the command, and who runs it.
     type Case = (&'static str, fn(&Path), &'static str, &'static str);
-    let cases: [Case; 4] = [
+    let cases: [Case; 5] = [
+        (
+            "Stage Select can't read and write it",
+            |state| set_mode(state, 0o300),
+            "chmod u+rwx",
+            "its owner or as root",
+        ),
         (
             "Stage Select can't read and write it",
             |state| set_mode(state, 0o500),
@@ -5960,7 +5973,7 @@ fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
         ("Breakout (USA).zip", false, ItemKind::Unchanged)
     );
     assert_eq!(
-        plan.content.repaired,
+        plan.content.notes,
         [format!("1 game is not stored loose: {MULTI_ROM_STAYS_ZIP}")]
     );
     assert!(

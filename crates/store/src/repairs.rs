@@ -2001,19 +2001,35 @@ impl Store {
                 file
             }
             (Some(_), None) if pending => {
-                let Ok(file) = dir.open_write(MARKER_NEW) else {
-                    return not_it(self);
+                // Whoever owns it, as for Stage Select's own folders (ADR 0031). What it can't fix is left pending,
+                // so that once the Operator fixes it the next repair takes it up again.
+                let at = dir.path().join(MARKER_NEW);
+                let file = match dir.open_write(MARKER_NEW) {
+                    Ok(file) => file,
+                    Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+                        if let Some(st) = stat(MARKER_NEW)?
+                            && FolderDir::kind(&st) == rustix::fs::FileType::RegularFile
+                            && let Err(why) = crate::folder_dir::closed_to_others(
+                                None,
+                                &st,
+                                &at,
+                                crate::folder_dir::Needs::File,
+                            )
+                        {
+                            return Ok(Err(why));
+                        }
+                        return not_it(self);
+                    }
+                    Err(_) => return not_it(self),
                 };
                 let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
                 if !(st.st_size == 0 && st.st_nlink == 1) {
                     return not_it(self);
                 }
-                // Whoever owns it, as for Stage Select's own folders (ADR 0031). What it can't fix is left pending,
-                // so that once you fix it the next repair takes it up again.
                 if let Err(why) = crate::folder_dir::closed_to_others(
-                    &file,
+                    Some(std::os::fd::AsFd::as_fd(&file)),
                     &st,
-                    &dir.path().join(MARKER_NEW),
+                    &at,
                     crate::folder_dir::Needs::File,
                 ) {
                     return Ok(Err(why));

@@ -22,7 +22,9 @@ use stage_select_api::repair::KeptFileReviewed;
 
 use super::builds::{sha256_of, temps};
 use super::checks::Seen;
-use super::folder_dir::{FolderDir, Identity, ctime_ns, file_stat, parent_made, parent_of};
+use super::folder_dir::{
+    FolderDir, Identity, Unusable, ctime_ns, file_stat, parent_made, parent_of,
+};
 use super::folders::{check_marker, folder_by_id, open_writable_folder, store_id};
 use super::plans::{json, to_json};
 use super::{Error, Fault, Result, Store, now};
@@ -236,6 +238,15 @@ pub(super) fn create_dir(
     };
     let id = match made.closed(true) {
         Ok(Ok(id)) => id,
+        // The folder just made, which Stage Select can't use as it came out, as under a umask or a mount that
+        // forces another owner: recorded as this store's leftover, so that once the Operator fixes it nothing is
+        // left to clear.
+        Ok(Err(Unusable::Access(why))) => {
+            let id = made.identity().map_err(|e| Error::Io(e.to_string()))?;
+            record_leftover(store, folder, &temp_key, id)?;
+            forget_name(store, folder, &temp_key)?;
+            return Ok(Err(why));
+        }
         Ok(Err(why)) => {
             return not_made(why.explain(|why| {
                 format!(
@@ -288,6 +299,19 @@ pub(super) fn create_dir(
     };
     match dir.closed(true) {
         Ok(Ok(found)) if found == id => {}
+        // Still the folder made, which Stage Select can't use as it is now: recorded as made, and used once the
+        // Operator fixes it.
+        Ok(Err(Unusable::Access(why))) if dir.identity().ok() == Some(id) => {
+            store.write(|tx| {
+                record_made(tx, folder, key, id)?;
+                tx.execute(
+                    &folder.sql("DELETE FROM {temps} WHERE folder_id = ?1 AND name = ?2"),
+                    params![folder.id(), temp_key],
+                )?;
+                Ok(())
+            })?;
+            return Ok(Err(why));
+        }
         Ok(_) => {
             forget_temp(store, folder, &temp_key)?;
             return Ok(Err(not_ours(parent, name)));
@@ -519,8 +543,10 @@ pub(super) fn settle_dir_temps(
                 Err(e) => return Ok(Err(e.to_string())),
                 Ok(None) => None,
                 Ok(Some(st)) if !is_dir(&st) => None,
-                Ok(Some(_)) => match parent.sub(last).and_then(|made| made.closed(true)) {
+                Ok(Some(st)) => match parent.sub(last).and_then(|made| made.closed(true)) {
                     Ok(Ok(id)) => Some(id),
+                    // Made by it, though Stage Select can't use it as it is now.
+                    Ok(Err(Unusable::Access(_))) => Some(Identity::of(&st)),
                     Ok(Err(_)) => None,
                     Err(e) => return Ok(Err(e.to_string())),
                 },

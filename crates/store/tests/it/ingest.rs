@@ -1828,8 +1828,8 @@ fn a_stage_select_folder_open_to_others_that_stage_select_owns_is_closed_and_the
     assert_eq!(
         plan.content.repaired,
         [format!(
-            "Others had access to {} (its permissions were 777), so Stage Select removed it: its permissions are \
-             now 770.",
+            "Others had access to {} (its permissions were 777), so Stage Select removed their access: its \
+             permissions are now 770.",
             state.display()
         )]
     );
