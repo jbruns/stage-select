@@ -585,3 +585,30 @@ fn unregistering_a_root_drops_its_own_policy_so_the_policy_saves_again() {
     })
     .unwrap();
 }
+
+#[test]
+#[ignore = "needs #381: a restore moves only ctime, which until then counts as a change"]
+fn a_restore_never_makes_a_source_set_stale_at_its_next_walk() {
+    let env = Env::new();
+    let set = env.set("Alpha");
+    let pong = set.join("Pong (USA).a26");
+    write_file(&pong, b"pong");
+    set_mode(&pong, 0o604);
+    env.audit("Alpha");
+    declare(&env.store);
+    let view = env.walk("Alpha");
+    env.store
+        .restore_source_set_permissions(
+            "Alpha",
+            view.report.unwrap().plan_digest.as_deref().unwrap(),
+            "Operator",
+        )
+        .unwrap();
+    assert_declared(&[pong]);
+
+    let view = env.walk("Alpha");
+
+    assert_eq!(view.differing(), 0, "{view:?}");
+    let stale = env.store.source_set("Alpha").unwrap().stale;
+    assert!(stale.is_empty(), "{stale:?}");
+}
