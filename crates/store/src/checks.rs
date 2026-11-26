@@ -91,13 +91,24 @@ pub(super) struct Scan {
     /// Entries you acknowledged, found as they were then: neither read nor reported as drift.
     pub acknowledged: Vec<DriftEntry>,
     updates: Vec<Update>,
-    /// The records of Placed Games' files to bring up to date: each path, as it was recorded, and as it now is and
-    /// was read.
-    placed_updates: Vec<(String, PlacedFile, Stat, String)>,
+    /// The records of Placed Games' files to bring up to date.
+    placed_updates: Vec<PlacedUpdate>,
     /// What was read of each entry, by name, with the file as it was when read.
     pub probes: HashMap<String, (Seen, Probe)>,
     /// The acknowledgements the check was made with: only these can it find changed.
     acks: HashMap<String, Ack>,
+}
+
+/// A Placed Game's file a check read again and proved: as it was recorded, and as it now is and was read.
+struct PlacedUpdate {
+    was: PlacedFile,
+    now: Stat,
+    sha256: String,
+}
+
+/// The name of the file at `path`, relative to its folder with `/` separators: its last component.
+fn name_of(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
 }
 
 /// What a check compares the folder with.
@@ -133,13 +144,14 @@ fn found_home(home: Option<&FolderDir>, placed: &PlacedFile) -> bool {
     let Some(home) = home else {
         return false;
     };
-    let name = placed.path.rsplit('/').next().unwrap_or(&placed.path);
-    [placed.path.as_str(), name].iter().any(|at| {
-        home.stat(at)
-            .ok()
-            .flatten()
-            .is_some_and(|st| FolderDir::kind(&st) == FileType::RegularFile)
-    })
+    [placed.path.as_str(), name_of(&placed.path)]
+        .iter()
+        .any(|at| {
+            home.stat(at)
+                .ok()
+                .flatten()
+                .is_some_and(|st| FolderDir::kind(&st) == FileType::RegularFile)
+        })
 }
 
 /// The names in a folder other than Stage Select's own entries, sorted, with each disc layout folder's entries in
@@ -587,8 +599,11 @@ pub(super) fn scan(
                     if file.outcome == FileOutcome::Unchanged {
                         file.outcome = FileOutcome::Refreshed;
                     }
-                    out.placed_updates
-                        .push((target.clone(), placed.clone(), st, p.sha256));
+                    out.placed_updates.push(PlacedUpdate {
+                        was: placed.clone(),
+                        now: st,
+                        sha256: p.sha256,
+                    });
                 }
                 Ok((Err(why), _)) => {
                     file.outcome = FileOutcome::Conflict;
@@ -656,8 +671,11 @@ pub(super) fn scan(
                     }
                     Ok((Ok(()), p)) => {
                         file.outcome = FileOutcome::Refreshed;
-                        out.placed_updates
-                            .push((target.clone(), placed.clone(), st, p.sha256));
+                        out.placed_updates.push(PlacedUpdate {
+                            was: placed.clone(),
+                            now: st,
+                            sha256: p.sha256,
+                        });
                     }
                     Ok((Err(why), _)) => {
                         file.outcome = FileOutcome::Conflict;
@@ -811,14 +829,14 @@ pub(crate) fn proven(
                 }
                 // A loose file is one ROM of its Game, named for it.
                 false => {
-                    let name = placed.path.rsplit('/').next().unwrap_or(&placed.path);
+                    let name = name_of(&placed.path);
                     probe
                         .payloads
                         .iter()
                         .all(|p| p.checksums().header.is_none())
                         && roms
                             .iter()
-                            .filter(|rom| rom.name.rsplit('/').next() == Some(name))
+                            .filter(|rom| name_of(&rom.name) == name)
                             .any(|rom| holds_as(probe, std::slice::from_ref(rom), true))
                 }
             };
@@ -922,9 +940,9 @@ pub(super) fn store_check(
                 ],
             )?;
         }
-        for (path, was, now, sha256) in &scan.placed_updates {
-            let now = crate::placements::stamp_of(now);
-            crate::placements::restamp(tx, folder, path, was, (&now, sha256))?;
+        for u in &scan.placed_updates {
+            let now = crate::placements::stamp_of(&u.now);
+            crate::placements::restamp(tx, folder, &u.was.path, &u.was, (&now, &u.sha256))?;
         }
         tx.execute("DELETE FROM folder_probes WHERE folder_id = ?1", [folder])?;
         // An acknowledgement lasts only while its entry is as it was: one the check found changed, or gone, is

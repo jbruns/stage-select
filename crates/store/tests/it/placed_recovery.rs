@@ -313,3 +313,21 @@ fn a_store_whose_placed_files_have_no_sha256_opens_with_them_filled_in_from_thei
     let file = checked(&check, "Pong (USA).a26");
     assert_eq!(file.outcome, FileOutcome::Refreshed, "{file:?}");
 }
+
+#[test]
+fn an_audit_that_reads_a_loose_placed_file_records_the_sha256_it_verified() {
+    let env = Env::new();
+    let at = env.place_pong(StorageFormat::Loose, |env| {
+        std::fs::write(env.set().join("Pong (USA).a26"), b"pong").unwrap();
+    });
+    chmod(&at);
+
+    env.audit(AuditEvidence::Incremental);
+
+    let placed = &env.store.placed_files(SET).unwrap()[0];
+    assert_eq!(placed.sha256.as_deref(), Some(sha256_hex(b"pong").as_str()));
+    assert_eq!(placed.ctime_ns, ctime_ns(&at));
+    let check = env.check();
+    let file = checked(&check, "Pong (USA).a26");
+    assert_eq!((file.outcome, file.hashed), (FileOutcome::Unchanged, false));
+}

@@ -676,13 +676,7 @@ pub(crate) fn record_home(
             .filter(|e| e.finding == stage_select_engine::Finding::Matched)
             .filter(|e| e.roms.iter().any(|r| r.game == game))
             .collect();
-        let home = !of.is_empty()
-            && of.iter().all(|e| {
-                split_placed(&e.path).is_none()
-                    && e.evidence
-                        .as_ref()
-                        .is_some_and(|ev| ev.level == stage_select_engine::EvidenceLevel::Payload)
-            });
+        let home = verified_for(&of, &game) && of.iter().all(|e| split_placed(&e.path).is_none());
         if home {
             for f in &files {
                 forget_placed(tx, f.library_folder, &f.path)?;
@@ -695,14 +689,16 @@ pub(crate) fn record_home(
 /// Whether every one of `entries`, an Audit's Entries of one file, is Matched for `game` on Payload Evidence, and there
 /// is one.
 pub(crate) fn verified_for(entries: &[&stage_select_engine::Entry], game: &str) -> bool {
-    !entries.is_empty()
-        && entries.iter().all(|e| {
-            e.finding == stage_select_engine::Finding::Matched
-                && e.roms.iter().any(|r| r.game == game)
-                && e.evidence
-                    .as_ref()
-                    .is_some_and(|ev| ev.level == stage_select_engine::EvidenceLevel::Payload)
-        })
+    !entries.is_empty() && entries.iter().all(|e| read_as(e, game))
+}
+
+/// Whether the Entry `e` is Matched for `game` on Payload Evidence: read, not claimed.
+fn read_as(e: &stage_select_engine::Entry, game: &str) -> bool {
+    e.finding == stage_select_engine::Finding::Matched
+        && e.roms.iter().any(|r| r.game == game)
+        && e.evidence
+            .as_ref()
+            .is_some_and(|ev| ev.level == stage_select_engine::EvidenceLevel::Payload)
 }
 
 /// The regular file `rel` in `dir` read whole, its payloads' checksums leaving out the Header `rule` finds, only while
@@ -1007,8 +1003,9 @@ pub(crate) fn moved_entries(
     )
 }
 
-/// The SHA-256 of all of Source Set `set`'s file `path` that its Audits verified, read while it was stamped `was`: known only where that read was of the whole file, a loose file with no Header left out. A ZIP's read is of
-/// its members, which say nothing of the SHA-256 of the archive that holds them.
+/// The SHA-256 of all of Source Set `set`'s file `path` that its Audits verified, read while it was stamped `was`:
+/// known only where that read was of the whole file, a loose file with no Header left out. A ZIP's read is of its
+/// members, which say nothing of the SHA-256 of the archive that holds them.
 pub(crate) fn audited_sha256(
     c: &Connection,
     set: i64,

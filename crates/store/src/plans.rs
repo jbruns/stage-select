@@ -2305,7 +2305,7 @@ fn placed_here(
             ItemKind::Blocked,
             format!(
                 "{target} is the only copy of {game}, placed here from source set {set}, and the check didn't find \
-                 it here but {}",
+                 it here: it was {}. Nothing is written in its place until then",
                 crate::checks::FOUND_HOME
             ),
         )),
