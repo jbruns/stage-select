@@ -663,8 +663,8 @@ fn check_recovery(
         blockers.push(blocker(
             BlockerKind::Recovery,
             format!(
-                "build {build} stopped, and its folder has not been cleaned up since{}. Once you fix that, or the \
-                 folder is as build {build} left it, plan again and its cleanup is tried again",
+                "build {build} stopped, and its folder has not been cleaned up since{}. Plan again to retry its \
+                 cleanup once you've fixed the folder, or once it is as build {build} left it",
                 reason
                     .as_deref()
                     .map(|r| format!(": {r}"))

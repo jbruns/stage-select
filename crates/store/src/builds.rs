@@ -3554,9 +3554,9 @@ impl Store {
                 marker.generation, folder.generation
             )));
         };
-        // Shown to be this store's folder: others' access to its .stage-select, as a recursive chmod on the host
-        // while the service was down gives, is removed through a descriptor its whole marker is matched through
-        // again, before anything in it is changed.
+        // Shown to be this store's folder. Before anything in it is changed, others' access to its .stage-select
+        // (as a recursive chmod on the Host while the service was down gives) is removed, through a descriptor its
+        // whole marker is matched through again.
         if let Err(reason) = dir.close_state(&marker) {
             return Ok(Err(reason));
         }
@@ -3791,7 +3791,8 @@ impl Store {
     }
 
     /// Retries the cleanup of each Build of Library Folder `folder` that ended without its folder being cleaned up,
-    /// as when the service starts, so that once you fix what stopped it the next plan goes ahead without a restart.
+    /// as when the service starts, so that once the Operator fixes what stopped it the next plan goes ahead without a
+    /// restart.
     /// Nothing is retried while a Job of the folder is queued or running: a Build that failed cleans up its own
     /// folder before its Job ends. Why a cleanup left the folder as it is stays recorded for the plan to show.
     pub(super) fn retry_recovery(&self, folder: i64) -> Result<()> {
