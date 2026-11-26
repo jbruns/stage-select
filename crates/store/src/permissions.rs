@@ -275,6 +275,10 @@ fn fixes(
     found: &[PermissionDifference],
 ) -> Vec<PermissionFix> {
     let at = quoted(path);
+    // Every file and folder in it, a link never followed, and never a `.stage-select` folder or what is in it: those
+    // keep their own rule, which a command for the rest would open to others.
+    let each = |then: &str| format!("find {at} -name .stage-select -prune -o {then}");
+    let all = |command: String| each(&format!(r"\( -type d -o -type f \) -exec {command} {{}} +"));
     PermissionCause::ALL
         .into_iter()
         .filter(|c| *c != PermissionCause::Restorable)
@@ -300,7 +304,7 @@ fn fixes(
                          chose: {expected}. To let it, run this on the host as root, then check again ({AS_SEEN}). \
                          Stage Select can then restore {them} through a plan you approve."
                     ),
-                    format!("chown -R {} {at}", me.uid),
+                    all(format!("chown {}", me.uid)),
                 ),
                 PermissionCause::NotInGroup => {
                     let group = policy.group.unwrap_or_default();
@@ -310,14 +314,14 @@ fn fixes(
                              give it to {them}: {expected}. Run this on the host as root, then check again \
                              ({AS_SEEN})."
                         ),
-                        format!("chgrp -R {group} {at}"),
+                        all(format!("chgrp {group}")),
                     )
                 }
                 PermissionCause::ReadOnly => {
-                    let modes = format!(
-                        "find {at} -type d -exec chmod {} {{}} + -o -type f -exec chmod {} {{}} +",
+                    let modes = each(&format!(
+                        "-type d -exec chmod {} {{}} + -o -type f -exec chmod {} {{}} +",
                         policy.folder_mode, policy.file_mode
-                    );
+                    ));
                     (
                         format!(
                             "{count} here {differ} from the permissions you chose: {expected}. Stage Select may not \
@@ -325,7 +329,7 @@ fn fixes(
                              their owner or as root, then check again ({AS_SEEN})."
                         ),
                         match policy.group {
-                            Some(group) => format!("chgrp -R {group} {at} && {modes}"),
+                            Some(group) => format!("{} && {modes}", all(format!("chgrp {group}"))),
                             None => modes,
                         },
                     )
@@ -660,7 +664,10 @@ mod tests {
         .collect();
         let said = fixes(Path::new("/data/sets/it's"), &POLICY, &me, &found);
         assert_eq!(said.len(), 1);
-        assert_eq!(said[0].command, r"chown -R 4015 '/data/sets/it'\''s'");
+        assert_eq!(
+            said[0].command,
+            r"find '/data/sets/it'\''s' -name .stage-select -prune -o \( -type d -o -type f \) -exec chown 4015 {} +"
+        );
         assert!(
             said[0].explanation.starts_with(
                 "1 file and 1 folder here belong to another user, so Stage Select can't give them the permissions \
@@ -676,7 +683,66 @@ mod tests {
                 .collect();
         assert_eq!(
             fixes(Path::new("/s"), &POLICY, &me, &read_only)[0].command,
-            "chgrp -R 100 '/s' && find '/s' -type d -exec chmod 2770 {} + -o -type f -exec chmod 0660 {} +"
+            r"find '/s' -name .stage-select -prune -o \( -type d -o -type f \) -exec chgrp 100 {} + && find '/s' -name .stage-select -prune -o -type d -exec chmod 2770 {} + -o -type f -exec chmod 0660 {} +"
         );
+    }
+
+    #[test]
+    fn no_command_for_the_host_reaches_a_stage_select_folder() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let tmp = tempfile::tempdir().unwrap();
+        let set = tmp.path().join("it's");
+        let state = set.join(".stage-select");
+        let nested = set.join("sub/.stage-select");
+        for dir in [&state, &nested] {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("kept"), b"kept").unwrap();
+            std::fs::set_permissions(dir.join("kept"), PermissionsExt::from_mode(0o600)).unwrap();
+            std::fs::set_permissions(dir, PermissionsExt::from_mode(0o700)).unwrap();
+        }
+        std::fs::write(set.join("a.zip"), b"a").unwrap();
+        std::fs::set_permissions(set.join("a.zip"), PermissionsExt::from_mode(0o644)).unwrap();
+        let me = Me::now();
+        let policy = PermissionPolicy {
+            file_mode: PolicyMode(0o664),
+            folder_mode: PolicyMode(0o775),
+            group: Some(rustix::process::getegid().as_raw()),
+        };
+        let found: Vec<_> = [
+            PermissionCause::OtherOwner,
+            PermissionCause::NotInGroup,
+            PermissionCause::ReadOnly,
+        ]
+        .into_iter()
+        .map(|cause| PermissionDifference {
+            path: "a.zip".into(),
+            folder: false,
+            mode: PolicyMode(0o644),
+            uid: me.uid,
+            gid: 0,
+            expected_mode: PolicyMode(0o664),
+            expected_group: policy.group,
+            cause,
+        })
+        .collect();
+        let said = fixes(&set, &policy, &me, &found);
+        assert_eq!(said.len(), 3);
+        for fix in &said {
+            let ran = std::process::Command::new("sh")
+                .args(["-c", &fix.command])
+                .output()
+                .unwrap();
+            assert!(ran.status.success(), "{}: {ran:?}", fix.command);
+        }
+        let mode = |p: &Path| std::fs::symlink_metadata(p).unwrap().mode() & 0o7777;
+        assert_eq!(mode(&set.join("a.zip")), 0o664, "the fix is made");
+        for dir in [&state, &nested] {
+            assert_eq!(
+                (mode(dir), mode(&dir.join("kept"))),
+                (0o700, 0o600),
+                "{}",
+                dir.display()
+            );
+        }
     }
 }

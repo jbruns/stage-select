@@ -630,8 +630,10 @@ as is a group Stage Select isn't in.
   or the folder changed since the check, it changes nothing and asks you to check again.
 - **What it can't restore, it explains.** A file another user owns, a group Stage Select isn't in, and every file of
   a source set it may not change come with what is wrong, what you chose, and one command to run on the host, such
-  as `chown -R 4015 '/data/games/nes'` as root, then check again. The path is as Stage Select sees it: if it runs in
-  a container, use the host folder mounted there. Stage Select never re-creates a file to change its owner.
+  as `find '/data/games/nes' -name .stage-select -prune -o \( -type d -o -type f \) -exec chown 4015 {} +` as root,
+  then check again. The command leaves every `.stage-select` folder as it is, since those keep their own permissions.
+  The path is as Stage Select sees it: if it runs in a container, use the host folder mounted there. Stage Select never
+  re-creates a file to change its owner.
 
 ### Starting the service
 
