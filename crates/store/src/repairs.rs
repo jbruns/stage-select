@@ -2078,6 +2078,8 @@ impl Store {
                 // Made exclusively through this descriptor, so it is this store's: the umask's "other" bits are
                 // taken off before anything is written, as for a folder it makes, with nothing to report.
                 if let Ok(st) = rustix::fs::fstat(&file) {
+                    // `st_mode` is `u32` on Linux and `u16` on macOS.
+                    #[allow(clippy::unnecessary_cast)]
                     let mode = st.st_mode as u32 & 0o7777;
                     let _ = rustix::fs::fchmod(
                         &file,

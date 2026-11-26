@@ -262,6 +262,7 @@ type Restore = (CleanupRestore, Option<(Seen, Probe)>);
 impl Store {
     /// Computes the cleanup of Library Folder `folder` that `choices` asks for, against its current Build.
     pub(crate) fn compute_cleanup(&self, folder: i64, choices: &PlanCleanup) -> Result<Planned> {
+        self.retry_recovery(folder)?;
         let roots = &*self.roots();
         type Kept = Vec<(i64, Option<KeptFile>, KeptProbe)>;
         type Sources = HashMap<String, Vec<PlanSource>>;

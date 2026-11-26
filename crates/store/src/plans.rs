@@ -663,8 +663,8 @@ fn check_recovery(
         blockers.push(blocker(
             BlockerKind::Recovery,
             format!(
-                "build {build} stopped, and its folder has not been cleaned up since{}. The service cleans it up \
-                 when it starts; restart it once the folder is as build {build} left it",
+                "build {build} stopped, and its folder has not been cleaned up since{}. Once you fix that, or the \
+                 folder is as build {build} left it, plan again and its cleanup is tried again",
                 reason
                     .as_deref()
                     .map(|r| format!(": {r}"))
@@ -3107,6 +3107,7 @@ impl Store {
         choices: &PlanChoices,
         meter: &PlanMeter,
     ) -> Result<Planned> {
+        self.retry_recovery(folder)?;
         let roots = &*self.roots();
         let mut inputs = self.read(|c| {
             let tx = c.unchecked_transaction()?;

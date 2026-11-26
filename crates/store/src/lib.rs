@@ -145,6 +145,8 @@ pub struct Store {
     publishing: Mutex<()>,
     /// Held while an Additions Set's folder is created.
     set_dirs: Mutex<()>,
+    /// Held while a plan retries the cleanup of a Library Folder's stopped Builds, so that no two retry at once.
+    recovering: Mutex<()>,
     /// Held while a registration is made or Unregistered, its marker written or removed, or a Library Folder's move
     /// reserves its destination, so that none of them interleave. Taken before the writer, never inside a write.
     lifecycle: Mutex<()>,
@@ -580,6 +582,7 @@ impl Store {
             fault: Mutex::new(None),
             publishing: Mutex::new(()),
             set_dirs: Mutex::new(()),
+            recovering: Mutex::new(()),
             lifecycle: Mutex::new(()),
             observer: std::sync::OnceLock::new(),
             ceilings: ceilings::Live::default(),

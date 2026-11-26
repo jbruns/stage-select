@@ -5723,10 +5723,35 @@ fn a_staging_folder_stage_select_cannot_open_once_made_is_refused_with_the_fix_a
         blocked.content.blockers
     );
 
+    // The next plan after the fix retries the cleanup: no restart is needed.
     run_fix(&message, &temp);
-    let (env, left) = env.restart();
+    let plan = env.plan(&folder, id);
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+}
 
-    assert!(left.is_empty(), "{left:?}");
+#[cfg(unix)]
+#[test]
+fn a_stage_select_folder_opened_to_others_while_the_service_is_down_is_closed_by_the_cleanup_when_it_starts()
+ {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    env.audit();
+    let id = titles(&env, &["Pong (USA)"]);
+    let folder = env.folder("atari2600");
+    let dir = env.play().join("atari2600");
+    env.crash(&env.plan(&folder, id), Fault::Staged(0));
+    assert!(dir.join(".stage-select/staging").exists());
+    let state = dir.join(".stage-select");
+    // As a recursive chmod on the host does while the service is down.
+    set_mode(&state, 0o777);
+
+    let (env, blocked) = env.restart();
+
+    assert!(blocked.is_empty(), "{blocked:?}");
+    let mode = std::fs::metadata(&state).unwrap().permissions().mode() & 0o7777;
+    assert_eq!(mode, 0o770);
+    assert!(!dir.join(".stage-select/staging").exists());
     let plan = env.plan(&folder, id);
     assert!(plan.approvable(), "{:?}", plan.content.blockers);
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
