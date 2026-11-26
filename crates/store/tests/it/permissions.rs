@@ -272,7 +272,7 @@ fn a_stat_walk_reports_what_differs_a_plan_restores_what_stage_select_owns_and_t
     assert_eq!(
         fix.command,
         format!(
-            r"find {quoted} -name .stage-select -prune -o \( -type d -o -type f \) -exec chown {} {{}} +",
+            r"find {quoted} -name .stage-select -prune -o \( -type d -o -type f \) -exec chown -h {} {{}} +",
             rustix::process::geteuid().as_raw()
         )
     );

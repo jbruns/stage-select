@@ -138,8 +138,8 @@ fn give_unread(dir: BorrowedFd, name: &str, policy: &PermissionPolicy) -> Option
     // entry it names, never further, a symlink having been refused above by its type.
     let named = format!("/proc/self/fd/{}", std::os::fd::AsRawFd::as_raw_fd(&fd));
     give_with(
-        &fd,
         policy,
+        || rustix::fs::fstat(&fd),
         |group| rustix::fs::chownat(&fd, "", None, Some(group), AtFlags::EMPTY_PATH),
         |mode| rustix::fs::chmodat(rustix::fs::CWD, named.as_str(), mode, AtFlags::empty()),
     )
@@ -150,52 +150,33 @@ fn give_unread(dir: BorrowedFd, name: &str, policy: &PermissionPolicy) -> Option
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 fn give_unread(dir: BorrowedFd, name: &str, policy: &PermissionPolicy) -> Option<Stat> {
     let nofollow = AtFlags::SYMLINK_NOFOLLOW;
-    let stat = || rustix::fs::statat(dir, name, nofollow);
-    let st = stat().ok()?;
-    if !matches!(
-        FileType::from_raw_mode(st.st_mode),
-        FileType::RegularFile | FileType::Directory
-    ) {
-        return Some(st);
-    }
-    let me = Me::now();
-    if !(me.root() || st.st_uid == me.uid) {
-        return Some(st);
-    }
-    if let Some(group) = policy.group
-        && st.st_gid != group
-        && me.in_group(group)
-    {
-        let _ = rustix::fs::chownat(dir, name, None, Some(Gid::from_raw(group)), nofollow);
-    }
-    let st = stat().ok()?;
-    let want = policy.mode(FileType::from_raw_mode(st.st_mode) == FileType::Directory);
-    if mode_of(&st) != want {
-        let _ = rustix::fs::chmodat(dir, name, Mode::from_raw_mode(want as _), nofollow);
-    }
-    stat().ok()
+    give_with(
+        policy,
+        || rustix::fs::statat(dir, name, nofollow),
+        |group| rustix::fs::chownat(dir, name, None, Some(group), nofollow),
+        |mode| rustix::fs::chmodat(dir, name, mode, nofollow),
+    )
 }
 
 /// Gives the regular file or folder open as `fd` the policy, as [`give`] says.
 fn give_fd(fd: BorrowedFd, policy: &PermissionPolicy) -> Option<Stat> {
     give_with(
-        fd,
         policy,
+        || rustix::fs::fstat(fd),
         |group| rustix::fs::fchown(fd, None, Some(group)),
         |mode| rustix::fs::fchmod(fd, mode),
     )
 }
 
-/// Gives the regular file or folder `fd` names the policy, as [`give`] says, changing its group by `chgrp` and its
-/// mode by `chmod`.
+/// Gives the regular file or folder that `stat` describes the policy, as [`give`] says, changing its group by `chgrp`
+/// and its mode by `chmod`.
 fn give_with(
-    fd: impl AsFd,
     policy: &PermissionPolicy,
+    stat: impl Fn() -> rustix::io::Result<Stat>,
     chgrp: impl Fn(Gid) -> rustix::io::Result<()>,
     chmod: impl Fn(Mode) -> rustix::io::Result<()>,
 ) -> Option<Stat> {
-    let fd = fd.as_fd();
-    let st = rustix::fs::fstat(fd).ok()?;
+    let st = stat().ok()?;
     let folder = match FileType::from_raw_mode(st.st_mode) {
         FileType::Directory => true,
         FileType::RegularFile => false,
@@ -212,12 +193,12 @@ fn give_with(
         let _ = chgrp(Gid::from_raw(group));
     }
     // A change of group may clear setgid, so the mode is set after it, from what it is then.
-    let st = rustix::fs::fstat(fd).ok()?;
+    let st = stat().ok()?;
     let want = policy.mode(folder);
     if mode_of(&st) != want {
         let _ = chmod(Mode::from_raw_mode(want as _));
     }
-    rustix::fs::fstat(fd).ok()
+    stat().ok()
 }
 
 /// A file or folder as a check saw it: what its permissions are compared from.
@@ -342,10 +323,12 @@ fn fixes(
     found: &[PermissionDifference],
 ) -> Vec<PermissionFix> {
     let at = quoted(path);
-    // Every file and folder in it, a link never followed, and never a `.stage-select` folder or what is in it: those
-    // keep their own rule, which a command for the rest would open to others.
-    let each = |then: &str| format!("find {at} -name .stage-select -prune -o {then}");
-    let all = |command: String| each(&format!(r"\( -type d -o -type f \) -exec {command} {{}} +"));
+    // Every file and folder in it, never a `.stage-select` folder or what is in it: those keep their own rule, which a
+    // command for the rest would open to others. A link is never followed, nor one swapped in as the command runs.
+    let outside_state = |then: &str| format!("find {at} -name .stage-select -prune -o {then}");
+    let on_every_entry = |command: String| {
+        outside_state(&format!(r"\( -type d -o -type f \) -exec {command} {{}} +"))
+    };
     PermissionCause::ALL
         .into_iter()
         .filter(|c| *c != PermissionCause::Restorable)
@@ -371,7 +354,7 @@ fn fixes(
                          chose: {expected}. To let it, run this on the host as root, then check again ({AS_SEEN}). \
                          Stage Select can then restore {them} through a plan you approve."
                     ),
-                    all(format!("chown {}", me.uid)),
+                    on_every_entry(format!("chown -h {}", me.uid)),
                 ),
                 PermissionCause::NotInGroup => {
                     let group = policy.group.unwrap_or_default();
@@ -381,11 +364,11 @@ fn fixes(
                              give it to {them}: {expected}. Run this on the host as root, then check again \
                              ({AS_SEEN})."
                         ),
-                        all(format!("chgrp {group}")),
+                        on_every_entry(format!("chgrp -h {group}")),
                     )
                 }
                 PermissionCause::ReadOnly => {
-                    let modes = each(&format!(
+                    let modes = outside_state(&format!(
                         "-type d -exec chmod {} {{}} + -o -type f -exec chmod {} {{}} +",
                         policy.folder_mode, policy.file_mode
                     ));
@@ -396,7 +379,7 @@ fn fixes(
                              their owner or as root, then check again ({AS_SEEN})."
                         ),
                         match policy.group {
-                            Some(group) => format!("{} && {modes}", all(format!("chgrp {group}"))),
+                            Some(group) => format!("{} && {modes}", on_every_entry(format!("chgrp -h {group}"))),
                             None => modes,
                         },
                     )
@@ -733,7 +716,7 @@ mod tests {
         assert_eq!(said.len(), 1);
         assert_eq!(
             said[0].command,
-            r"find '/data/sets/it'\''s' -name .stage-select -prune -o \( -type d -o -type f \) -exec chown 4015 {} +"
+            r"find '/data/sets/it'\''s' -name .stage-select -prune -o \( -type d -o -type f \) -exec chown -h 4015 {} +"
         );
         assert!(
             said[0].explanation.starts_with(
@@ -750,7 +733,7 @@ mod tests {
                 .collect();
         assert_eq!(
             fixes(Path::new("/s"), &POLICY, &me, &read_only)[0].command,
-            r"find '/s' -name .stage-select -prune -o \( -type d -o -type f \) -exec chgrp 100 {} + && find '/s' -name .stage-select -prune -o -type d -exec chmod 2770 {} + -o -type f -exec chmod 0660 {} +"
+            r"find '/s' -name .stage-select -prune -o \( -type d -o -type f \) -exec chgrp -h 100 {} + && find '/s' -name .stage-select -prune -o -type d -exec chmod 2770 {} + -o -type f -exec chmod 0660 {} +"
         );
     }
 

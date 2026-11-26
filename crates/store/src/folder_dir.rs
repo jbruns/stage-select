@@ -248,14 +248,20 @@ pub(super) fn pretend_mount(path: &Path, on: bool) {
     }
 }
 
-/// Whether a test said a rename from the folder at `from` to the one at `to` crosses a mount.
-#[cfg(feature = "test-seams")]
+/// Whether a test said a rename from the folder at `from` to the one at `to` crosses a mount: never without the
+/// `test-seams` feature.
+#[cfg_attr(not(feature = "test-seams"), allow(unused_variables))]
 fn crosses_mount(from: &Path, to: &Path) -> bool {
-    MOUNTS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .any(|m| to.starts_with(m) != from.starts_with(m))
+    #[cfg(feature = "test-seams")]
+    {
+        MOUNTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .any(|m| to.starts_with(m) != from.starts_with(m))
+    }
+    #[cfg(not(feature = "test-seams"))]
+    false
 }
 
 /// The user and group that own the entry `st` describes: its filesystem's answer, or what a test said.
@@ -1011,7 +1017,12 @@ impl FolderDir {
         let (to_parent, to_leaf) = dest.resolve(to)?;
         FolderDir::writable(from_parent.as_ref().unwrap_or(self))?;
         FolderDir::writable(to_parent.as_ref().unwrap_or(dest))?;
-        let rename = || {
+        let renamed = if crosses_mount(
+            &from_parent.as_ref().unwrap_or(self).path,
+            &to_parent.as_ref().unwrap_or(dest).path,
+        ) {
+            Err(rustix::io::Errno::XDEV)
+        } else {
             rustix::fs::renameat_with(
                 &from_parent.as_ref().unwrap_or(self).fd,
                 from_leaf,
@@ -1020,17 +1031,6 @@ impl FolderDir {
                 RenameFlags::NOREPLACE,
             )
         };
-        #[cfg(feature = "test-seams")]
-        let renamed = if crosses_mount(
-            &from_parent.as_ref().unwrap_or(self).path,
-            &to_parent.as_ref().unwrap_or(dest).path,
-        ) {
-            Err(rustix::io::Errno::XDEV)
-        } else {
-            rename()
-        };
-        #[cfg(not(feature = "test-seams"))]
-        let renamed = rename();
         match renamed {
             Ok(()) => {
                 // Given the policy of where it went once it is there, never before: a rename that fails leaves the
