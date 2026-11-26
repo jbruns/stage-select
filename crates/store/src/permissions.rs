@@ -122,12 +122,79 @@ pub(crate) fn give(dir: BorrowedFd, name: Option<&str>, policy: &PermissionPolic
         OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::NOCTTY | OFlags::CLOEXEC;
     match rustix::fs::openat(dir, name, flags, Mode::empty()) {
         Ok(fd) => give_fd(fd.as_fd(), policy),
+        // One whose mode keeps even its owner from reading it, which its owner may still change.
+        Err(rustix::io::Errno::ACCESS) => give_unread(dir, name, policy),
         Err(_) => rustix::fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW).ok(),
     }
 }
 
+/// Gives the entry `name` in `dir`, which can't be opened to read, the policy as [`give`] says: through a descriptor
+/// that only names it, opened without following a symlink.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn give_unread(dir: BorrowedFd, name: &str, policy: &PermissionPolicy) -> Option<Stat> {
+    let flags = OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let fd = rustix::fs::openat(dir, name, flags, Mode::empty()).ok()?;
+    // A descriptor opened only to name an entry can't be changed itself; its link in /proc can, and leads to the
+    // entry it names, never further, a symlink having been refused above by its type.
+    let named = format!("/proc/self/fd/{}", std::os::fd::AsRawFd::as_raw_fd(&fd));
+    give_with(
+        &fd,
+        policy,
+        |group| rustix::fs::chownat(&fd, "", None, Some(group), AtFlags::EMPTY_PATH),
+        |mode| rustix::fs::chmodat(rustix::fs::CWD, named.as_str(), mode, AtFlags::empty()),
+    )
+}
+
+/// Gives the entry `name` in `dir`, which can't be opened to read, the policy as [`give`] says: by its name, never
+/// following a symlink, so one swapped in meanwhile is changed itself and its target never.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn give_unread(dir: BorrowedFd, name: &str, policy: &PermissionPolicy) -> Option<Stat> {
+    let nofollow = AtFlags::SYMLINK_NOFOLLOW;
+    let stat = || rustix::fs::statat(dir, name, nofollow);
+    let st = stat().ok()?;
+    if !matches!(
+        FileType::from_raw_mode(st.st_mode),
+        FileType::RegularFile | FileType::Directory
+    ) {
+        return Some(st);
+    }
+    let me = Me::now();
+    if !(me.root() || st.st_uid == me.uid) {
+        return Some(st);
+    }
+    if let Some(group) = policy.group
+        && st.st_gid != group
+        && me.in_group(group)
+    {
+        let _ = rustix::fs::chownat(dir, name, None, Some(Gid::from_raw(group)), nofollow);
+    }
+    let st = stat().ok()?;
+    let want = policy.mode(FileType::from_raw_mode(st.st_mode) == FileType::Directory);
+    if mode_of(&st) != want {
+        let _ = rustix::fs::chmodat(dir, name, Mode::from_raw_mode(want as _), nofollow);
+    }
+    stat().ok()
+}
+
 /// Gives the regular file or folder open as `fd` the policy, as [`give`] says.
 fn give_fd(fd: BorrowedFd, policy: &PermissionPolicy) -> Option<Stat> {
+    give_with(
+        fd,
+        policy,
+        |group| rustix::fs::fchown(fd, None, Some(group)),
+        |mode| rustix::fs::fchmod(fd, mode),
+    )
+}
+
+/// Gives the regular file or folder `fd` names the policy, as [`give`] says, changing its group by `chgrp` and its
+/// mode by `chmod`.
+fn give_with(
+    fd: impl AsFd,
+    policy: &PermissionPolicy,
+    chgrp: impl Fn(Gid) -> rustix::io::Result<()>,
+    chmod: impl Fn(Mode) -> rustix::io::Result<()>,
+) -> Option<Stat> {
+    let fd = fd.as_fd();
     let st = rustix::fs::fstat(fd).ok()?;
     let folder = match FileType::from_raw_mode(st.st_mode) {
         FileType::Directory => true,
@@ -142,13 +209,13 @@ fn give_fd(fd: BorrowedFd, policy: &PermissionPolicy) -> Option<Stat> {
         && st.st_gid != group
         && me.in_group(group)
     {
-        let _ = rustix::fs::fchown(fd, None, Some(Gid::from_raw(group)));
+        let _ = chgrp(Gid::from_raw(group));
     }
     // A change of group may clear setgid, so the mode is set after it, from what it is then.
     let st = rustix::fs::fstat(fd).ok()?;
     let want = policy.mode(folder);
     if mode_of(&st) != want {
-        let _ = rustix::fs::fchmod(fd, Mode::from_raw_mode(want as _));
+        let _ = chmod(Mode::from_raw_mode(want as _));
     }
     rustix::fs::fstat(fd).ok()
 }

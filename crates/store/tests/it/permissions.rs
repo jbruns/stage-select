@@ -522,3 +522,33 @@ fn a_game_placed_by_a_copy_where_its_rename_fails_across_mounts_comes_out_as_dec
     assert_eq!(std::fs::read(&placed).unwrap(), bytes);
     assert_declared(&[placed]);
 }
+
+#[test]
+fn a_file_stage_select_owns_but_may_not_read_is_restored_all_the_same() {
+    let env = Env::new();
+    let set = env.set("Alpha");
+    let pong = set.join("Pong (USA).a26");
+    write_file(&pong, b"pong");
+    env.audit("Alpha");
+    declare(&env.store);
+    set_mode(&pong, 0o200);
+    let view = env.walk("Alpha");
+    let restorable = of_cause(&view, PermissionCause::Restorable);
+    assert!(
+        restorable.contains(&"Pong (USA).a26".to_owned()),
+        "{restorable:?}"
+    );
+
+    let restored = env
+        .store
+        .restore_source_set_permissions(
+            "Alpha",
+            view.report.unwrap().plan_digest.as_deref().unwrap(),
+            "Operator",
+        )
+        .unwrap();
+
+    assert!(restored.failed.is_empty(), "{restored:?}");
+    assert_eq!(restored.restored as usize, restorable.len());
+    assert_declared(&[pong, set]);
+}
