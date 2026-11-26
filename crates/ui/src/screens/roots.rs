@@ -534,7 +534,8 @@ fn PolicyForm(roots: Signal<Vec<Root>>) -> impl IntoView {
     });
     let said = RwSignal::new(None::<Result<String, String>>);
     let save = move |_| {
-        let shown: Vec<String> = roots.with_untracked(|r| r.iter().map(|r| r.name.clone()).collect());
+        let shown: Vec<String> =
+            roots.with_untracked(|r| r.iter().map(|r| r.name.clone()).collect());
         let permissions = match draft.with_untracked(|d| d.read(&shown)) {
             Ok(p) => p,
             Err(problem) => {
