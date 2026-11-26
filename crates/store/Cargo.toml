@@ -24,7 +24,8 @@ zip.workspace = true
 
 [features]
 # Seams only the store's own tests use, such as making an entry read as owned by another user. Never enabled by a
-# crate that ships: the store's tests enable it through the dev-dependency on the store itself below.
+# crate that ships: the store's tests enable it through the dev-dependency on the store itself below. A release build
+# with it fails to compile (`src/lib.rs`), so `--all-features` can't put it in a shipped binary.
 test-seams = []
 
 [dev-dependencies]

@@ -1388,8 +1388,9 @@ fn a_retention_area_moved_while_a_build_keeps_a_file_aside_is_never_recorded_as_
     let error = ended.error.unwrap();
     assert!(
         error.contains(&format!(
-            "was set aside, but {} was moved while the build ran, so it is not at {}",
-            area.display(),
+            "was set aside into {}, but that folder, or the one holding it, was moved before it was recorded, so it \
+             is not at {}",
+            area.join("2").display(),
             area.join("2").join(format!("{first}.kept")).display()
         )),
         "{error}"
@@ -2167,6 +2168,50 @@ fn a_retention_area_swapped_while_it_is_created_is_never_used() {
     assert_eq!(names(&dir), before);
 }
 
+/// A folder Stage Select just made is changed only once it is known, by the identity recorded when it was made, to be
+/// that folder: one moved into its place, open to others, is refused and its permissions left as they are, whether
+/// it takes the place of the temporary folder just made or of the one just renamed into place.
+#[cfg(unix)]
+#[test]
+fn a_folder_open_to_others_put_in_place_of_one_just_made_is_never_changed() {
+    for fault in [Fault::MadeDir, Fault::PublishedDir] {
+        let env = Env::new();
+        let (folder, plan) = built_then_deselected(&env);
+        let dir = env.play().join("atari2600");
+        let at = dir.clone();
+        let swapped: std::sync::Arc<std::sync::Mutex<Option<PathBuf>>> = Default::default();
+        let into = swapped.clone();
+        env.store.hook_faults(Some(std::sync::Arc::new(move |hit| {
+            let mut into = into.lock().unwrap();
+            if hit != fault || into.is_some() {
+                return;
+            }
+            let target = match hit {
+                Fault::MadeDir => at.join(&creating(&at)[0]),
+                _ => at.join(RETAINED),
+            };
+            std::fs::rename(&target, target.with_extension("aside")).unwrap();
+            std::fs::create_dir(&target).unwrap();
+            set_mode(&target, 0o777);
+            *into = Some(target);
+        })));
+        let job = env.build(&plan);
+        env.store.hook_faults(None);
+
+        let target = swapped.lock().unwrap().clone().unwrap();
+        assert_eq!(job.state, JobState::Failed, "{fault:?}");
+        assert_eq!(
+            mode_of(&target),
+            0o777,
+            "{fault:?}: the folder put in its place is left as it is"
+        );
+        assert!(
+            env.store.kept_files(folder.id).unwrap().is_empty(),
+            "{fault:?}"
+        );
+    }
+}
+
 #[test]
 fn a_folder_recreated_in_place_of_a_gone_one_is_adopted_by_recovery_when_it_stopped_once_published()
 {
@@ -2587,8 +2632,21 @@ fn a_folder_that_is_not_the_empty_closed_one_just_made_is_never_used() {
         if tamper == "a file in it" {
             assert!(blockers(&next).contains(&BlockerKind::Recovery), "{tamper}");
         } else {
-            // Still the folder Stage Select made, only not usable as it was: recorded as this store's leftover, so
-            // nothing is left to clear and the next plan runs.
+            // Nothing recorded when it was made shows it is the folder made, so it is refused with how to fix it, and
+            // recorded as this store's leftover only once it is fixed: the next plan then runs.
+            let temp = dir.join(&temps[0]);
+            assert!(
+                next.content.blockers.iter().any(|b| b
+                    .message
+                    .contains(&format!("{} can't be used", temp.display()))),
+                "{tamper}: {:?}",
+                next.content.blockers
+            );
+            stage_select_store::pretend_owner(&temp, None).unwrap();
+            set_mode(&temp, 0o700);
+            let (env, left) = env.restart();
+            assert!(left.is_empty(), "{tamper}: {left:?}");
+            let next = env.plan(&folder, plan.content.selection);
             assert!(next.approvable(), "{tamper}: {:?}", next.content.blockers);
             assert_eq!(env.build(&next).state, JobState::Succeeded, "{tamper}");
         }
@@ -2909,7 +2967,7 @@ fn refused_though_its_mode_allows(env: &Env, plan: &Plan, state: &Path, mode: u3
     );
     assert!(
         message.ends_with(
-            "An access control list or the mount keeps Stage Select out. To fix it, let Stage Select read and \
+            "An access control list, an immutable flag or a security policy keeps Stage Select out. To fix it, let Stage Select read and \
              write it on the host, as its owner or as root, then try again."
         ),
         "{message}"
@@ -5624,7 +5682,8 @@ fn a_file_put_in_place_is_recorded_only_once_recovery_makes_its_rename_durable()
 
 #[cfg(unix)]
 #[test]
-fn a_staging_folder_stage_select_cannot_open_once_made_needs_nothing_cleared_after_the_fix() {
+fn a_staging_folder_stage_select_cannot_open_once_made_is_refused_with_the_fix_and_recorded_once_fixed()
+ {
     let env = Env::new();
     env.audit();
     let id = titles(&env, &["Pong (USA)"]);
@@ -5653,8 +5712,21 @@ fn a_staging_folder_stage_select_cannot_open_once_made_needs_nothing_cleared_aft
         "{message}"
     );
 
-    run_fix(&message, &temp);
+    // Nothing recorded when it was made shows it is the folder made, so it is not recorded as this store's until
+    // the cleanup after the fix finds it is.
+    let blocked = env.plan(&folder, id);
+    assert!(
+        blocked.content.blockers.iter().any(|b| b
+            .message
+            .contains(&format!("{} can't be used", temp.display()))),
+        "{:?}",
+        blocked.content.blockers
+    );
 
+    run_fix(&message, &temp);
+    let (env, left) = env.restart();
+
+    assert!(left.is_empty(), "{left:?}");
     let plan = env.plan(&folder, id);
     assert!(plan.approvable(), "{:?}", plan.content.blockers);
     assert_eq!(env.build(&plan).state, JobState::Succeeded);

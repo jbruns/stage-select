@@ -39,7 +39,7 @@ use crate::folder_dir::{FolderDir, Identity, create_staged, ctime_ns, file_stat,
 use crate::folders::{folder_by_id, open_folder, store_id};
 use crate::ingest::moves::exactly;
 use crate::jobs::{finish_running, job_by_id};
-use crate::kept::{Scope, is_kept_entry, open_retention, settle_dir_temps, unique};
+use crate::kept::{Scope, is_kept_entry, kept_found, open_retention, settle_dir_temps, unique};
 use crate::repairs::{MarkerRule, open_repairable};
 use crate::{Error, Fault, Result, Store, now};
 
@@ -1342,7 +1342,7 @@ impl Store {
                 set.system
             )));
         }
-        Ok(dir.close_state(&expected.store).map(|()| dir))
+        Ok(dir.close_state(&expected).map(|()| dir))
     }
 
     /// Opens the folder of Additions Set `id`, which a build reads its Additions from.
@@ -1434,7 +1434,7 @@ impl Store {
             )));
         }
         let made = root.sub(&temp_name).map_err(io)?;
-        let temp = match made.closed(true).map_err(io)? {
+        let temp = match made.made_closed().map_err(io)? {
             Ok(temp) => temp,
             Err(why) => {
                 return Ok(Err(why.explain(|why| {
@@ -1789,6 +1789,15 @@ impl Store {
         self.fault_point(Fault::AdditionRetireMoved);
         dir.sync().map_err(io)?;
         area.sync().map_err(io)?;
+        if let Err(moved) = kept_found(
+            (&dir, &area),
+            kept.generation as u64,
+            &kept.kept_name,
+            file_name,
+        )? {
+            drop(held);
+            return self.retire_ends(id, Some(kept.id), moved);
+        }
         if is_kept_entry(&area, &kept.kept_name, p.identity, Some(&p.file), false) {
             drop(held);
             return self.retired(id, kept.id);

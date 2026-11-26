@@ -54,7 +54,7 @@ use crate::carry::{self, Intent, Intents};
 use crate::folder_dir::{FolderDir, Identity, ctime_ns, file_stat, parent_made, parent_of};
 use crate::folders::{check_marker, open_writable_folder};
 use crate::ingest::moves::descend;
-use crate::kept::{Scope, open_area_deleting, open_retention, settle_dir_temps};
+use crate::kept::{Scope, kept_found, open_area_deleting, open_retention, settle_dir_temps};
 use crate::placements::Rewritten;
 use crate::repairs::{MarkerRule, open_repairable, source_folder};
 use crate::{Error, Fault, Result, Store, now};
@@ -1914,11 +1914,12 @@ impl Store {
                 "it could not be moved into the kept files: {e}"
             )));
         }
+        self.fault_point(Fault::PlaceKeptAside(seq));
         dir.sync().map_err(io_err)?;
         self.record_kept(
             p,
             (seq, n, path),
-            &retention,
+            (&set.dir, &retention),
             (&kept, generation),
             pin.as_ref(),
             why,
@@ -1926,21 +1927,22 @@ impl Store {
     }
 
     /// Records the Source Set file `path` of item `seq`'s original `n`, moved into the kept files folder `retention`
-    /// of `generation` as `kept`, kept by the Build because `why`: its change time read through `pin`, the descriptor
-    /// held across that move, when there is one.
+    /// of `generation` of the Source Set opened as `set` as `kept`, kept by the Build because `why`: its change time
+    /// read through `pin`, the descriptor held across that move, when there is one.
     fn record_kept(
         &self,
         p: &Placing,
         (seq, n, path): (i64, i64, &str),
-        retention: &FolderDir,
+        (set, retention): (&FolderDir, &FolderDir),
         (kept, generation): (&str, u64),
         pin: Option<&File>,
         why: &str,
     ) -> Result<std::result::Result<String, String>> {
         retention.sync().map_err(io_err)?;
-        let st = match retention.stat(kept).map_err(io_err)? {
-            Some(st) if FolderDir::kind(&st) == FileType::RegularFile => st,
-            _ => return Ok(Err(format!("{kept} is not in the kept files"))),
+        let st = match kept_found((set, retention), generation, kept, path)? {
+            Ok(Some(st)) if FolderDir::kind(&st) == FileType::RegularFile => st,
+            Ok(_) => return Ok(Err(format!("{kept} is not in the kept files"))),
+            Err(moved) => return Ok(Err(moved)),
         };
         let kept_ctime = pin
             .and_then(|pin| rustix::fs::fstat(pin).ok())
@@ -2025,7 +2027,7 @@ impl Store {
             return Ok(done(self.record_kept(
                 p,
                 (seq, row.n, &o.path),
-                &retention,
+                (&set.dir, &retention),
                 (kept, *generation),
                 None,
                 &why,

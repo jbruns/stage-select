@@ -277,28 +277,53 @@ pub(super) enum Opened<'a> {
     Not,
 }
 
+/// What the kernel says, asked through an open descriptor, of whether Stage Select may read and write an entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Kernel {
+    Allows,
+    /// Refused: by its mode, an access control list, or an immutable flag.
+    Denies,
+    /// Refused because its mount is read-only, which no `chmod` changes.
+    ReadOnly,
+    /// The question itself was refused, as a sandbox may refuse `faccessat2`: the mode decides alone.
+    Unknown,
+}
+
 impl Opened<'_> {
     /// Whether the kernel lets Stage Select use the entry as `needs` says, whatever grants or denies it: its mode,
-    /// an access control list, or the mount.
-    fn kernel_allows(self) -> bool {
+    /// an access control list, an immutable flag or the mount.
+    pub(super) fn kernel(self) -> Kernel {
         match self {
             Opened::Folder(fd) => {
                 use rustix::fs::Access;
-                // Only a refusal counts as one: where the call itself is refused, as a sandbox may refuse
-                // `faccessat2`, the mode decides alone.
-                !matches!(
+                use rustix::io::Errno;
+                let ask = |flags| {
+                    // `.` through the descriptor, so no `AT_EMPTY_PATH`, which Linux's backend refuses for this call.
                     rustix::fs::accessat(
                         fd,
                         ".",
                         Access::READ_OK | Access::WRITE_OK | Access::EXEC_OK,
-                        AtFlags::EACCESS,
-                    ),
-                    Err(rustix::io::Errno::ACCESS | rustix::io::Errno::ROFS)
-                )
+                        flags,
+                    )
+                };
+                match ask(AtFlags::EACCESS) {
+                    Ok(()) => Kernel::Allows,
+                    Err(Errno::ACCESS) => Kernel::Denies,
+                    Err(Errno::ROFS) => Kernel::ReadOnly,
+                    // An immutable folder, or a sandbox refusing `faccessat2` itself, as an older container runtime's
+                    // seccomp profile does: asked again without the flag, which every kernel takes, only a refusal
+                    // then is one.
+                    Err(Errno::PERM) => match ask(AtFlags::empty()) {
+                        Err(Errno::ACCESS | Errno::PERM) => Kernel::Denies,
+                        Err(Errno::ROFS) => Kernel::ReadOnly,
+                        Ok(()) | Err(_) => Kernel::Unknown,
+                    },
+                    Err(_) => Kernel::Unknown,
+                }
             }
             // Opened for reading and writing, so it is allowed.
-            Opened::File(_) => true,
-            Opened::Not => false,
+            Opened::File(_) => Kernel::Allows,
+            Opened::Not => Kernel::Denies,
         }
     }
 }
@@ -374,35 +399,42 @@ pub(super) fn closed_to_others(
         } else {
             in_group && (mode >> 3) & want == want
         };
-    let kernel_allows = opened.kernel_allows();
+    let kernel = opened.kernel();
+    let kernel_allows = matches!(kernel, Kernel::Allows | Kernel::Unknown);
     let usable = mode_allows && kernel_allows;
     let open = mode & 0o007 != 0;
     if usable && !open {
         return Ok(Standing::Closed);
     }
-    let refusal = || {
+    let refusal = |read_only: bool| {
         refusal(
             path,
             mode,
             (owner, gid, uid),
             needs,
             (ours, in_group),
-            (mode_allows, kernel_allows),
+            (mode_allows, kernel_allows, read_only),
         )
     };
+    if kernel == Kernel::ReadOnly {
+        return Err(refusal(true));
+    }
     if usable && ours {
         let fd = match opened {
             Opened::Folder(fd) | Opened::File(fd) => fd,
-            Opened::Not => return Err(refusal()),
+            Opened::Not => return Err(refusal(false)),
         };
         if fix == PermissionFix::Deferred {
-            return Ok(Standing::Exposed(refusal()));
+            return Ok(Standing::Exposed(refusal(false)));
         }
         let closed = mode & !0o007;
-        // Where the change fails, as on a read-only mount, it is refused with the command that fixes it.
-        if rustix::fs::fchmod(fd, Mode::from_raw_mode(closed as _)).is_ok()
-            && let Ok(after) = rustix::fs::fstat(fd)
-        {
+        // Where the change fails, it is refused with the command that fixes it; on a read-only mount, saying so.
+        match rustix::fs::fchmod(fd, Mode::from_raw_mode(closed as _)) {
+            Err(rustix::io::Errno::ROFS) => return Err(refusal(true)),
+            Err(_) => return Err(refusal(false)),
+            Ok(()) => {}
+        }
+        if let Ok(after) = rustix::fs::fstat(fd) {
             let now = after.st_mode as u32 & 0o7777;
             if now & 0o007 == 0 {
                 REPAIRED
@@ -413,26 +445,29 @@ pub(super) fn closed_to_others(
             }
         }
     }
-    Err(refusal())
+    Err(refusal(false))
 }
 
 /// What [`closed_to_others`] refuses an entry with: what is wrong, what is expected, and the command that fixes it.
 /// `ids` are its owner, its group and Stage Select's user; `standing` whether Stage Select owns it and is in its
-/// group; `allows` whether its mode and the kernel let Stage Select use it.
+/// group; `allows` whether its mode and the kernel let Stage Select use it, and whether its mount is read-only, which
+/// no command run on it fixes.
 fn refusal(
     path: &Path,
     mode: u32,
     (owner, gid, uid): (u32, u32, u32),
     needs: Needs,
     (ours, in_group): (bool, bool),
-    (mode_allows, kernel_allows): (bool, bool),
+    (mode_allows, kernel_allows, read_only): (bool, bool, bool),
 ) -> String {
     let (want, class) = needs.bits();
     let usable = mode_allows && kernel_allows;
     let open = mode & 0o007 != 0;
     let kind = needs.noun();
     let mut wrong = Vec::new();
-    if !usable {
+    if read_only {
+        wrong.push("the mount it is on is read-only".to_owned());
+    } else if !usable {
         wrong.push(if mode_allows {
             "Stage Select can't read and write it, though its permissions allow that".to_owned()
         } else {
@@ -480,10 +515,14 @@ fn refusal(
         path.display(),
         wrong.join(" and "),
     );
+    if read_only {
+        // No chmod or chown works on a read-only mount: only mounting it read-write does.
+        return format!("{what} To fix it, mount it read-write on the host, then try again.");
+    }
     let after = if !usable && mode_allows {
-        // The mode allows it, so what keeps Stage Select out is an access control list or the mount, which no chmod
-        // changes.
-        " An access control list or the mount keeps Stage Select out."
+        // The mode allows it, so what keeps Stage Select out is an access control list, an immutable flag or a
+        // security policy, which no chmod changes. A read-only mount has its own message.
+        " An access control list, an immutable flag or a security policy keeps Stage Select out."
     } else {
         ""
     };
@@ -592,16 +631,30 @@ impl FolderDir {
     }
 
     /// Closes the folder's [`STATE`] directory to others, where Stage Select owns it and others have access, once
-    /// its marker, read through the descriptor the change is made through, names the store `store`; a folder whose
-    /// marker names another store, or has none, is left as it is. Returns why it could not be closed.
-    pub fn close_state(&self, store: &str) -> std::result::Result<(), String> {
-        #[derive(serde::Deserialize)]
-        struct Of {
-            store: String,
-        }
-        let Ok(fd) = rustix::fs::openat(&self.fd, STATE, DIR_FLAGS, Mode::empty()) else {
-            return Ok(());
+    /// its marker shows it is `expected`: the directory is opened once, its marker read and compared with `expected`
+    /// in full through that descriptor, and the change made through the same one, so a directory put in its place
+    /// after the caller read the marker is never changed. Fails closed: no directory, no marker, an unreadable one, or
+    /// one that is not exactly `expected` is refused, even where the caller found it as expected before, and a
+    /// directory already closed is checked all the same. Returns why it was refused or could not be closed.
+    pub fn close_state<M>(&self, expected: &M) -> std::result::Result<(), String>
+    where
+        M: serde::de::DeserializeOwned + PartialEq,
+    {
+        const LIMIT: u64 = 64 << 10;
+        let at = self.at(STATE);
+        let changed = || {
+            format!(
+                "{}: its marker is not the one Stage Select checked a moment ago, so its .stage-select folder may have \
+                 been replaced; the folder was left as it is",
+                self.path.display()
+            )
         };
+        let fd = rustix::fs::openat(&self.fd, STATE, DIR_FLAGS, Mode::empty())
+            .map_err(|e| format!("{}: {e}; the folder was left as it is", at.display()))?;
+        let st = rustix::fs::fstat(&fd).map_err(|e| format!("{}: {e}", at.display()))?;
+        if FolderDir::kind(&st) != FileType::Directory {
+            return Err(changed());
+        }
         let marker = stage_select_api::build::MARKER
             .strip_prefix(&format!("{STATE}/"))
             .unwrap_or_default();
@@ -613,25 +666,26 @@ impl FolderDir {
         )
         .ok()
         .and_then(|file| {
+            let file = File::from(file);
+            let st = rustix::fs::fstat(&file).ok()?;
+            if FileType::from_raw_mode(st.st_mode) != FileType::RegularFile {
+                return None;
+            }
             let mut bytes = Vec::new();
-            File::from(file)
-                .take(64 << 10)
-                .read_to_end(&mut bytes)
-                .ok()?;
-            serde_json::from_slice::<Of>(&bytes).ok()
+            file.take(LIMIT + 1).read_to_end(&mut bytes).ok()?;
+            if bytes.len() as u64 > LIMIT {
+                return None;
+            }
+            serde_json::from_slice::<M>(&bytes).ok()
         })
-        .is_some_and(|of| of.store == store);
+        .is_some_and(|found| found == *expected);
         if !ours {
-            return Ok(());
-        }
-        let st = rustix::fs::fstat(&fd).map_err(|e| e.to_string())?;
-        if FolderDir::kind(&st) != FileType::Directory {
-            return Ok(());
+            return Err(changed());
         }
         closed_to_others(
             Opened::Folder(fd.as_fd()),
             &st,
-            &self.at(STATE),
+            &at,
             Needs::Folder,
             PermissionFix::Allowed,
         )
@@ -699,6 +753,27 @@ impl FolderDir {
             Err(why) => return Ok(Err(why)),
         }
         if empty && !self.entries()?.is_empty() {
+            return Ok(Err(Unusable::Kind("it is not empty".into())));
+        }
+        self.identity().map(Ok)
+    }
+
+    /// Checks, as [`FolderDir::closed`] with `empty` does, a directory Stage Select has just made and opened by its
+    /// name, before anything shows it is the directory made: nothing about it is changed. One made for Stage Select's
+    /// own user alone never gives others access, so one that does is not the directory made, but one put in its
+    /// place, and is refused as such.
+    pub fn made_closed(&self) -> io::Result<std::result::Result<Identity, Unusable>> {
+        match self.standing(PermissionFix::Deferred)? {
+            Ok(Standing::Closed) => {}
+            Ok(Standing::Exposed(_)) => {
+                return Ok(Err(Unusable::Kind(
+                    "others have access to it, which a folder Stage Select makes never gives them"
+                        .into(),
+                )));
+            }
+            Err(why) => return Ok(Err(why)),
+        }
+        if !self.entries()?.is_empty() {
             return Ok(Err(Unusable::Kind("it is not empty".into())));
         }
         self.identity().map(Ok)
@@ -1000,7 +1075,7 @@ pub(super) fn parent_made<'a>(
         let sub = at.sub(part)?;
         if made
             && state
-            && let Err(why) = sub.closed(true)?
+            && let Err(why) = sub.made_closed()?
         {
             return Err(at.unusable_state(why));
         }
@@ -1082,6 +1157,139 @@ mod tests {
              access: its permissions are now 770. The filesystem cleared its setgid bit, so new entries in it no \
              longer take its group; set it again with chmod g+s if you need that."
         );
+    }
+
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::symlink_metadata(path)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o7777
+    }
+
+    fn set_mode(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    #[derive(serde::Deserialize, PartialEq)]
+    struct Of {
+        store: String,
+        folder: i64,
+    }
+
+    /// Others' access is removed only once the marker read through the very descriptor the change is made through
+    /// is the one expected, in full; anything else is refused and left as it is, never passed as checked.
+    #[test]
+    fn a_state_folder_is_closed_only_through_the_descriptor_its_whole_marker_was_matched_through() {
+        let expected = Of {
+            store: "s".into(),
+            folder: 1,
+        };
+        for (marker, mode, closes) in [
+            (Some(r#"{"store":"s","folder":1}"#), 0o777, true),
+            // Another library folder of the same store: the same store is not enough.
+            (Some(r#"{"store":"s","folder":2}"#), 0o777, false),
+            (Some(r#"{"store":"t","folder":1}"#), 0o777, false),
+            (Some("not json"), 0o777, false),
+            (None, 0o777, false),
+            // Closed already, but holding no marker: still refused, never passed.
+            (None, 0o770, false),
+        ] {
+            let tmp = tempfile::tempdir().unwrap();
+            let state = tmp.path().join(STATE);
+            std::fs::create_dir(&state).unwrap();
+            if let Some(marker) = marker {
+                std::fs::write(tmp.path().join(stage_select_api::build::MARKER), marker).unwrap();
+            }
+            set_mode(&state, mode);
+            let dir = FolderDir::open(tmp.path(), "").unwrap();
+
+            let closed = dir.close_state(&expected);
+
+            assert_eq!(closed.is_ok(), closes, "{marker:?} {mode:o}: {closed:?}");
+            let left = if closes { mode & !0o007 } else { mode };
+            assert_eq!(mode_of(&state), left, "{marker:?} {mode:o}");
+            let _ = take_repaired(tmp.path());
+        }
+    }
+
+    /// A folder made for Stage Select's own user never gives others access, so one found at its name that does is
+    /// another, and nothing about it is changed.
+    #[test]
+    fn a_folder_just_made_that_others_have_access_to_is_refused_and_left_as_it_is() {
+        let tmp = tempfile::tempdir().unwrap();
+        let made = tmp.path().join("made");
+        std::fs::create_dir(&made).unwrap();
+        set_mode(&made, 0o777);
+        let dir = FolderDir::open(tmp.path(), "made").unwrap();
+
+        let found = dir.made_closed().unwrap();
+
+        assert!(matches!(found, Err(Unusable::Kind(_))), "{found:?}");
+        assert_eq!(mode_of(&made), 0o777);
+        set_mode(&made, 0o700);
+        assert!(dir.made_closed().unwrap().is_ok());
+    }
+
+    /// The kernel answers through the descriptor, with the flag this platform's backend takes: never the fallback
+    /// that leaves the mode to decide.
+    #[test]
+    fn the_kernel_says_through_the_descriptor_whether_stage_select_may_use_a_folder() {
+        if rustix::process::geteuid().is_root() {
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        for (name, mode, says) in [
+            ("usable", 0o700, Kernel::Allows),
+            ("read only", 0o500, Kernel::Denies),
+        ] {
+            let at = tmp.path().join(name);
+            std::fs::create_dir(&at).unwrap();
+            set_mode(&at, mode);
+            let fd = rustix::fs::open(&at, DIR_FLAGS, Mode::empty()).unwrap();
+            assert_eq!(Opened::Folder(fd.as_fd()).kernel(), says, "{name}");
+            set_mode(&at, 0o700);
+        }
+    }
+
+    /// An immutable folder, which the kernel refuses with `EPERM`, is one Stage Select can't use, whatever its mode.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_immutable_folder_is_one_the_kernel_keeps_stage_select_out_of() {
+        let tmp = tempfile::tempdir().unwrap();
+        let at = tmp.path().join("immutable");
+        std::fs::create_dir(&at).unwrap();
+        let flag = |on: &str| {
+            let ran = std::process::Command::new("chflags")
+                .args([on, at.to_str().unwrap()])
+                .status()
+                .unwrap();
+            assert!(ran.success());
+        };
+        flag("uchg");
+        let fd = rustix::fs::open(&at, DIR_FLAGS, Mode::empty()).unwrap();
+        let says = Opened::Folder(fd.as_fd()).kernel();
+        flag("nouchg");
+        assert_eq!(says, Kernel::Denies);
+    }
+
+    /// No chmod or chown changes a read-only mount, so none is offered.
+    #[test]
+    fn a_folder_on_a_read_only_mount_is_refused_with_no_command() {
+        let said = refusal(
+            Path::new("/library/.stage-select"),
+            0o777,
+            (501, 20, 501),
+            Needs::Folder,
+            (true, true),
+            (true, false, true),
+        );
+
+        assert!(said.contains("the mount it is on is read-only"), "{said}");
+        assert!(said.contains("mount it read-write on the host"), "{said}");
+        assert!(!said.contains("chmod") && !said.contains("chown"), "{said}");
     }
 
     /// Two folders of one mount are proven to rename between; a folder and one on another mount, `/dev`, are not.

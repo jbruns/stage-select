@@ -1528,7 +1528,12 @@ permissions as they are after. Until then it reads the folder but writes nothing
 store's folder is left as it is. One it can't fix blocks the folder with a message that says what is wrong, what is
 expected and the command to run on the host, such as `chmod o-rwx '<path>'` as its owner or root. The path in it is
 the one Stage Select sees: if it runs in a container, use the host folder you mounted there. Once you run it, the next
-plan goes ahead, with nothing left to clear. A `.stage-select` that is a symlink or a file blocks the folder until you
+plan goes ahead, with nothing left to clear. The exception is a folder on a read-only mount: no `chmod` changes that,
+so the message says the mount is read-only and gives no command, and you mount it read-write instead. A folder Stage
+Select has just made, and can't open or use as it came out, blocks the folder with the same kind of message. Once you
+fix it, Stage Select
+records it as its own the next time it cleans up the folder, which, after a build that failed, is when the service
+next starts. A `.stage-select` that is a symlink or a file blocks the folder until you
 move it out. Nothing else in the folder is Stage Select's. Audits never read `.stage-select/`,
 and a check never reports what is in it as a change to the folder. A plan refuses a folder whose
 marker is missing, names another store or folder, or has another generation, as after restoring a backup or mounting

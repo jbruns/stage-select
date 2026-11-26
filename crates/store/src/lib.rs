@@ -177,6 +177,14 @@ pub struct Store {
     romm_syncs_waiting: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
+// The seams let a caller make an entry read as another user's, so no optimized build, which every shipped binary is,
+// may have them: `cargo build --release --all-features`, or a dependent that turns the feature on, fails here. The
+// store's tests build with debug assertions, as `cargo test` and `cargo nextest run` do by default.
+#[cfg(all(feature = "test-seams", not(debug_assertions)))]
+compile_error!(
+    "the store's test-seams feature is for its own tests only, and never builds with --release; build without it"
+);
+
 /// Makes the entry at `path` read, wherever Stage Select checks who owns one of its own entries, as owned by the user
 /// and group `owner`, or, with `None`, by whoever its filesystem says: an owner other than the test's own user, or a
 /// group it isn't in, which an unprivileged test can't otherwise arrange. It holds for every store in the process, by
@@ -296,6 +304,9 @@ pub enum Fault {
     /// After a Source Set file of a placing item with this sequence number is deleted, or kept, before the store
     /// records which.
     PlaceDisposed(i64),
+    /// After a Source Set file of a placing item with this sequence number is moved into the Source Set's kept
+    /// files, before either folder is synced or anything is recorded.
+    PlaceKeptAside(i64),
     /// After a returning item with this sequence number commits its intent to rename its placed files home, before
     /// each rename.
     ReturnRenaming(i64),
