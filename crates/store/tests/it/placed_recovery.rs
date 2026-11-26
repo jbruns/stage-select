@@ -198,7 +198,7 @@ fn a_placed_file_with_no_sha256_whose_bytes_differ_from_its_dat_roms_is_a_confli
             file.detail
                 .as_deref()
                 .unwrap_or_default()
-                .contains("isn't exactly the DAT's ROMs for Pong (USA)"),
+                .contains("isn't exactly the ROMs Pong (USA) was placed with"),
             "{label}: {file:?}"
         );
         assert_eq!(env.store.placed_files(SET).unwrap()[0].sha256, None);

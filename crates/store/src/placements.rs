@@ -730,7 +730,7 @@ pub(crate) fn record_home(
             all_home &= roms.is_some_and(|roms| {
                 !roms.is_empty()
                     && roms.iter().all(|rom| {
-                        (rom.sha1.is_some() || rom.sha256.is_some())
+                        crate::checks::identified(rom)
                             && home
                                 .iter()
                                 .any(|sums| stage_select_engine::build::matches(sums, rom))

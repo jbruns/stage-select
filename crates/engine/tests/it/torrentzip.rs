@@ -57,15 +57,12 @@ fn an_independent_torrentzip_is_canonical() {
 
 #[test]
 fn a_zip_with_torrentzips_structure_but_another_deflate_stream_isnt_canonical() {
-    let mut members = golden_members();
-    members.sort_by(|a, b| compare_names(a.0, b.0));
-    let mut writer = Writer::deflating_at(Cursor::new(Vec::new()), 0).unwrap();
-    for (name, payload) in &members {
-        writer
-            .add(name, payload.len() as u64, &mut payload.as_slice())
-            .unwrap();
-    }
-    let stored = writer.finish().unwrap().into_inner();
+    let members = golden_members();
+    let members: Vec<(&str, &[u8])> = members.iter().map(|(n, p)| (*n, p.as_slice())).collect();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("stored.zip");
+    crate::common::write_torrentzip_deflated_at(&path, &members, 0);
+    let stored = std::fs::read(&path).unwrap();
     assert!(validate(&mut Cursor::new(&stored)).is_ok());
 
     let refused = canonical(&mut Cursor::new(&stored)).unwrap_err();

@@ -215,6 +215,7 @@ impl<W: Write + Seek> Writer<W> {
 
     /// As [`Writer::new`], deflating at zlib's `level` rather than TorrentZip's 9: an archive with TorrentZip's
     /// structure, which [`validate`] accepts, but not its bytes, which [`canonical`] refuses. For tests.
+    #[doc(hidden)]
     pub fn deflating_at(out: W, level: u32) -> Result<Writer<W>, Error> {
         let mut writer = Writer::with_limits(out, LIMITS)?;
         writer.level = Compression::new(level);

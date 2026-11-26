@@ -826,8 +826,9 @@ impl PlacedAs<'_> {
 /// placed by a rename before it kept its Audit's, exactly the bytes the ROMs it was placed as, `placed_as`, make. Only
 /// a canonical form says that, and only where each of those ROMs is listed with a SHA-1 or SHA-256: a TorrentZip
 /// holding exactly them, its bytes TorrentZip's for them, as `canonical` reads it to say; or a loose file that is the
-/// one of them, whole, with no Header left out. A Header under a Header Rule is left out of the proof, as an Audit
-/// leaves it out of its Finding. Otherwise why not.
+/// one of them, whole, with no Header left out. A ZIP member's Header under a Header Rule is left out of the proof, as
+/// an Audit leaves it out of its Finding; a loose file with one isn't one ROM whole, so the ROMs alone don't prove it.
+/// Otherwise why not.
 pub(crate) fn proven(
     placed: &PlacedFile,
     probe: &Probe,
@@ -851,14 +852,9 @@ pub(crate) fn proven(
             "{changed}; nothing records the ROMs it was placed as, to check it against"
         ));
     };
-    if was.roms.is_empty()
-        || !was
-            .roms
-            .iter()
-            .all(|rom| rom.sha1.is_some() || rom.sha256.is_some())
-    {
+    if was.roms.is_empty() || !was.roms.iter().all(identified) {
         return Err(format!(
-            "{changed}; the DAT lists no SHA-1 or SHA-256 for each of its ROMs, to check it against"
+            "{changed}; the DAT doesn't list a SHA-1 or SHA-256 for every one of its ROMs, to check it against"
         ));
     }
     let exact = match was.loose {
@@ -882,11 +878,17 @@ pub(crate) fn proven(
     match exact {
         true => Ok(()),
         false => Err(format!(
-            "it changed since it was placed, and isn't exactly the DAT's ROMs for {}; an audit of its source set \
-             says what it holds now",
+            "it changed since it was placed, and isn't exactly the ROMs {} was placed with; an audit of its \
+             source set says what it holds now",
             placed.game
         )),
     }
+}
+
+/// Whether the DAT lists `rom` with a SHA-1 or SHA-256: a checksum that says what its bytes are, as a size, CRC-32 or
+/// MD5 doesn't.
+pub(crate) fn identified(rom: &ExpectedRom) -> bool {
+    rom.sha1.is_some() || rom.sha256.is_some()
 }
 
 /// Whether the regular file `rel` in `dir`, read while it is stamped `stamp`, before and after, is exactly the

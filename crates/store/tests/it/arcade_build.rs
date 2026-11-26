@@ -1034,10 +1034,7 @@ fn an_audit_refreshes_a_placed_self_contained_zip_whose_mode_changed() {
     env.audit();
 
     let placed = env.placed_blaster();
-    let sha256: String = <sha2::Sha256 as sha2::Digest>::digest(&bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let sha256 = crate::single_copy::sha256_hex(&bytes);
     assert_eq!(placed[0].sha256.as_deref(), Some(sha256.as_str()));
 }
 
