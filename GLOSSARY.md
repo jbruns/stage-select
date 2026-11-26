@@ -110,6 +110,13 @@ path in or out (`repairs_may_change`, on by default when it is registered); the 
 Root.
 _Avoid_: Mount, share
 
+**Permission Policy**:
+The file mode, folder mode and optional group that the Operator intends for a writable Root's files, global with
+per-Root overrides; without one, the Host's defaults apply. Stage Select gives what it writes the Permission Policy,
+reports files that differ from it apart from Stale and Drift, and restores, through an approved Change Plan, only
+those its own privileges can; for the rest it says what to run on the Host.
+_Avoid_: Permissions setting, umask
+
 **Operator**:
 The person who runs Stage Select and approves its Change Plans.
 
@@ -291,12 +298,13 @@ Missing. The folder lists such Games apart, naming any clone in the Game Group t
 A Source Set whose files look changed since its latest Audit, or that Follows its DAT and has a newer DAT Revision to
 be audited against; or a Library Folder whose Source Set, its Coverage, or Selection Profile changed since its current
 Build; or a Calibration whose Host or Roots changed since it ran. Looking changed is a heuristic, never a claim of
-damage.
+damage. A file whose permissions or owner alone changed does not make it Stale: it
+is unconfirmed until the next Audit re-reads it.
 _Avoid_: Outdated, dirty
 
 **Drift**:
 Any difference between a Library Folder and its current Build: a built file changed or missing, or an entry Stage
-Select did not build. Drift is reported, never silently corrected; only an approved Change Plan acts on it. An entry
+Select did not build. A change to a file's permissions or owner alone is not Drift. Drift is reported, never silently corrected; only an approved Change Plan acts on it. An entry
 the Operator acknowledges is not reported again until it changes.
 _Avoid_: Corruption (when meaning any difference)
 
@@ -354,7 +362,8 @@ _Avoid_: Location, home
 
 **Placed Game**:
 A Game whose Placement is a Library Folder. Its Source Set's Audits read it there, a Repair changes it there, and a
-Build that no longer selects it returns it to the Source Set's folder rather than setting it aside.
+Build that no longer selects it returns it to the Source Set's folder rather than setting it aside. Its Source Set's
+Audit is the authority on where it is: one that finds it back in the Source Set's folder records it there.
 _Avoid_: Moved Game, linked Game
 
 **Removed Game**:
