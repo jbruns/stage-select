@@ -1782,6 +1782,29 @@ conversion verified against the DAT. A game that is still selected leaves an ord
 library folder. A return that needs more space than your source set's root has free is refused before anything
 moves.
 
+Each placed file is recorded with its SHA-256 where Stage Select knows it: read back after a copy or conversion, or,
+after a rename, the one your source set's audit verified when it read the whole file, as it does for a loose file. A
+check of the library folder trusts a placed file unread while it is the same file, unchanged since it was recorded.
+One whose permissions or owner changed, which moves its change time but no byte, is read again, and stays the game's
+only copy if it still holds what it was placed as: its recorded SHA-256, or, with none recorded, exactly the ROMs it
+was placed with, where your DAT lists a SHA-1 or SHA-256 for each of them. A ZIP must be valid TorrentZip holding
+those ROMs and nothing else, however it was compressed, so one another TorrentZip tool wrote counts; a loose file
+must be the one ROM whole. A header your DAT's header rule leaves out is accepted as an audit accepts it in your
+source set, so an edit to a header alone isn't detected. The ROMs are the ones the build that placed it used, from
+that build's DAT revision, including any optional or dependency ROMs it held. The check then records its SHA-256 and
+the file as it is now, and so does an audit that reads it and finds the same. An audit that reads a placed file with
+no SHA-256 recorded, unchanged since it was placed, records one too. Anything else is a conflict, left as it is.
+
+If you move a placed game's files back into your source set's folder by hand, a check of the library folder reports
+each one missing and says where it may be. Where your source set's latest audit found the same file there, by its
+device and inode, it says "the same file is in your source set, as <path>; audit it to see whether it still holds
+this game". Otherwise, where a file of the same name is in your source set, it says "a file of the same name is in
+your source set; audit it to see whether it holds this game". A plan says so too. The next audit of your source set
+records the game home if it read, in your source set's folder, each of its placed files: a loose file with the
+SHA-256 recorded for it, or a copy of its own of every ROM it held. It must also have found nothing of the game where
+it was placed, before and as it records it. That changes what Stage Select records, not your
+files. The library folder's next build then places it again. A game found in both places stays placed.
+
 A build plan lists each placement and return, says whether it renames, copies or converts, and why a game is copied
 rather than placed. Its single copy section totals the bytes placing frees in your source set and writes in the
 library folder, and the space returns need in your source set's root. The freed and written figures are estimates,

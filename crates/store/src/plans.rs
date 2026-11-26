@@ -186,6 +186,9 @@ struct Inputs {
     folder: FolderRow,
     set_root: String,
     set_path: String,
+    /// Where the Source Set's latest Audit stamped each Placed file by its identity, as
+    /// [`crate::checks::Home::by_identity`].
+    by_identity: HashMap<String, String>,
     selection_id: i64,
     selection: Selection,
     rows: Vec<ReleaseRow>,
@@ -409,6 +412,7 @@ fn load(
             )
             .or_insert_with(|| addition.addition.name.clone());
     }
+    let placed = crate::placements::placed_files_in(c, folder.id)?;
     Ok(Inputs {
         removed,
         left_out,
@@ -425,7 +429,8 @@ fn load(
         store: store_id(c)?,
         built: read_built(c, folder.id)?,
         originals: read_originals(c, folder.id)?,
-        placed: crate::placements::placed_files_in(c, folder.id)?,
+        by_identity: crate::placements::stamped_home(c, folder.source_set_id, &placed)?,
+        placed,
         holding: crate::placements::holding_folder(c, folder.source_set_id)?,
         placed_rows: c
             .prepare(
@@ -620,6 +625,15 @@ fn check_folder(
             None
         }
         None => Some({
+            let home = match inputs.placed.is_empty() {
+                true => None,
+                false => open_folder(roots, &inputs.set_root, &inputs.set_path)
+                    .ok()
+                    .map(|dir| crate::checks::Home {
+                        dir,
+                        by_identity: inputs.by_identity.clone(),
+                    }),
+            };
             meter.start(
                 PlanStep::Walking,
                 (inputs.built.len() + inputs.placed.len() + entries.len()) as u64,
@@ -638,6 +652,7 @@ fn check_folder(
                     // Counted when a Job plans, as a Build does again before it writes; not when you do.
                     tally: &stage_select_engine::meter::Tally::of_this_thread(Some(&folder.root)),
                     placed: &inputs.placed,
+                    home: home.as_ref(),
                 },
                 Some(&|p: stage_select_engine::Progress| meter.count(p.files_done as u64)),
             )
@@ -2306,15 +2321,22 @@ fn placed_here(
         )));
     }
     let found = scan.and_then(|s| s.files.iter().find(|f| f.target == target));
-    Some(match found.map(|f| f.outcome) {
-        Some(FileOutcome::Missing) => Err((
+    Some(match found.map(|f| (f.outcome, f.detail.as_deref())) {
+        Some((FileOutcome::Missing, Some(home))) if crate::checks::is_found_home(home) => Err((
+            ItemKind::Blocked,
+            format!(
+                "{target} is the only copy of {game}, placed here from source set {set}, and the check didn't find \
+                 it here: {home}. Nothing is written in its place until then"
+            ),
+        )),
+        Some((FileOutcome::Missing, _)) => Err((
             ItemKind::Blocked,
             format!(
                 "{target} is the only copy of {game}, placed here from source set {set}, and the check found it \
                  missing; nothing is written in its place. Find it and put it back, or repair the source set"
             ),
         )),
-        Some(FileOutcome::Conflict | FileOutcome::Unreadable) => Err((
+        Some((FileOutcome::Conflict | FileOutcome::Unreadable, _)) => Err((
             ItemKind::Conflict,
             format!(
                 "{target} is the only copy of {game}, placed here from source set {set}, and the check found it \

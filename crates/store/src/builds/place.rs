@@ -6,7 +6,9 @@
 //!   checked to be the file the plan found by its device, inode, size, modification time and change time, and renamed
 //!   into place by a rename that never replaces anything. Each is checked again through the descriptor held across the
 //!   rename, and its new change time read through it is recorded: it is never read, and its Audit's Entries and the
-//!   payload read an Incremental Audit reuses follow it, their Evidence carried over.
+//!   payload read an Incremental Audit reuses follow it, their Evidence carried over. Its SHA-256 is the one its Audit
+//!   verified, where that Audit read all of it, as for a loose file, and it is known to be still the file that Audit
+//!   read; otherwise none is recorded, and a check proves it against the ROMs it was placed as.
 //! - **Copy**: the same files on another filesystem, or where a rename can't reach. Each is copied under a staged
 //!   name, read back against what the original read as while it held still, and published by a rename that never
 //!   replaces anything ([`crate::carry::copy`]).
@@ -1586,6 +1588,20 @@ impl Store {
                         )?;
                     }
                 }
+                // A file moved by a rename was never read here: the SHA-256 its Audit verified stands for it, where
+                // that Audit read all of it, and only while it is known to be the file the Audit read. One recovery
+                // can't vouch for since gets none, and a check proves it against its ROMs.
+                let audited = match (built, f.sha.is_none(), placement(w)?.originals.as_slice()) {
+                    (Built::Found, true, [was]) if f.still => {
+                        crate::placements::audited_sha256(
+                            tx,
+                            p.set,
+                            &was.path,
+                            &crate::placements::original_stamp(was),
+                        )?
+                    }
+                    _ => None,
+                };
                 crate::placements::place_file_as(
                     tx,
                     p.set,
@@ -1593,7 +1609,7 @@ impl Store {
                     &item.target,
                     &item.game,
                     &f.now,
-                    f.sha.as_deref(),
+                    f.sha.as_deref().or(audited.as_deref()),
                 )?;
                 if item.chd {
                     record_chd(self, tx, p, w)?;

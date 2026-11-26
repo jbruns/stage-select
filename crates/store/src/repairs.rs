@@ -3848,7 +3848,7 @@ impl Store {
                     );
                 };
                 self.write(|tx| {
-                    crate::placements::move_placed(tx, folder, from_rel, to_rel, &st)?;
+                    crate::placements::move_placed(tx, folder, (from_rel, to_rel), &st, roms)?;
                     tx.execute(
                         "UPDATE repair_steps SET state = 'done', finished_at = ?2 WHERE id = ?1",
                         params![step.id, now()],
@@ -4090,6 +4090,34 @@ impl Store {
                 |r| r.get(0),
             )?;
             crate::placements::place_file(tx, r.plan.content.set_id, folder, rel, &game, st, &sha)?;
+            if let RepairStep::Build {
+                roms,
+                sources,
+                loose,
+                ..
+            } = &built.step
+            {
+                let roms: Vec<ExpectedRom> = roms.iter().map(|r| r.rom.clone()).collect();
+                let replaced: Vec<&str> = sources
+                    .keys()
+                    .filter_map(|s| split_placed(s))
+                    .filter(|(f, _)| *f == folder)
+                    .map(|(_, rel)| rel)
+                    .collect();
+                crate::placements::record_rewritten(
+                    tx,
+                    &crate::placements::RepairWrote {
+                        folder,
+                        path: rel,
+                        game: &game,
+                        roms: &roms,
+                        loose: *loose,
+                        st,
+                        sha256: &sha,
+                        replaced: &replaced,
+                    },
+                )?;
+            }
             tx.execute(
                 "UPDATE repair_steps SET state = 'done', finished_at = ?2 WHERE id = ?1",
                 params![step.id, now()],
@@ -4188,6 +4216,13 @@ impl Store {
         }
         let sha256 = read;
         let (folder, rel) = split_placed(target).expect("a placed target");
+        let (roms, loose) = match &step.step {
+            RepairStep::Fill { roms, loose, .. } => {
+                (roms.iter().map(|r| r.rom.clone()).collect(), *loose)
+            }
+            // Only a Fill step fills: no ROMs, and nothing is recorded of what it holds.
+            _ => (Vec::new(), false),
+        };
         Ok(Ok(Filled {
             set: r.plan.content.set_id,
             folder,
@@ -4195,6 +4230,8 @@ impl Store {
             game,
             st,
             sha256,
+            roms,
+            loose,
         }))
     }
 
@@ -4215,6 +4252,19 @@ impl Store {
             if let Some(f) = &filled {
                 crate::placements::place_file(
                     tx, f.set, f.folder, &f.path, &f.game, &f.st, &f.sha256,
+                )?;
+                crate::placements::record_rewritten(
+                    tx,
+                    &crate::placements::RepairWrote {
+                        folder: f.folder,
+                        path: &f.path,
+                        game: &f.game,
+                        roms: &f.roms,
+                        loose: f.loose,
+                        st: &f.st,
+                        sha256: &f.sha256,
+                        replaced: &[],
+                    },
                 )?;
             }
             tx.execute(
@@ -4811,6 +4861,9 @@ struct Filled {
     game: String,
     st: rustix::fs::Stat,
     sha256: String,
+    /// The ROMs the Fill step wrote it holding, and whether it is the one of them, loose.
+    roms: Vec<ExpectedRom>,
+    loose: bool,
 }
 
 /// Why each move out of an Ingest Folder a fill of repair `plan` began is left unfinished, as recorded.

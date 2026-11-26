@@ -202,11 +202,21 @@ pub struct Writer<W: Write + Seek> {
     start: u64,
     members: Vec<(Vec<u8>, Member)>,
     limits: Limits,
+    level: Compression,
 }
 
 impl<W: Write + Seek> Writer<W> {
     pub fn new(out: W) -> Result<Writer<W>, Error> {
         Writer::with_limits(out, LIMITS)
+    }
+
+    /// As [`Writer::new`], deflating at zlib's `level` rather than TorrentZip's 9: an archive with TorrentZip's
+    /// structure, which [`validate`] accepts, but not its bytes, as another TorrentZip tool may write it. For tests.
+    #[doc(hidden)]
+    pub fn deflating_at(out: W, level: u32) -> Result<Writer<W>, Error> {
+        let mut writer = Writer::with_limits(out, LIMITS)?;
+        writer.level = Compression::new(level);
+        Ok(writer)
     }
 
     fn with_limits(mut out: W, limits: Limits) -> Result<Writer<W>, Error> {
@@ -216,6 +226,7 @@ impl<W: Write + Seek> Writer<W> {
             start,
             members: Vec::new(),
             limits,
+            level: Compression::best(),
         })
     }
 
@@ -252,7 +263,7 @@ impl<W: Write + Seek> Writer<W> {
                 inner: &mut self.out,
                 written: 0,
             };
-            let mut encoder = DeflateEncoder::new(counting, Compression::best());
+            let mut encoder = DeflateEncoder::new(counting, self.level);
             let mut buf = vec![0; CHUNK];
             loop {
                 let n = payload.read(&mut buf)?;

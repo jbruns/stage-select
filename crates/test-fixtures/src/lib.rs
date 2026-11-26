@@ -17,6 +17,10 @@ pub struct RomSpec {
     pub payload: Vec<u8>,
     pub sha256: bool,
     pub crc: bool,
+    /// Whether it is listed with its SHA-1.
+    pub sha1: bool,
+    /// Whether its Game may run without it (`optional="yes"`).
+    pub optional: bool,
 }
 
 /// A ROM listed with every checksum.
@@ -26,6 +30,8 @@ pub fn rom(name: &'static str, payload: &[u8]) -> RomSpec {
         payload: payload.to_vec(),
         sha256: true,
         crc: true,
+        sha1: true,
+        optional: false,
     }
 }
 
@@ -33,8 +39,8 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// The `<rom>` element a DAT lists `r` with: its size, CRC-32 and MD5 unless `r.crc` is off, SHA-1, and SHA-256
-/// when `r.sha256` is on.
+/// The `<rom>` element a DAT lists `r` with: `optional="yes"` when `r.optional` is on, its size, CRC-32 and MD5 unless
+/// `r.crc` is off, SHA-1 unless `r.sha1` is off, and SHA-256 when `r.sha256` is on.
 pub fn rom_xml(r: &RomSpec) -> String {
     let p = &r.payload;
     let mut checksums = String::new();
@@ -45,11 +51,18 @@ pub fn rom_xml(r: &RomSpec) -> String {
             hex(&md5::Md5::digest(p))
         );
     }
-    checksums += &format!(r#" sha1="{}""#, hex(&sha1::Sha1::digest(p)));
+    if r.sha1 {
+        checksums += &format!(r#" sha1="{}""#, hex(&sha1::Sha1::digest(p)));
+    }
     if r.sha256 {
         checksums += &format!(r#" sha256="{}""#, hex(&sha2::Sha256::digest(p)));
     }
-    format!(r#"<rom name="{}" size="{}"{checksums}/>"#, r.name, p.len())
+    let optional = if r.optional { r#" optional="yes""# } else { "" };
+    format!(
+        r#"<rom name="{}"{optional} size="{}"{checksums}/>"#,
+        r.name,
+        p.len()
+    )
 }
 
 /// The `<rom>` element MAME's ListXML lists `payload` with as `name`: its size, CRC-32 and SHA-1, after
@@ -208,6 +221,20 @@ pub fn write_torrentzip(path: &Path, members: &[(&str, &[u8])]) {
     let mut members = members.to_vec();
     members.sort_by(|a, b| torrentzip::compare_names(a.0, b.0));
     let mut writer = torrentzip::Writer::new(create(path)).unwrap();
+    for (name, payload) in members {
+        writer
+            .add(name, payload.len() as u64, &mut &payload[..])
+            .unwrap();
+    }
+    writer.finish().unwrap();
+}
+
+/// Writes `members` to `path` with TorrentZip's structure, but deflated at zlib's `level` rather than its 9: not the
+/// bytes the TorrentZip of those members is.
+pub fn write_torrentzip_deflated_at(path: &Path, members: &[(&str, &[u8])], level: u32) {
+    let mut members = members.to_vec();
+    members.sort_by(|a, b| torrentzip::compare_names(a.0, b.0));
+    let mut writer = torrentzip::Writer::deflating_at(create(path), level).unwrap();
     for (name, payload) in members {
         writer
             .add(name, payload.len() as u64, &mut &payload[..])

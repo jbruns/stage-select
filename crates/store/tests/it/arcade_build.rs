@@ -963,3 +963,97 @@ fn a_placed_zip_goes_home_as_that_zip_whatever_format_the_storage_policy_gives_s
     let blaster = item(&again, "blaster.zip");
     assert_eq!(blaster.kind, ItemKind::Copy, "{blaster:#?}");
 }
+
+impl Env {
+    /// Places blaster's self-contained ZIP, its Dependencies' ROMs inside, by a rename from a non-merged Source Set;
+    /// returns its bytes.
+    fn place_blaster(&self) -> Vec<u8> {
+        self.single_copy();
+        self.audit();
+        let plan = self.plan(self.select(&["blaster"]));
+        let placing = item(&plan, "blaster.zip");
+        assert_eq!(
+            placing.place.as_ref().map(|p| p.how),
+            Some(stage_select_api::build::PlaceHow::Rename),
+            "{placing:#?}"
+        );
+        self.build(&plan);
+        assert!(!self.set().join("blaster.zip").exists());
+        std::fs::read(self.library().join("blaster.zip")).unwrap()
+    }
+
+    fn placed_blaster(&self) -> Vec<stage_select_api::build::PlacedFile> {
+        let mut placed = self.store.placed_files("mame").unwrap();
+        placed.retain(|p| p.game == "blaster");
+        placed
+    }
+}
+
+#[test]
+fn a_placed_self_contained_zip_whose_mode_changed_goes_home_every_way() {
+    use stage_select_api::build::{RemoveAction, RemoveGames};
+    for how in ["deselected", "sent back", "unregistered"] {
+        let env = Env::new(SetLayout::NonMerged);
+        let bytes = env.place_blaster();
+        let at = env.library().join("blaster.zip");
+        crate::placed_recovery::chmod(&at);
+        assert_eq!(env.check().summary.conflict, 0, "{how}");
+
+        let plan = match how {
+            "deselected" => env.plan(env.select(&["blasterj"])),
+            "sent back" => env
+                .store
+                .plan_game_removal(
+                    env.folder.id,
+                    &RemoveGames {
+                        games: vec!["blaster".into()],
+                        action: RemoveAction::SendBack,
+                    },
+                )
+                .unwrap(),
+            _ => env.store.plan_library_removal(env.folder.id).unwrap(),
+        };
+
+        assert_eq!(plan.content.returns.len(), 1, "{how}: {:#?}", plan.content);
+        env.build(&plan);
+        assert!(env.placed_blaster().is_empty(), "{how}");
+        assert_eq!(
+            std::fs::read(env.set().join("blaster.zip")).unwrap(),
+            bytes,
+            "{how}"
+        );
+    }
+}
+
+#[test]
+fn an_audit_refreshes_a_placed_self_contained_zip_whose_mode_changed() {
+    let env = Env::new(SetLayout::NonMerged);
+    let bytes = env.place_blaster();
+    crate::placed_recovery::chmod(&env.library().join("blaster.zip"));
+
+    env.audit();
+
+    let placed = env.placed_blaster();
+    let sha256 = crate::single_copy::sha256_hex(&bytes);
+    assert_eq!(placed[0].sha256.as_deref(), Some(sha256.as_str()));
+}
+
+#[test]
+fn a_placed_self_contained_zip_whose_dependencys_rom_isnt_home_stays_placed() {
+    let env = Env::new(SetLayout::NonMerged);
+    env.place_blaster();
+    // blaster's own ROMs are home, so it is complete there, but not the sound device's ROM its placed ZIP held: in no
+    // ZIP of the source set.
+    std::fs::remove_file(env.library().join("blaster.zip")).unwrap();
+    for zip in ["acmesnd.zip", "blasterj.zip"] {
+        std::fs::remove_file(env.set().join(zip)).unwrap();
+    }
+    write_zip(
+        &env.set().join("blaster.zip"),
+        &["bios.u1", "gfx.u4", "prog.u3"],
+    );
+
+    env.audit();
+
+    assert_eq!(env.placed_blaster().len(), 1);
+}
