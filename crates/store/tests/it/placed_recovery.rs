@@ -366,7 +366,7 @@ fn a_store_whose_placed_files_have_no_sha256_opens_with_them_filled_in_from_thei
     // As a store made by 0.13.3 has them: placed by a rename, with no SHA-256, and their mode changed since.
     let db =
         rusqlite::Connection::open(env.store.dir().join(stage_select_store::DATABASE)).unwrap();
-    db.execute_batch("UPDATE placed_files SET sha256 = NULL; PRAGMA user_version = 8;")
+    db.execute_batch("UPDATE placed_files SET sha256 = NULL; ALTER TABLE stat_walks DROP COLUMN unconfirmed; ALTER TABLE audit_stamps DROP COLUMN differs; PRAGMA user_version = 8;")
         .unwrap();
     drop(db);
     chmod(&at);
@@ -407,7 +407,7 @@ fn a_store_whose_placed_file_its_audit_found_changed_opens_with_no_sha256_for_it
     env.audit(AuditEvidence::Incremental);
     let db =
         rusqlite::Connection::open(env.store.dir().join(stage_select_store::DATABASE)).unwrap();
-    db.execute_batch("UPDATE placed_files SET sha256 = NULL; PRAGMA user_version = 8;")
+    db.execute_batch("UPDATE placed_files SET sha256 = NULL; ALTER TABLE stat_walks DROP COLUMN unconfirmed; ALTER TABLE audit_stamps DROP COLUMN differs; PRAGMA user_version = 8;")
         .unwrap();
     drop(db);
 
@@ -860,7 +860,7 @@ fn a_store_whose_placed_files_rom_disagrees_with_its_read_on_any_checksum_opens_
         db.execute_batch(&format!(
             "UPDATE placed_files SET sha256 = NULL;
              UPDATE built_files SET roms = json_set(roms, '$[0].{field}', '00');
-             PRAGMA user_version = 8;"
+             ALTER TABLE stat_walks DROP COLUMN unconfirmed; ALTER TABLE audit_stamps DROP COLUMN differs; PRAGMA user_version = 8;"
         ))
         .unwrap();
         drop(db);

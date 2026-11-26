@@ -247,6 +247,23 @@ pub fn stale_causes(stale: &[SourceSetStale]) -> Vec<(StaleCause, String)> {
         .collect()
 }
 
+/// What a check found of files whose permissions or owner alone changed, which leaves the source set fresh: none when
+/// it found none.
+pub fn unconfirmed_line(files: u64) -> Option<String> {
+    match files {
+        0 => None,
+        1 => Some(
+            "1 file's permissions or owner changed; its size and time are the same. Your next audit re-reads just \
+             this one."
+                .into(),
+        ),
+        n => Some(format!(
+            "{n} files' permissions or owner changed; their size and time are the same. Your next audit re-reads \
+             just these."
+        )),
+    }
+}
+
 /// Where the source set's repair is, if one is under way: `proposing` while you wait for a plan, and `job_running`
 /// while the open repair's job is queued or running.
 pub fn repair_state(
@@ -475,7 +492,8 @@ pub fn timeline(
             },
         }
     }));
-    moments.extend(walks.iter().map(|w| Moment {
+    // A check that found only files whose permissions or owner changed made nothing stale.
+    moments.extend(walks.iter().filter(|w| w.looks_changed()).map(|w| Moment {
         at: w.found_at.clone(),
         what: Happened::FilesChanged {
             walk: w.id,
@@ -661,6 +679,7 @@ mod tests {
                 last_verified_against: None,
                 follow: false,
                 stale: Vec::new(),
+                unconfirmed: 0,
                 coverage: None,
                 repairs_may_change: true,
                 folder_created: None,
@@ -737,6 +756,7 @@ mod tests {
                 last_verified_against: None,
                 follow: false,
                 stale: Vec::new(),
+                unconfirmed: 0,
                 coverage: None,
                 repairs_may_change: true,
                 folder_created: None,
@@ -956,6 +976,7 @@ mod tests {
             changed: 1,
             added: 0,
             removed: 2,
+            unconfirmed: 0,
         };
         let moments = timeline(
             &[audit(1, "2026-01-01T00:00:00Z", "a", 0)],
@@ -1067,6 +1088,37 @@ mod tests {
             ]
         );
         assert_eq!(change_counts(0, 3, 0), "3 added");
+    }
+
+    #[test]
+    fn files_whose_permissions_alone_changed_are_counted_in_their_own_line() {
+        assert_eq!(unconfirmed_line(0), None);
+        assert_eq!(
+            unconfirmed_line(1).unwrap(),
+            "1 file's permissions or owner changed; its size and time are the same. Your next audit re-reads just \
+             this one."
+        );
+        assert_eq!(
+            unconfirmed_line(23).unwrap(),
+            "23 files' permissions or owner changed; their size and time are the same. Your next audit re-reads \
+             just these."
+        );
+        let walk = StatWalk {
+            id: 1,
+            source_set: "GB".into(),
+            audit: 1,
+            found_at: "2026-01-07T00:00:00Z".into(),
+            checked_at: "2026-01-07T00:00:00Z".into(),
+            changed: 0,
+            added: 0,
+            removed: 0,
+            unconfirmed: 2,
+        };
+        assert_eq!(
+            timeline(&[], &[], &[], &[], &[walk], &[]),
+            [],
+            "nothing changed, so nothing shows in its history"
+        );
     }
 
     fn selection(id: i64, sha: &str, pruned: bool) -> stage_select_api::SelectionRecord {

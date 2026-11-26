@@ -241,6 +241,7 @@ mod tests {
             last_verified_against: None,
             follow: false,
             stale: Vec::new(),
+            unconfirmed: 0,
             coverage: None,
             repairs_may_change: may_change,
             folder_created: None,

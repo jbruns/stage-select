@@ -1469,7 +1469,7 @@ fn a_file_returned_home_and_then_edited_is_found_changed() {
     home(&env, "Pong (USA).zip", &bytes);
     assert_eq!(env.walk(), None);
     overwrite_keeping_stamp(&env.set().join("Pong (USA).zip"));
-    assert_eq!(env.walk(), Some((1, 0, 0)));
+    env.assert_unconfirmed();
 }
 
 #[test]
@@ -1510,5 +1510,5 @@ fn a_claims_stamp_follows_its_file_home() {
         .unwrap();
     assert_eq!(claimed, ["Pong (USA).zip"]);
     overwrite_keeping_stamp(&env.set().join("Pong (USA).zip"));
-    assert_eq!(env.walk(), Some((1, 0, 0)));
+    env.assert_unconfirmed();
 }

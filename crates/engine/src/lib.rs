@@ -528,6 +528,59 @@ pub fn stat_walk(
     Ok(Some(found))
 }
 
+/// Reads every payload of the file at `path`, below `beneath` without following a symbolic link there, in full and
+/// again, as a full Audit reads it: a ZIP archive's members, by its name, else the file as one payload, each hashed
+/// under `header`, its bytes counted to `tally`. Returns the read with the file's stamp as it was opened; none if any
+/// payload could not be read. What reads a file again, to confirm a stamp whose change time alone moved, compares it
+/// with the read recorded (ADR 0031).
+pub fn read_again(
+    path: &Path,
+    beneath: &Path,
+    header: Option<HeaderRule>,
+    tally: &meter::Tally,
+) -> Option<PayloadRead> {
+    /// The one read made, which nothing earlier stands in for.
+    struct Kept(std::sync::Mutex<Option<PayloadRead>>);
+    impl PayloadReads for Kept {
+        fn prior(&self, _: &str) -> Option<PayloadRead> {
+            None
+        }
+        fn record(&self, _: &str, read: &PayloadRead) {
+            *self
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(read.clone());
+        }
+    }
+    let kept = Kept(std::sync::Mutex::new(None));
+    let file = ToRead {
+        path: path.to_path_buf(),
+        is_zip: path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("zip")),
+        rel: String::new(),
+        beneath: Some(beneath.to_path_buf()),
+        chd: None,
+        disk: false,
+    };
+    let how = read::How {
+        evidence: AuditEvidence::Full,
+        reads: Some(&kept),
+        header,
+        might_be_headered: &|_| false,
+        tally,
+        disks: None,
+    };
+    let one = Workers {
+        readers: 1,
+        hashers: 1,
+    };
+    read::read_files(std::slice::from_ref(&file), how, one, None, None).ok()?;
+    kept.0
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// Like [`audit`], with the DAT Revision's filename, confinement, worker counts and progress given by `options`.
 pub fn audit_with(dat_path: &Path, root: &Path, options: &Options) -> Result<Report, Error> {
     let started_at = jiff::Timestamp::now();

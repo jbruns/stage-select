@@ -941,8 +941,34 @@ impl Store {
         // The files the Audit read are as good a guess as any of how many there are now.
         meter.start(PlanStep::Walking, reported.len() as u64);
         let (fingerprint, files) = walk_with_placed(self, roots, set.id, &dir, &|| meter.tick())?;
-        let stamps = self.read(|c| audit_stamps(c, audit.id, false))?;
+        let mut stamps = self.read(|c| audit_stamps(c, audit.id, false))?;
         let unreadable = self.read(|c| audit_stamps(c, audit.id, true))?;
+        let header = report
+            .dat_revision
+            .header_rule
+            .as_ref()
+            .and_then(|h| h.rule);
+        // A file of its own folder whose change time alone moved since the Audit read it, as a change of permissions
+        // or owner moves it, is read again: one that holds what the Audit read is planned as read (ADR 0031).
+        let moved: Vec<(&str, FileStamp)> = files
+            .iter()
+            .filter(|(path, _)| split_placed(path).is_none())
+            .filter_map(|(path, seen)| {
+                let stamp = stamps.get(path)?;
+                let id: stage_select_api::build::FileIdentity = seen.identity.into();
+                let now = FileStamp {
+                    dev: id.dev,
+                    ino: id.ino,
+                    size: seen.file.size,
+                    mtime_ns: seen.file.mtime_ns,
+                    ctime_ns: seen.ctime_ns,
+                };
+                crate::stale::only_ctime_moved(stamp, &now).then_some((path.as_str(), *stamp))
+            })
+            .collect();
+        let reread =
+            self.confirm_unchanged((set.id, audit.id), &root.path.join(&record.path), &moved)?;
+        stamps.extend(reread.confirmed);
         // The checksums the Audit read of each file holding a Mismatched Entry, which its item shows beside the DAT's.
         let mismatched: BTreeSet<&str> = (report.entries.iter())
             .filter(|e| e.finding == stage_select_api::Finding::Mismatched)
@@ -954,11 +980,7 @@ impl Store {
                 set.id,
                 mismatched.iter().copied(),
                 &stamps,
-                report
-                    .dat_revision
-                    .header_rule
-                    .as_ref()
-                    .and_then(|h| h.rule),
+                header,
             )
         })?;
         let candidates =
@@ -4890,7 +4912,7 @@ fn item_folder(c: &Connection, item: i64) -> Result<i64> {
 
 /// The stamp each file had when Audit `audit` read its payloads, by path: those it read in full, or, when
 /// `unreadable`, those with a payload it could not read.
-fn audit_stamps(
+pub(crate) fn audit_stamps(
     c: &Connection,
     audit: i64,
     unreadable: bool,

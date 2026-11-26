@@ -321,6 +321,11 @@ pub struct SourceSetRecord {
     /// Why it is Stale, if it is: each cause, files first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stale: Vec<SourceSetStale>,
+    /// How many files its latest stat walk since its latest Audit found unconfirmed: their device, inode, size and
+    /// modification time as that Audit recorded them, only their change time moved, as a change of permissions or
+    /// owner moves it. They don't make it Stale; its next Incremental Audit reads them again (ADR 0031).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unconfirmed: u64,
     /// Its Coverage: the engine region names it covers. Absent when it covers every Game.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage: Option<Vec<String>>,
@@ -331,6 +336,11 @@ pub struct SourceSetRecord {
     /// Who created its folder, and when, if Stage Select created it when the Source Set was registered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder_created: Option<FolderCreated>,
+}
+
+/// Whether a count is none, so that it is left out of what is sent.
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 /// Who had Stage Select create a folder, and when.
@@ -379,6 +389,9 @@ pub struct StatWalk {
     pub changed: u64,
     pub added: u64,
     pub removed: u64,
+    /// Files whose stamp moved only in its change time: unconfirmed, not changed.
+    #[serde(default)]
+    pub unconfirmed: u64,
 }
 
 impl StatWalk {

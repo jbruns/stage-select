@@ -23,7 +23,7 @@ use stage_select_api::storage::{
 use stage_select_api::{DatFormat, DatRevisionRecord, Job, Workers};
 use stage_select_engine::build::{Probe, holds_as, is_torrentzip};
 use stage_select_engine::dat::Dat;
-use stage_select_engine::sha256_hex;
+use stage_select_engine::{FileStamp, sha256_hex};
 
 use super::audits::{ENTRY_COLUMNS, entry_from_row};
 use super::checks::{Ack, Scan, ScanInput, Seen, read_acks, read_probes, scan, store_check};
@@ -231,6 +231,10 @@ struct Inputs {
     placed_rows: HashMap<i64, (String, String)>,
     /// Whether a test has said to treat the Source Set and the folder as on different filesystems.
     copy_across: bool,
+    /// Each file of the Source Set's own folder read again as the plan was made, its stamp having moved only in its
+    /// change time since the latest Audit: with the stamp it was confirmed at, or none where it couldn't be. A rename
+    /// places a file unread, so one is placed only while it is still as confirmed.
+    reread: HashMap<String, Option<FileStamp>>,
     /// The games removed from the folder, and those this plan removes, with what becomes of their files.
     removed: BTreeMap<String, RemoveAction>,
     /// The games this plan removes that its Selection or Additions would otherwise build, so removing them leaves
@@ -442,6 +446,7 @@ fn load(
             })?
             .collect::<rusqlite::Result<_>>()?,
         copy_across: false,
+        reread: HashMap::new(),
         folder,
         set_root: set.record.root,
         set_path: set.record.path,
@@ -3121,6 +3126,77 @@ pub(super) fn insert_plan(tx: &Transaction, planned: &Planned, check: Option<i64
 }
 
 impl Store {
+    /// Under Single Copy, where this folder holds the Source Set's Placed Games, reads again each file of its own
+    /// folder a selected Game could be placed from whose stamp moved only in its change time since the latest Audit,
+    /// as a change of permissions or owner moves it ([`Store::confirm_unchanged`]). A rename places a file unread, on
+    /// the strength of that Audit's read: one that holds what it read is placed as read, and one that holds other
+    /// bytes is recorded as changed and is not used as a source by this plan. One that can't be read again is copied,
+    /// not placed ([`Inputs::reread`]). Returns the paths of those that changed, for the plan's notes.
+    fn reread_placed_sources(
+        &self,
+        roots: &crate::roots::Roots,
+        inputs: &mut Inputs,
+    ) -> Result<Vec<String>> {
+        let Some((audit, ..)) = inputs.audit else {
+            return Ok(Vec::new());
+        };
+        if !inputs.storage.single_copy
+            || inputs.holding != Some(inputs.folder.id)
+            || inputs.entries.is_empty()
+        {
+            return Ok(Vec::new());
+        }
+        let Ok(dir) = resolve(roots, &inputs.set_root, &inputs.set_path) else {
+            return Ok(Vec::new());
+        };
+        let titles: HashSet<&str> = (inputs.selection.groups.iter())
+            .flat_map(|g| g.kept.iter().map(|w| w.title.as_str()))
+            .collect();
+        let paths: BTreeSet<&str> = (inputs.entries.iter())
+            .filter(|e| stage_select_api::storage::split_placed(&e.path).is_none())
+            .filter(|e| {
+                e.roms.iter().any(|r| titles.contains(r.game.as_str()))
+                    || e.path
+                        .strip_suffix(".zip")
+                        .is_some_and(|game| titles.contains(game))
+            })
+            .map(|e| e.path.as_str())
+            .collect();
+        let stamps = self.read(|c| crate::repairs::audit_stamps(c, audit, false))?;
+        let moved: Vec<(String, FileStamp)> = paths
+            .into_iter()
+            .filter_map(|path| {
+                use std::os::unix::fs::MetadataExt;
+                let stamp = stamps.get(path)?;
+                let m = std::fs::symlink_metadata(dir.path.join(path)).ok()?;
+                if !m.is_file() {
+                    return None;
+                }
+                let file = stat(&m);
+                let now = FileStamp {
+                    dev: m.dev(),
+                    ino: m.ino(),
+                    size: file.size,
+                    mtime_ns: file.mtime_ns,
+                    ctime_ns: i128::from(m.ctime()) * 1_000_000_000 + i128::from(m.ctime_nsec()),
+                };
+                crate::stale::only_ctime_moved(stamp, &now).then(|| (path.to_owned(), *stamp))
+            })
+            .collect();
+        if moved.is_empty() {
+            return Ok(Vec::new());
+        }
+        let moved: Vec<(&str, FileStamp)> = moved.iter().map(|(p, s)| (p.as_str(), *s)).collect();
+        let reread =
+            self.confirm_unchanged((inputs.folder.source_set_id, audit), &dir.path, &moved)?;
+        inputs.entries.retain(|e| !reread.changed.contains(&e.path));
+        inputs.reread = moved.iter().map(|(p, _)| ((*p).to_owned(), None)).collect();
+        inputs
+            .reread
+            .extend(reread.confirmed.into_iter().map(|(p, s)| (p, Some(s))));
+        Ok(reread.changed)
+    }
+
     /// Computes what building `selection` into the Library Folder would do, with your `choices`.
     pub(super) fn compute_plan(
         &self,
@@ -3175,7 +3251,13 @@ impl Store {
                 }
             }
         }
+        let reread = self.reread_placed_sources(roots, &mut inputs)?;
         let mut planned = compute(roots, &inputs, dat.as_ref(), meter);
+        for path in reread {
+            planned.content.notes.push(format!(
+                "{path} changed since the audit read it, so nothing is built from it; audit again to build from it"
+            ));
+        }
         for game in inputs.removed.keys() {
             if !choices.remove.iter().any(|r| r.game == *game) {
                 planned.content.notes.push(format!(

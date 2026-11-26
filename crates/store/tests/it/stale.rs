@@ -634,3 +634,107 @@ fn each_time_a_source_set_goes_stale_is_reported_once_as_it_is_committed() {
         .count();
     assert_eq!(revisions, 3);
 }
+
+/// How many files the latest stat walk of `name` found with only their change time moved.
+fn unconfirmed(env: &Env, name: &str) -> u64 {
+    env.store.source_set(name).unwrap().unconfirmed
+}
+
+/// The paths the latest Audit of `name` read rather than reused.
+fn read_by_latest_audit(env: &Env, name: &str) -> Vec<String> {
+    let latest = &env.store.history(name).unwrap()[0];
+    let report = env.store.report(latest.id).unwrap();
+    let mut read: Vec<String> = report
+        .entries
+        .iter()
+        .filter(|e| e.evidence.as_ref().is_some_and(|ev| ev.reused.is_none()))
+        .map(|e| e.path.clone())
+        .collect();
+    read.dedup();
+    read
+}
+
+#[test]
+fn a_file_whose_permissions_alone_changed_is_unconfirmed_and_the_source_set_is_not_stale() {
+    let env = Env::new();
+    env.audit("Alpha", AuditEvidence::Incremental);
+
+    crate::placed_recovery::chmod(&env.set("Alpha").join("Pong (USA).a26"));
+    let ended = env.walk("Alpha");
+
+    assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+    assert_eq!(
+        env.stale("Alpha"),
+        [],
+        "a change of permissions alone is no change"
+    );
+    assert_eq!(unconfirmed(&env, "Alpha"), 1);
+    let walks = env.store.stat_walks("Alpha").unwrap();
+    assert_eq!(walks.len(), 1, "{walks:?}");
+    assert_eq!(
+        (walks[0].changed, walks[0].unconfirmed),
+        (0, 1),
+        "{walks:?}"
+    );
+    assert_eq!(unconfirmed(&env, "Beta"), 0);
+}
+
+#[test]
+fn an_incremental_audit_reads_just_the_unconfirmed_file_and_leaves_the_source_set_fresh() {
+    let env = Env::new();
+    env.audit("Alpha", AuditEvidence::Incremental);
+    crate::placed_recovery::chmod(&env.set("Alpha").join("Pong (USA).a26"));
+    env.walk("Alpha");
+    assert_eq!(unconfirmed(&env, "Alpha"), 1);
+
+    env.audit("Alpha", AuditEvidence::Incremental);
+
+    assert_eq!(read_by_latest_audit(&env, "Alpha"), ["Pong (USA).a26"]);
+    assert_eq!(unconfirmed(&env, "Alpha"), 0, "the audit confirmed it");
+    env.walk("Alpha");
+    assert_eq!(env.stale("Alpha"), []);
+    assert_eq!(unconfirmed(&env, "Alpha"), 0, "its new stamp is recorded");
+    assert_eq!(read_by_latest_audit(&env, "Alpha"), ["Pong (USA).a26"]);
+    env.audit("Alpha", AuditEvidence::Incremental);
+    assert_eq!(
+        read_by_latest_audit(&env, "Alpha"),
+        Vec::<String>::new(),
+        "the next audit reuses every read"
+    );
+}
+
+#[test]
+fn a_same_length_overwrite_with_its_time_put_back_is_found_changed_by_the_re_read() {
+    use std::io::Write;
+    let env = Env::new();
+    env.audit("Alpha", AuditEvidence::Incremental);
+    let pong = env.set("Alpha").join("Pong (USA).a26");
+    let mtime = std::fs::metadata(&pong).unwrap().modified().unwrap();
+    let mut file = std::fs::OpenOptions::new().write(true).open(&pong).unwrap();
+    file.write_all(b"gnop").unwrap();
+    file.set_modified(mtime).unwrap();
+    drop(file);
+
+    env.walk("Alpha");
+    assert_eq!(
+        unconfirmed(&env, "Alpha"),
+        1,
+        "its stat alone can't tell it from a chmod"
+    );
+
+    env.audit("Alpha", AuditEvidence::Incremental);
+
+    assert_eq!(read_by_latest_audit(&env, "Alpha"), ["Pong (USA).a26"]);
+    let latest = &env.store.history("Alpha").unwrap()[0];
+    let report = env.store.report(latest.id).unwrap();
+    let pong = report
+        .games
+        .iter()
+        .find(|g| g.name == "Pong (USA)")
+        .unwrap();
+    assert_eq!(
+        pong.status,
+        stage_select_api::GameStatus::Missing,
+        "the re-read found its bytes changed: {report:#?}"
+    );
+}

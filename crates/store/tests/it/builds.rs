@@ -7552,3 +7552,25 @@ fn a_build_plan_counts_the_files_it_finds_then_each_selected_file_it_plans() {
         "counting changes nothing planned"
     );
 }
+
+#[test]
+fn a_build_after_a_change_of_permissions_alone_needs_no_new_audit() {
+    let env = Env::new();
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+    let chmod = |name: &str| crate::placed_recovery::chmod(&env.set_dir().join(name));
+    // Before the plan, then after it, so the build's own check of each source sees its change time moved.
+    chmod("Combat (USA).zip");
+    let plan = env.plan(&folder, id);
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    for name in ["Pong (USA).zip", "Combat (USA).zip", "breakout.bin"] {
+        chmod(name);
+    }
+
+    let job = env.build(&plan);
+
+    assert_eq!(job.state, JobState::Succeeded, "{:?}", job.error);
+    let build = env.store.library_folder(folder.id).unwrap().build.unwrap();
+    assert_eq!((build.applied, build.failed), (5, 0), "{build:?}");
+}

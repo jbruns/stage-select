@@ -28,7 +28,9 @@ const SET_QUERY: &str =
                     AND (ro.writable OR EXISTS (SELECT 1 FROM json_each(ro.writable_paths) WHERE value = s.path))),
             s.folder_created_by, s.folder_created_at,
             CASE WHEN r.dat_id <> s.dat_id THEN ad.provider || '/' || ad.name END,
-            (SELECT changed_at FROM source_set_dat_changes WHERE source_set_id = s.id ORDER BY id DESC LIMIT 1)
+            (SELECT changed_at FROM source_set_dat_changes WHERE source_set_id = s.id ORDER BY id DESC LIMIT 1),
+            (SELECT CASE WHEN u.audit_id = a.id THEN u.unconfirmed END FROM stat_walks u
+             WHERE u.source_set_id = s.id ORDER BY u.id DESC LIMIT 1)
      FROM source_sets s
      JOIN dats d ON d.id = s.dat_id
      LEFT JOIN audits a ON a.id = (SELECT id FROM audits
@@ -104,6 +106,7 @@ fn set_from_row(row: &Row) -> rusqlite::Result<SourceSetRow> {
             last_verified_against,
             follow: row.get(10)?,
             stale,
+            unconfirmed: row.get::<_, Option<i64>>(25)?.unwrap_or(0) as u64,
             coverage,
             repairs_may_change: row.get(20)?,
             folder_created: match row.get::<_, Option<String>>(21)? {
