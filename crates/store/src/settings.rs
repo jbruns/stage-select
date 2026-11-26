@@ -230,6 +230,19 @@ pub(crate) fn load(c: &Connection) -> Result<Settings> {
     Ok(settings)
 }
 
+/// Removes the Root `name`'s own Permission Policy, if it has one, as `actor`.
+pub(crate) fn forget_root_permissions(
+    tx: &rusqlite::Transaction,
+    name: &str,
+    actor: &str,
+) -> Result<()> {
+    let mut permissions = load(tx)?.permissions;
+    if permissions.roots.remove(name).is_some() {
+        put(tx, PERMISSIONS, &permissions, actor)?;
+    }
+    Ok(())
+}
+
 fn put<T: Serialize>(
     tx: &rusqlite::Transaction,
     section: &str,

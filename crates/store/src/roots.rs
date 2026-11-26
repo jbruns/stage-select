@@ -1522,6 +1522,8 @@ impl Store {
                 )));
             }
             tx.execute("DELETE FROM roots WHERE name = ?1", [name])?;
+            // Its own Permission Policy goes with it: kept, it would make every save of the policy refused.
+            crate::settings::forget_root_permissions(tx, name, actor)?;
             record(tx, name, "unregistered", None, actor, &now())
         })?;
         self.roots_changed()

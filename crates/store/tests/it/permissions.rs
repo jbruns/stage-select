@@ -552,3 +552,36 @@ fn a_file_stage_select_owns_but_may_not_read_is_restored_all_the_same() {
     assert_eq!(restored.restored as usize, restorable.len());
     assert_declared(&[pong, set]);
 }
+
+#[test]
+fn unregistering_a_root_drops_its_own_policy_so_the_policy_saves_again() {
+    let env = Env::new();
+    crate::register(
+        &env.store,
+        &[RootSpec::new("spare", env.tmp.path().join("roots/spare"))],
+    );
+    let save = |settings: PermissionSettings| {
+        env.store.update_settings(
+            &SettingsUpdate {
+                permissions: Some(settings),
+                ..Default::default()
+            },
+            "Operator",
+        )
+    };
+    save(PermissionSettings {
+        global: None,
+        roots: [("spare".to_owned(), policy())].into(),
+    })
+    .unwrap();
+
+    env.store.unregister_root("spare", "Operator").unwrap();
+
+    let held = env.store.settings_view().unwrap().permissions;
+    assert!(held.roots.is_empty(), "{held:?}");
+    save(PermissionSettings {
+        global: Some(policy()),
+        ..held
+    })
+    .unwrap();
+}

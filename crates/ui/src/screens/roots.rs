@@ -505,10 +505,11 @@ impl PolicyDrafts {
         }
     }
 
-    /// The settings typed, or what is wrong with them.
-    fn read(&self) -> Result<PermissionSettings, String> {
+    /// The settings typed for every root and for each of `shown`, or what is wrong with them. A root's own policy
+    /// that the form doesn't show, as one unregistered since it loaded, is never saved.
+    fn read(&self, shown: &[String]) -> Result<PermissionSettings, String> {
         let mut roots = BTreeMap::new();
-        for (name, draft) in &self.roots {
+        for (name, draft) in self.roots.iter().filter(|(name, _)| shown.contains(name)) {
             if let Some(policy) = draft.read(name)? {
                 roots.insert(name.clone(), policy);
             }
@@ -533,7 +534,8 @@ fn PolicyForm(roots: Signal<Vec<Root>>) -> impl IntoView {
     });
     let said = RwSignal::new(None::<Result<String, String>>);
     let save = move |_| {
-        let permissions = match draft.with_untracked(PolicyDrafts::read) {
+        let shown: Vec<String> = roots.with_untracked(|r| r.iter().map(|r| r.name.clone()).collect());
+        let permissions = match draft.with_untracked(|d| d.read(&shown)) {
             Ok(p) => p,
             Err(problem) => {
                 said.set(Some(Err(problem)));
@@ -620,5 +622,28 @@ fn PolicyForm(roots: Signal<Vec<Root>>) -> impl IntoView {
                 "Each check of a source set or library folder compares what it sees with your policy, and its Permissions tab lists what differs. That never makes a source set stale or a library folder drift. Stage Select restores what it owns through a plan you approve, changes a group only to one it is in, and for the rest gives you the command to run on the host. A source set it may not change is only reported."
             </p>
         </Help>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use stage_select_api::permissions::{Mode, PermissionPolicy};
+
+    #[test]
+    fn the_policy_form_saves_a_policy_only_for_a_root_it_shows() {
+        let policy = PermissionPolicy {
+            file_mode: Mode(0o660),
+            folder_mode: Mode(0o2770),
+            group: None,
+        };
+        let saved = PermissionSettings {
+            global: None,
+            roots: [("gone".to_owned(), policy), ("sets".to_owned(), policy)].into(),
+        };
+
+        let read = PolicyDrafts::of(&saved).read(&["sets".to_owned()]).unwrap();
+
+        assert_eq!(read.roots.keys().collect::<Vec<_>>(), ["sets"]);
     }
 }
