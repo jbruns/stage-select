@@ -2725,6 +2725,46 @@ fn a_first_marker_a_stop_left_unpublished_is_published_when_the_repair_runs_agai
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn a_first_marker_stage_select_cannot_open_after_a_stop_is_refused_with_the_fix_and_kept() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let approved = env
+        .store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.inject_fault(Some(Fault::RepairMarkerWritten));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    let temp = env.set().join(".stage-select/marker.new");
+    crate::builds::set_mode(&temp, 0o400);
+    env.store.recover_jobs(WORKERS).unwrap();
+
+    let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+    assert_eq!(ended.state, JobState::Failed, "{ended:?}");
+    let message = ended.error.unwrap();
+    assert!(
+        message.starts_with(&format!(
+            "{} can't be used: Stage Select can't read and write it (",
+            temp.display()
+        )),
+        "{message}"
+    );
+    assert!(!message.contains("move it"), "{message}");
+    // You run the command, and the next repair takes up the marker it left.
+    crate::builds::run_fix(&message, &temp);
+    env.approve(&env.plan());
+    assert!(env.set().join(".stage-select/marker").exists());
+    assert!(!temp.exists());
+}
+
 #[test]
 fn a_file_put_in_place_of_a_first_marker_a_stop_left_is_never_written_over() {
     let env = Env::new();
