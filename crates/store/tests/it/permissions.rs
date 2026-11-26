@@ -587,7 +587,6 @@ fn unregistering_a_root_drops_its_own_policy_so_the_policy_saves_again() {
 }
 
 #[test]
-#[ignore = "needs #381: a restore moves only ctime, which until then counts as a change"]
 fn a_restore_never_makes_a_source_set_stale_at_its_next_walk() {
     let env = Env::new();
     let set = env.set("Alpha");
