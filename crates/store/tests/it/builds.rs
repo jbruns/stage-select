@@ -2949,7 +2949,14 @@ fn a_stage_select_folder_stage_select_cannot_fix_is_refused_with_the_command_tha
         run_fix(message, &state);
         let plan = env.plan(&folder, plan.content.selection);
         assert!(plan.approvable(), "{wrong}: {:?}", plan.content.blockers);
-        assert_eq!(env.build(&plan).state, JobState::Succeeded, "{wrong}");
+        let job = env.build(&plan);
+        assert_eq!(
+            job.state,
+            JobState::Succeeded,
+            "{wrong}: {:?} {:?}",
+            job.error,
+            env.store.library_folder(folder.id).unwrap().build
+        );
     }
 }
 
