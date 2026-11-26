@@ -91,8 +91,9 @@ pub(super) struct Scan {
     /// Entries you acknowledged, found as they were then: neither read nor reported as drift.
     pub acknowledged: Vec<DriftEntry>,
     updates: Vec<Update>,
-    /// The records of Placed Games' files to bring up to date: each path, as it was recorded and as it now is.
-    placed_updates: Vec<(String, PlacedFile, Stat)>,
+    /// The records of Placed Games' files to bring up to date: each path, as it was recorded, and as it now is and
+    /// was read.
+    placed_updates: Vec<(String, PlacedFile, Stat, String)>,
     /// What was read of each entry, by name, with the file as it was when read.
     pub probes: HashMap<String, (Seen, Probe)>,
     /// The acknowledgements the check was made with: only these can it find changed.
@@ -117,6 +118,28 @@ pub(super) struct ScanInput<'a> {
     pub tally: &'a Tally,
     /// The files of the Placed Games the folder holds: never drift, each checked as a built file is.
     pub placed: &'a [PlacedFile],
+    /// Their Source Set's own folder, where one found missing here may be found again; none when it can't be opened.
+    pub home: Option<&'a FolderDir>,
+}
+
+/// What a check says of a Placed Game's file it found missing that is in its Source Set's folder: an Audit records it
+/// home there.
+pub(crate) const FOUND_HOME: &str = "found in its source set; audit it to bring it home";
+
+/// Whether the Placed Game's file `placed`, missing where it was placed, is in its Source Set's folder `home`: a
+/// regular file of its name there, at the path it has in its Library Folder or by its name alone at the top. Only an
+/// Audit, reading it, tells whether it holds the Game.
+fn found_home(home: Option<&FolderDir>, placed: &PlacedFile) -> bool {
+    let Some(home) = home else {
+        return false;
+    };
+    let name = placed.path.rsplit('/').next().unwrap_or(&placed.path);
+    [placed.path.as_str(), name].iter().any(|at| {
+        home.stat(at)
+            .ok()
+            .flatten()
+            .is_some_and(|st| FolderDir::kind(&st) == FileType::RegularFile)
+    })
 }
 
 /// The names in a folder other than Stage Select's own entries, sorted, with each disc layout folder's entries in
@@ -445,7 +468,18 @@ pub(super) fn scan(
             },
         };
         match st {
-            None if found.is_none() => file.outcome = FileOutcome::Missing,
+            None if found.is_none() => {
+                file.outcome = FileOutcome::Missing;
+                // A file both built and placed is its Game's only copy: say where it may be.
+                if input
+                    .placed
+                    .iter()
+                    .find(|p| p.path == *target)
+                    .is_some_and(|p| found_home(input.home, p))
+                {
+                    file.detail = Some(FOUND_HOME.into());
+                }
+            }
             None => {}
             Some(st) if FolderDir::kind(&st) != FileType::RegularFile => {
                 file.outcome = FileOutcome::Conflict;
@@ -542,27 +576,23 @@ pub(super) fn scan(
             && !crate::placements::unchanged(placed, &st)
             && !matches!(file.outcome, FileOutcome::Missing | FileOutcome::Unreadable)
         {
-            // Its SHA-256 is of all of it, whatever the DAT's Header Rule.
-            let (probe, hashed) = probe_of(target, &st, None, &mut out);
+            let (probe, hashed) = probe_of(target, &st, input.dat.and_then(Dat::header), &mut out);
             file.hashed |= hashed;
-            match probe {
+            match probe.map(|p| (proven(placed, &p, input.dat), p)) {
                 Err(e) => {
                     file.outcome = FileOutcome::Unreadable;
                     file.detail = Some(e);
                 }
-                // One placed by a rename was never read: its stamp alone stood for it, so changed, it is a conflict.
-                Ok(p) if placed.sha256.as_deref() == Some(p.sha256.as_str()) => {
+                Ok((Ok(()), p)) => {
                     if file.outcome == FileOutcome::Unchanged {
                         file.outcome = FileOutcome::Refreshed;
                     }
                     out.placed_updates
-                        .push((target.clone(), placed.clone(), st));
+                        .push((target.clone(), placed.clone(), st, p.sha256));
                 }
-                Ok(_) => {
+                Ok((Err(why), _)) => {
                     file.outcome = FileOutcome::Conflict;
-                    file.detail = Some(
-                        "it changed since it was placed; an audit of its source set says what it holds now".into(),
-                    );
+                    file.detail = Some(why);
                 }
             }
         }
@@ -593,7 +623,12 @@ pub(super) fn scan(
             consumed.insert(name.to_owned());
         }
         match found.map(|name| (name, dir.stat(name))) {
-            None => file.outcome = FileOutcome::Missing,
+            None => {
+                file.outcome = FileOutcome::Missing;
+                if found_home(input.home, placed) {
+                    file.detail = Some(FOUND_HOME.into());
+                }
+            }
             Some((name, _)) if name != target => {
                 file.outcome = FileOutcome::Conflict;
                 file.detail = Some(format!("it is now named {name}"));
@@ -611,25 +646,22 @@ pub(super) fn scan(
             // its size and modification time set back, is read again.
             Some((_, Ok(Some(st)))) if crate::placements::unchanged(placed, &st) => {}
             Some((_, Ok(Some(st)))) => {
-                // Its SHA-256 is of all of it, whatever the DAT's Header Rule.
-                let (probe, hashed) = probe_of(target, &st, None, &mut out);
+                let (probe, hashed) =
+                    probe_of(target, &st, input.dat.and_then(Dat::header), &mut out);
                 file.hashed = hashed;
-                match probe {
+                match probe.map(|p| (proven(placed, &p, input.dat), p)) {
                     Err(e) => {
                         file.outcome = FileOutcome::Unreadable;
                         file.detail = Some(e);
                     }
-                    Ok(p) if placed.sha256.as_deref() == Some(p.sha256.as_str()) => {
+                    Ok((Ok(()), p)) => {
                         file.outcome = FileOutcome::Refreshed;
                         out.placed_updates
-                            .push((target.clone(), placed.clone(), st));
+                            .push((target.clone(), placed.clone(), st, p.sha256));
                     }
-                    Ok(_) => {
+                    Ok((Err(why), _)) => {
                         file.outcome = FileOutcome::Conflict;
-                        file.detail = Some(
-                            "it changed since it was placed; an audit of its source set says what it holds now"
-                                .into(),
-                        );
+                        file.detail = Some(why);
                     }
                 }
             }
@@ -749,6 +781,59 @@ pub(super) fn scan(
     out
 }
 
+/// Whether the Placed Game's file `placed`, its stamp moved since it was recorded, still holds what it was placed as,
+/// read again as `probe`: its SHA-256 as recorded, or, with none recorded, as for a file placed by a rename before it
+/// kept its Audit's, exactly the bytes the ROMs `dat` lists for its Game make. Only a canonical form says that: a
+/// TorrentZip holding exactly those ROMs, or a loose file that is one of them whole, with no Header left out. Its
+/// whole SHA-256 is of all of it, whatever the DAT's Header Rule. Otherwise why not.
+pub(crate) fn proven(
+    placed: &PlacedFile,
+    probe: &Probe,
+    dat: Option<&Dat>,
+) -> std::result::Result<(), String> {
+    let changed =
+        "it changed since it was placed; an audit of its source set says what it holds now";
+    match (placed.sha256.as_deref(), dat) {
+        (Some(sha256), _) if sha256 == probe.sha256 => Ok(()),
+        (Some(_), _) => Err(changed.into()),
+        // A CHD is placed read, so always with its SHA-256.
+        (None, _) if placed.chd => Err(changed.into()),
+        (None, None) => Err(format!(
+            "{changed}; its DAT revision is no longer kept, so it couldn't be checked against its ROMs"
+        )),
+        (None, Some(dat)) => {
+            let roms = crate::plans::roms_of(dat, &placed.game);
+            let exact = match probe.zip {
+                true => {
+                    probe.torrentzip
+                        && !roms.is_empty()
+                        && stage_select_engine::build::holds(probe, &roms)
+                }
+                // A loose file is one ROM of its Game, named for it.
+                false => {
+                    let name = placed.path.rsplit('/').next().unwrap_or(&placed.path);
+                    probe
+                        .payloads
+                        .iter()
+                        .all(|p| p.checksums().header.is_none())
+                        && roms
+                            .iter()
+                            .filter(|rom| rom.name.rsplit('/').next() == Some(name))
+                            .any(|rom| holds_as(probe, std::slice::from_ref(rom), true))
+                }
+            };
+            match exact {
+                true => Ok(()),
+                false => Err(format!(
+                    "it changed since it was placed, and isn't exactly the DAT's ROMs for {}; an audit of its \
+                     source set says what it holds now",
+                    placed.game
+                )),
+            }
+        }
+    }
+}
+
 impl Scan {
     pub fn summary(&self) -> CheckSummary {
         let mut s = CheckSummary::default();
@@ -837,8 +922,9 @@ pub(super) fn store_check(
                 ],
             )?;
         }
-        for (path, was, now) in &scan.placed_updates {
-            crate::placements::restamp(tx, folder, path, was, now)?;
+        for (path, was, now, sha256) in &scan.placed_updates {
+            let now = crate::placements::stamp_of(now);
+            crate::placements::restamp(tx, folder, path, was, (&now, sha256))?;
         }
         tx.execute("DELETE FROM folder_probes WHERE folder_id = ?1", [folder])?;
         // An acknowledgement lasts only while its entry is as it was: one the check found changed, or gone, is
@@ -945,6 +1031,8 @@ struct CheckInputs {
     cached: HashMap<String, (Seen, Probe)>,
     acks: HashMap<String, Ack>,
     placed: Vec<PlacedFile>,
+    /// The Root and path of the folder's Source Set.
+    set: (String, String),
 }
 
 impl Store {
@@ -1054,6 +1142,10 @@ impl Store {
                 cached: read_probes(&tx, folder.id)?,
                 acks: read_acks(&tx, folder.id)?,
                 placed: crate::placements::placed_files_in(&tx, folder.id)?,
+                set: {
+                    let set = set_by_id(&tx, folder.source_set_id)?;
+                    (set.record.root, set.record.path)
+                },
                 folder,
                 selection,
                 selected,
@@ -1064,6 +1156,10 @@ impl Store {
             .map_err(|e| Error::Refused(format!("the library folder cannot be opened: {e}")))?;
         let entries =
             listing(&dir, &disk_dirs(&inputs.built)).map_err(|e| Error::Io(e.to_string()))?;
+        let home = match inputs.placed.is_empty() {
+            true => None,
+            false => open_folder(roots, &inputs.set.0, &inputs.set.1).ok(),
+        };
         let dat = match inputs.revision.1 {
             true => Some(Dat::read(&self.blob_path(&inputs.revision.0))?),
             false => None,
@@ -1108,6 +1204,7 @@ impl Store {
                         acks: &inputs.acks,
                         tally: &Tally::of_this_thread(Some(&inputs.folder.root)),
                         placed: &inputs.placed,
+                        home: home.as_ref(),
                     },
                     progress,
                 );

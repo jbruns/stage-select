@@ -610,6 +610,10 @@ fn check_folder(
             None
         }
         None => Some({
+            let home = match inputs.placed.is_empty() {
+                true => None,
+                false => open_folder(roots, &inputs.set_root, &inputs.set_path).ok(),
+            };
             meter.start(
                 PlanStep::Walking,
                 (inputs.built.len() + inputs.placed.len() + entries.len()) as u64,
@@ -628,6 +632,7 @@ fn check_folder(
                     // Counted when a Job plans, as a Build does again before it writes; not when you do.
                     tally: &stage_select_engine::meter::Tally::of_this_thread(Some(&folder.root)),
                     placed: &inputs.placed,
+                    home: home.as_ref(),
                 },
                 Some(&|p: stage_select_engine::Progress| meter.count(p.files_done as u64)),
             )
@@ -2295,15 +2300,23 @@ fn placed_here(
         )));
     }
     let found = scan.and_then(|s| s.files.iter().find(|f| f.target == target));
-    Some(match found.map(|f| f.outcome) {
-        Some(FileOutcome::Missing) => Err((
+    Some(match found.map(|f| (f.outcome, f.detail.as_deref())) {
+        Some((FileOutcome::Missing, Some(crate::checks::FOUND_HOME))) => Err((
+            ItemKind::Blocked,
+            format!(
+                "{target} is the only copy of {game}, placed here from source set {set}, and the check didn't find \
+                 it here but {}",
+                crate::checks::FOUND_HOME
+            ),
+        )),
+        Some((FileOutcome::Missing, _)) => Err((
             ItemKind::Blocked,
             format!(
                 "{target} is the only copy of {game}, placed here from source set {set}, and the check found it \
                  missing; nothing is written in its place. Find it and put it back, or repair the source set"
             ),
         )),
-        Some(FileOutcome::Conflict | FileOutcome::Unreadable) => Err((
+        Some((FileOutcome::Conflict | FileOutcome::Unreadable, _)) => Err((
             ItemKind::Conflict,
             format!(
                 "{target} is the only copy of {game}, placed here from source set {set}, and the check found it \

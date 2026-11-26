@@ -1093,8 +1093,21 @@ impl Store {
         let id = running.id;
         let job = running.job;
         let finished = self.scan(&running, progress).and_then(|report| {
+            let tally = |root: &str| {
+                job.map_or_else(Default::default, |job| {
+                    self.meter.job(job).tally(Some(root))
+                })
+            };
+            let verified = self.verified_placements(
+                (running.set_id, id),
+                &report.entries,
+                &self.blob_path(&running.revision.sha256),
+                tally,
+            )?;
             self.write(|tx| {
                 finish_audit(tx, id, &report)?;
+                crate::placements::refresh_verified(tx, &verified)?;
+                crate::placements::record_home(tx, (running.set_id, id), &report)?;
                 if let Some(job) = job {
                     super::jobs::succeed(tx, &self.meter, job, id)?;
                 }
