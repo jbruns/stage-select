@@ -715,3 +715,90 @@ fn a_full_audit_of_an_unchanged_placed_zip_records_its_sha256() {
         (before[0].dev, before[0].ino, before[0].ctime_ns)
     );
 }
+
+impl Env {
+    /// Imports a newer DAT revision of `pong`'s Pong, as `games` lists it, and audits the Source Set against it.
+    fn audit_against(&self, games: &[(&'static str, Vec<RomSpec>)]) {
+        let newer = write_dat_from(
+            &self.tmp.path().join("dats"),
+            "alpha2.dat",
+            "2",
+            "No-Intro",
+            games,
+        );
+        let newer = self.store.import_dat(&newer, None).unwrap().0.sha256;
+        self.store
+            .audit_source_set(SET, Some(&newer), AuditEvidence::Incremental)
+            .unwrap();
+    }
+
+    /// Plans the Source Set's Repair with its defaults, approves it and runs it, then the Audit it owes.
+    fn repair(&self) -> stage_select_api::repair::RepairPlan {
+        let plan = self
+            .store
+            .plan_repair(SET, &stage_select_api::repair::PlanRepair::default())
+            .unwrap();
+        let approved = self
+            .store
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        let job = approved.job.expect("an approved repair has a job");
+        assert_eq!(self.store.claim_job().unwrap().unwrap().id, job);
+        let ended = self.store.run_repair_job(job, None).unwrap();
+        assert_eq!(ended.state, JobState::Succeeded, "{ended:?}");
+        self.store.fulfil_repair_audits().unwrap();
+        let done = self.store.repair_plan(plan.id).unwrap();
+        let audit = done.audit_job.expect("a repair queues an audit");
+        assert_eq!(self.store.claim_job().unwrap().unwrap().id, audit);
+        let audited = self.store.run_audit_job(audit, None).unwrap();
+        assert_eq!(audited.state, JobState::Succeeded, "{audited:?}");
+        plan
+    }
+}
+
+#[test]
+fn a_placed_file_a_repair_rewrote_holds_what_its_next_check_expects() {
+    let env = Env::new();
+    env.place_pong(StorageFormat::TorrentZip, pong);
+    // The newer revision names Pong's ROM otherwise: a repair repacks the placed file where it is placed.
+    env.audit_against(&games_with(vec![rom("Pong (USA).bin", b"pong")]));
+    let plan = env.repair();
+    assert!(
+        plan.content
+            .steps
+            .iter()
+            .any(|s| matches!(s.step, stage_select_api::repair::RepairStep::Build { .. })),
+        "{:#?}",
+        plan.content.steps
+    );
+
+    let check = env.check();
+
+    let file = checked(&check, "Pong (USA).zip");
+    assert_eq!(file.outcome, FileOutcome::Unchanged, "{file:?}");
+    assert_eq!(check.summary.conflict, 0, "{:?}", check.files);
+}
+
+#[test]
+fn a_loose_placed_file_a_repair_wrote_under_a_new_name_is_where_its_next_check_looks() {
+    let env = Env::new();
+    env.place_pong(StorageFormat::Loose, loose_pong);
+    // The newer revision names Pong's ROM otherwise: a repair writes the loose placed file again under its name.
+    env.audit_against(&games_with(vec![rom("Pong (USA).bin", b"pong")]));
+    env.repair();
+    assert_eq!(
+        env.store.placed_files(SET).unwrap()[0].path,
+        "Pong (USA).bin"
+    );
+
+    let check = env.check();
+
+    let file = checked(&check, "Pong (USA).bin");
+    assert_eq!(file.outcome, FileOutcome::Unchanged, "{file:?}");
+    assert_eq!(
+        (check.summary.missing, check.summary.conflict),
+        (0, 0),
+        "{:?}",
+        check.files
+    );
+}

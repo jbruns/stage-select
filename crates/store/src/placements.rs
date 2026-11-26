@@ -230,6 +230,97 @@ pub(crate) fn move_placed(
             stage_select_api::storage::placed_path(folder, to)
         ],
     )?;
+    // What the Build that placed it recorded it holding moves with it: the same bytes, under its new name.
+    if from != to {
+        tx.execute(
+            "DELETE FROM built_files WHERE folder_id = ?1 AND target = ?2
+             AND EXISTS (SELECT 1 FROM built_files WHERE folder_id = ?1 AND target = ?3)",
+            params![folder, to, from],
+        )?;
+        tx.execute(
+            "UPDATE built_files SET target = ?3 WHERE folder_id = ?1 AND target = ?2",
+            params![folder, from, to],
+        )?;
+    }
+    Ok(())
+}
+
+/// A file a Repair wrote where its Game is placed: Library Folder `folder`'s `path`, holding `roms` (`loose`, the one
+/// of them), statted as `st` and read as `sha256`, in place of the Game's files `replaced` there.
+pub(crate) struct RepairWrote<'a> {
+    pub folder: i64,
+    pub path: &'a str,
+    pub game: &'a str,
+    pub roms: &'a [stage_select_api::build::ExpectedRom],
+    pub loose: bool,
+    pub st: &'a Stat,
+    pub sha256: &'a str,
+    pub replaced: &'a [&'a str],
+}
+
+/// Records in the Build record of `w.folder` that a Repair wrote `w.path`, as [`RepairWrote`] says: what a check
+/// compares it with, and what proves it home, are then what it holds now, not what the Build that placed the Game
+/// wrote. It keeps that Build's provenance, from the record of `w.path`, else of one of the files it replaced, else of
+/// any file of its Game there, and the records of the files it replaced go; with none of them recorded, nothing is,
+/// and its SHA-256 alone proves it.
+pub(crate) fn record_rewritten(tx: &Transaction, w: &RepairWrote) -> Result<()> {
+    let mut candidates = vec![w.path];
+    candidates.extend(w.replaced.iter().copied());
+    let mut template: Option<String> = None;
+    for at in candidates {
+        template = tx
+            .query_row(
+                "SELECT target FROM built_files WHERE folder_id = ?1 AND target = ?2 AND game = ?3 AND chd = 0",
+                params![w.folder, at, w.game],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if template.is_some() {
+            break;
+        }
+    }
+    if template.is_none() {
+        template = tx
+            .query_row(
+                "SELECT target FROM built_files WHERE folder_id = ?1 AND game = ?2 AND chd = 0
+                 ORDER BY target LIMIT 1",
+                params![w.folder, w.game],
+                |r| r.get(0),
+            )
+            .optional()?;
+    }
+    let Some(template) = template else {
+        return Ok(());
+    };
+    let roms = serde_json::to_string(w.roms).map_err(|e| Error::Io(e.to_string()))?;
+    let file = file_stat(w.st);
+    tx.execute(
+        "INSERT INTO built_files (folder_id, target, game, kind, build_id, selection_id, audit_id, dat_revision_id,
+                                  roms, sources, size, mtime_ns, sha256, torrentzip, loose, addition_id, chd,
+                                  chd_sha1, chd_raw_sha1, disk)
+         SELECT folder_id, ?3, game, kind, build_id, selection_id, audit_id, dat_revision_id, ?4, sources, ?5, ?6,
+                ?7, 1, ?8, addition_id, 0, NULL, NULL, disk
+         FROM built_files WHERE folder_id = ?1 AND target = ?2
+         ON CONFLICT (folder_id, target) DO UPDATE SET
+             roms = excluded.roms, size = excluded.size, mtime_ns = excluded.mtime_ns, sha256 = excluded.sha256,
+             torrentzip = 1, loose = excluded.loose",
+        params![
+            w.folder,
+            template,
+            w.path,
+            roms,
+            file.size as i64,
+            file.mtime_ns as i64,
+            w.sha256,
+            w.loose
+        ],
+    )?;
+    for gone in w.replaced.iter().filter(|r| **r != w.path) {
+        tx.execute(
+            "DELETE FROM built_files WHERE folder_id = ?1 AND target = ?2 AND game = ?3",
+            params![w.folder, gone, w.game],
+        )?;
+    }
     Ok(())
 }
 
