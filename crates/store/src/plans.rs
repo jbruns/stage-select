@@ -176,6 +176,8 @@ struct Inputs {
     folder: FolderRow,
     set_root: String,
     set_path: String,
+    /// Where the Source Set's latest Audit stamped each Placed file by its identity, as [`crate::checks::Home::same`].
+    same: HashMap<String, String>,
     selection_id: i64,
     selection: Selection,
     rows: Vec<ReleaseRow>,
@@ -416,6 +418,11 @@ fn load(
         built: read_built(c, folder.id)?,
         originals: read_originals(c, folder.id)?,
         placed: crate::placements::placed_files_in(c, folder.id)?,
+        same: crate::placements::stamped_home(
+            c,
+            folder.source_set_id,
+            &crate::placements::placed_files_in(c, folder.id)?,
+        )?,
         holding: crate::placements::holding_folder(c, folder.source_set_id)?,
         placed_rows: c
             .prepare(
@@ -612,7 +619,12 @@ fn check_folder(
         None => Some({
             let home = match inputs.placed.is_empty() {
                 true => None,
-                false => open_folder(roots, &inputs.set_root, &inputs.set_path).ok(),
+                false => open_folder(roots, &inputs.set_root, &inputs.set_path)
+                    .ok()
+                    .map(|dir| crate::checks::Home {
+                        dir,
+                        same: inputs.same.clone(),
+                    }),
             };
             meter.start(
                 PlanStep::Walking,
@@ -2301,12 +2313,11 @@ fn placed_here(
     }
     let found = scan.and_then(|s| s.files.iter().find(|f| f.target == target));
     Some(match found.map(|f| (f.outcome, f.detail.as_deref())) {
-        Some((FileOutcome::Missing, Some(crate::checks::FOUND_HOME))) => Err((
+        Some((FileOutcome::Missing, Some(home))) if crate::checks::is_found_home(home) => Err((
             ItemKind::Blocked,
             format!(
                 "{target} is the only copy of {game}, placed here from source set {set}, and the check didn't find \
-                 it here: {}. Nothing is written in its place until then",
-                crate::checks::FOUND_HOME
+                 it here: {home}. Nothing is written in its place until then"
             ),
         )),
         Some((FileOutcome::Missing, _)) => Err((

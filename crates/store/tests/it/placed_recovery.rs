@@ -874,3 +874,37 @@ fn a_store_whose_placed_files_rom_disagrees_with_its_read_on_any_checksum_opens_
         );
     }
 }
+
+#[test]
+fn a_check_finds_a_missing_placed_file_in_its_source_set_by_identity_under_another_name() {
+    let env = Env::new();
+    let at = env.place_pong(StorageFormat::TorrentZip, pong);
+    // The same file, linked into the source set under another name, which its audit stamps there, then gone from
+    // where it was placed.
+    std::fs::hard_link(&at, env.set().join("pong-moved.zip")).unwrap();
+    env.audit(AuditEvidence::Incremental);
+    std::fs::remove_file(&at).unwrap();
+
+    let check = env.check();
+
+    let file = checked(&check, "Pong (USA).zip");
+    assert_eq!(file.outcome, FileOutcome::Missing, "{file:?}");
+    assert_eq!(
+        file.detail.as_deref(),
+        Some(
+            "the same file is in your source set, as pong-moved.zip; audit it to see whether it still holds this \
+             game"
+        )
+    );
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    let blocked = item(&plan, "Pong (USA)");
+    assert!(
+        blocked
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("the same file is in your source set, as pong-moved.zip"),
+        "{blocked:?}"
+    );
+}

@@ -1778,10 +1778,13 @@ audit that reads it and finds the same. An audit that reads a placed file with n
 was placed, records one too. Anything else is a conflict, left as it is.
 
 If you move a placed game's files back into your source set's folder by hand, a check of the library folder reports
-each one missing and, where a file of the same name is in your source set, says so: "a file of the same name is in
+each one missing and says where it may be. Where your source set's latest audit found the same file there, by its
+device and inode, it says "the same file is in your source set, as <path>; audit it to see whether it still holds
+this game". Otherwise, where a file of the same name is in your source set, it says "a file of the same name is in
 your source set; audit it to see whether it holds this game". A plan says so too. The next audit of your source set
-records the game home if it read, in your source set's folder, every ROM each of its placed files held, and found
-nothing of it where it was placed, before and as it records it. That changes what Stage Select records, not your
+records the game home if it read, in your source set's folder, each of its placed files: a loose file with the
+SHA-256 recorded for it, or a copy of its own of every ROM it held. It must also have found nothing of the game where
+it was placed, before and as it records it. That changes what Stage Select records, not your
 files. The library folder's next build then places it again. A game found in both places stays placed.
 
 A build plan lists each placement and return, says whether it renames, copies or converts, and why a game is copied

@@ -130,7 +130,15 @@ pub(super) struct ScanInput<'a> {
     /// The files of the Placed Games the folder holds: never drift, each checked as a built file is.
     pub placed: &'a [PlacedFile],
     /// Their Source Set's own folder, where one found missing here may be found again; none when it can't be opened.
-    pub home: Option<&'a FolderDir>,
+    pub home: Option<&'a Home>,
+}
+
+/// A Placed Game's Source Set's own folder, where a check looks for its files it finds missing where placed.
+pub(crate) struct Home {
+    pub dir: FolderDir,
+    /// For each Placed file, by its path in its Library Folder, the path in the Source Set's folder where the Source
+    /// Set's latest Audit stamped a file of its recorded device and inode.
+    pub same: HashMap<String, String>,
 }
 
 /// What a check says of a Placed Game's file it found missing where a file of its name is in its Source Set's folder:
@@ -138,21 +146,45 @@ pub(super) struct ScanInput<'a> {
 pub(crate) const FOUND_HOME: &str =
     "a file of the same name is in your source set; audit it to see whether it holds this game";
 
-/// Whether the Placed Game's file `placed`, missing where it was placed, is in its Source Set's folder `home`: a
-/// regular file of its name there, at the path it has in its Library Folder or by its name alone at the top. Only an
-/// Audit, reading it, tells whether it holds the Game.
-fn found_home(home: Option<&FolderDir>, placed: &PlacedFile) -> bool {
-    let Some(home) = home else {
-        return false;
-    };
+/// What a check says of a Placed Game's file it found missing where the same file, by its device and inode, is in its
+/// Source Set's folder as `path`: the file placed, which may have changed since.
+fn found_same(path: &str) -> String {
+    format!(
+        "the same file is in your source set, as {path}; audit it to see whether it still holds this game"
+    )
+}
+
+/// Whether `detail`, a check's of a Placed Game's missing file, says where in its Source Set's folder it may be.
+pub(crate) fn is_found_home(detail: &str) -> bool {
+    detail == FOUND_HOME
+        || (detail.starts_with("the same file is in your source set, as ")
+            && detail.ends_with("; audit it to see whether it still holds this game"))
+}
+
+/// Where the Placed Game's file `placed`, missing where it was placed, is in its Source Set's folder `home`, as the
+/// check's detail says it: the same file, where the latest Audit stamped one of its device and inode and it is there
+/// still; or else a regular file of its name, at the path it has in its Library Folder or by its name alone at the top.
+/// Only an Audit, reading it, tells whether it holds the Game.
+fn found_home(home: Option<&Home>, placed: &PlacedFile) -> Option<String> {
+    let home = home?;
+    if let Some(at) = home.same.get(&placed.path)
+        && home.dir.stat(at).ok().flatten().is_some_and(|st| {
+            FolderDir::kind(&st) == FileType::RegularFile
+                && (Identity::of(&st).dev, Identity::of(&st).ino) == (placed.dev, placed.ino)
+        })
+    {
+        return Some(found_same(at));
+    }
     [placed.path.as_str(), name_of(&placed.path)]
         .iter()
         .any(|at| {
-            home.stat(at)
+            home.dir
+                .stat(at)
                 .ok()
                 .flatten()
                 .is_some_and(|st| FolderDir::kind(&st) == FileType::RegularFile)
         })
+        .then(|| FOUND_HOME.to_owned())
 }
 
 /// The names in a folder other than Stage Select's own entries, sorted, with each disc layout folder's entries in
@@ -484,14 +516,11 @@ pub(super) fn scan(
             None if found.is_none() => {
                 file.outcome = FileOutcome::Missing;
                 // A file both built and placed is its Game's only copy: say where it may be.
-                if input
+                file.detail = input
                     .placed
                     .iter()
                     .find(|p| p.path == *target)
-                    .is_some_and(|p| found_home(input.home, p))
-                {
-                    file.detail = Some(FOUND_HOME.into());
-                }
+                    .and_then(|p| found_home(input.home, p));
             }
             None => {}
             Some(st) if FolderDir::kind(&st) != FileType::RegularFile => {
@@ -645,9 +674,7 @@ pub(super) fn scan(
         match found.map(|name| (name, dir.stat(name))) {
             None => {
                 file.outcome = FileOutcome::Missing;
-                if found_home(input.home, placed) {
-                    file.detail = Some(FOUND_HOME.into());
-                }
+                file.detail = found_home(input.home, placed);
             }
             Some((name, _)) if name != target => {
                 file.outcome = FileOutcome::Conflict;
@@ -1084,6 +1111,8 @@ struct CheckInputs {
     placed: Vec<PlacedFile>,
     /// The Root and path of the folder's Source Set.
     set: (String, String),
+    /// Where the Source Set's latest Audit stamped each Placed file by its identity, as [`Home::same`].
+    same: HashMap<String, String>,
 }
 
 impl Store {
@@ -1197,6 +1226,11 @@ impl Store {
                     let set = set_by_id(&tx, folder.source_set_id)?;
                     (set.record.root, set.record.path)
                 },
+                same: crate::placements::stamped_home(
+                    &tx,
+                    folder.source_set_id,
+                    &crate::placements::placed_files_in(&tx, folder.id)?,
+                )?,
                 folder,
                 selection,
                 selected,
@@ -1209,7 +1243,12 @@ impl Store {
             listing(&dir, &disk_dirs(&inputs.built)).map_err(|e| Error::Io(e.to_string()))?;
         let home = match inputs.placed.is_empty() {
             true => None,
-            false => open_folder(roots, &inputs.set.0, &inputs.set.1).ok(),
+            false => open_folder(roots, &inputs.set.0, &inputs.set.1)
+                .ok()
+                .map(|dir| Home {
+                    dir,
+                    same: inputs.same.clone(),
+                }),
         };
         let dat = match inputs.revision.1 {
             true => Some(Dat::read(&self.blob_path(&inputs.revision.0))?),

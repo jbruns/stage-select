@@ -1233,6 +1233,46 @@ pub(crate) fn moved_entries(
     )
 }
 
+/// For each of `placed`, Source Set `set`'s Placed files, by its path in its Library Folder: the path in the Source
+/// Set's own folder where the Source Set's latest Audit stamped a file of its recorded device and inode, if any. A
+/// store lookup: nothing is walked.
+pub(crate) fn stamped_home(
+    c: &Connection,
+    set: i64,
+    placed: &[PlacedFile],
+) -> Result<std::collections::HashMap<String, String>> {
+    let mut out = std::collections::HashMap::new();
+    if placed.is_empty() {
+        return Ok(out);
+    }
+    let Some(audit) = c
+        .query_row(
+            "SELECT id FROM audits WHERE source_set_id = ?1 AND status = 'finished'
+             ORDER BY finish_seq DESC LIMIT 1",
+            [set],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()?
+    else {
+        return Ok(out);
+    };
+    let mut stmt = c.prepare(
+        "SELECT dev, ino, path FROM audit_stamps
+         WHERE audit_id = ?1 AND unreadable = 0 AND path NOT LIKE '.stage-select/%'
+         ORDER BY path DESC",
+    )?;
+    // By identity, the first path of each, as later rows overwrite earlier.
+    let by_identity: std::collections::HashMap<(i64, i64), String> = stmt
+        .query_map([audit], |r| Ok(((r.get(0)?, r.get(1)?), r.get(2)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    for p in placed {
+        if let Some(at) = by_identity.get(&(p.dev as i64, p.ino as i64)) {
+            out.insert(p.path.clone(), at.clone());
+        }
+    }
+    Ok(out)
+}
+
 /// The SHA-256 of all of Source Set `set`'s file `path` that its Audits verified, read while it was stamped `was`:
 /// known only where that read was of the whole file, a loose file with no Header left out. A ZIP's read is of its
 /// members, which say nothing of the SHA-256 of the archive that holds them.
