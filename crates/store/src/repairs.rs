@@ -1989,8 +1989,8 @@ impl Store {
         };
         let at = dir.path().join(MARKER_NEW);
         // Why the marker temp, `st` as found, could not be opened to write with `e`, where its permissions or its
-        // folder's keep Stage Select out: what is wrong and how to fix it, the temp left pending so that once you fix
-        // it the next repair takes it up again. `None` for anything else.
+        // folder's keep Stage Select out: what is wrong and how to fix it, the temp left pending so that once the
+        // Operator fixes it the next repair takes it up again. `None` for anything else.
         let denied = |e: &io::Error, st: Option<rustix::fs::Stat>| -> Option<String> {
             if e.kind() != io::ErrorKind::PermissionDenied {
                 return None;
@@ -2004,7 +2004,7 @@ impl Store {
                 &st,
                 &at,
                 crate::folder_dir::Needs::File,
-                crate::folder_dir::Repair::Deferred,
+                crate::folder_dir::PermissionFix::Deferred,
             )
             .err()
         };
@@ -2057,7 +2057,7 @@ impl Store {
                     &st,
                     &at,
                     crate::folder_dir::Needs::File,
-                    crate::folder_dir::Repair::Allowed,
+                    crate::folder_dir::PermissionFix::Allowed,
                 ) {
                     return Ok(Err(why));
                 }

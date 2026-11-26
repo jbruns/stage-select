@@ -940,7 +940,7 @@ pub struct Approval {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Plan {
     pub id: i64,
-    /// The SHA-256 of the canonical JSON of `content`, which an approval binds to.
+    /// The SHA-256 of the canonical JSON of `content`, without its `repaired`, which an approval binds to.
     pub digest: String,
     pub created_at: String,
     pub content: PlanContent,

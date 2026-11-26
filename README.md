@@ -1518,8 +1518,8 @@ Select keeps in a folder it manages is inside `.stage-select/`: the marker, the 
 the kept files under `retained/`. It is made private to the service's user. Whoever owns it, Stage Select uses it,
 and each folder in it, while the service can read and write it and its permissions give others, beyond its owner and
 group, no access: a `.stage-select` at `2770` or `2700`, or one another user owns that the service's group can read and
-write, is fine. Whether the service can read and write it is what the system answers when asked, so an access control
-list or a mount that keeps the service out counts. Whether others have access is read from the permissions alone: an
+write, is fine. Stage Select asks the system whether the service can read and write it, so an access control list or a
+mount that keeps the service out counts. Whether others have access is read from the permissions alone: an
 access control list entry that gives another user access is not looked for, so if you add one, keeping that user out
 is up to you.
 Where Stage Select owns one of these folders and others have access to it, it removes that access itself once the

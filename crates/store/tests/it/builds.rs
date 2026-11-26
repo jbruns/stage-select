@@ -2634,7 +2634,7 @@ pub(crate) fn owned_by_another(path: &Path, outside: bool) {
     stage_select_store::pretend_owner(path, Some((st.uid() + 1, gid))).unwrap();
 }
 
-/// Runs the command a refusal of `path` ends with, as you would on the host. A `chown` to the test's own user, which
+/// Runs the command a refusal of `path` ends with, as the Operator would on the Host. A `chown` to the test's own user, which
 /// owns it already, changes nothing, so the user the test pretended owns it is forgotten, as a real `chown` makes it.
 pub(crate) fn run_fix(message: &str, path: &Path) {
     let (_, command) = message
@@ -2887,7 +2887,7 @@ fn a_stage_select_folder_stage_select_cannot_fix_is_refused_with_the_command_tha
         assert!(!message.contains("Move it"), "{message}");
         assert_eq!(mode_of(&state), mode, "{wrong}: left as it is");
 
-        // You run the command the message names, and the next plan runs with nothing left to clear.
+        // The Operator runs the command the message names, and the next plan runs with nothing left to clear.
         run_fix(message, &state);
         let plan = env.plan(&folder, plan.content.selection);
         assert!(plan.approvable(), "{wrong}: {:?}", plan.content.blockers);
@@ -2896,7 +2896,7 @@ fn a_stage_select_folder_stage_select_cannot_fix_is_refused_with_the_command_tha
 }
 
 /// Checks that a plan of `folder` is blocked by `.stage-select`, whose mode lets Stage Select use it though the kernel
-/// keeps it out, with no command that can't fix it, and left as it is.
+/// keeps it out, with no command, as none fixes it, and left as it is.
 fn refused_though_its_mode_allows(env: &Env, plan: &Plan, state: &Path, mode: u32) {
     assert_eq!(blockers(plan), BTreeSet::from([BlockerKind::Marker]));
     let message = &plan.content.blockers[0].message;

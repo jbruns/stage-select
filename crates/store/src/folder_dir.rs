@@ -284,13 +284,17 @@ impl Opened<'_> {
         match self {
             Opened::Folder(fd) => {
                 use rustix::fs::Access;
-                rustix::fs::accessat(
-                    fd,
-                    ".",
-                    Access::READ_OK | Access::WRITE_OK | Access::EXEC_OK,
-                    AtFlags::EACCESS,
+                // Only a refusal counts as one: where the call itself is refused, as a sandbox may refuse
+                // `faccessat2`, the mode decides alone.
+                !matches!(
+                    rustix::fs::accessat(
+                        fd,
+                        ".",
+                        Access::READ_OK | Access::WRITE_OK | Access::EXEC_OK,
+                        AtFlags::EACCESS,
+                    ),
+                    Err(rustix::io::Errno::ACCESS | rustix::io::Errno::ROFS)
                 )
-                .is_ok()
             }
             // Opened for reading and writing, so it is allowed.
             Opened::File(_) => true,
@@ -302,7 +306,7 @@ impl Opened<'_> {
 /// Whether [`closed_to_others`] may remove others' access to an entry Stage Select owns: only once the entry is known
 /// to be this store's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Repair {
+pub(super) enum PermissionFix {
     Allowed,
     Deferred,
 }
@@ -313,7 +317,7 @@ pub(super) enum Standing {
     /// No one beyond its owner and group has access to it.
     Closed,
     /// Others have access to it, and Stage Select, which owns it, would remove that access once the entry is known to
-    /// be this store's ([`Repair::Deferred`]). Until then nothing is written in it: this is what a write is refused
+    /// be this store's ([`PermissionFix::Deferred`]). Until then nothing is written in it: this is what a write is refused
     /// with.
     Exposed(String),
 }
@@ -338,8 +342,8 @@ pub(super) fn repair_note(path: &Path, was: u32, asked: u32, now: u32) -> String
 /// Whether Stage Select may keep its own things in the entry at `path`, described by `st` and open as `opened`
 /// says: whether it can use it as `needs` says and others, beyond its owner and group, have no access to it (ADR
 /// 0031). Group bits and setgid are allowed, whoever owns it. Where Stage Select owns it, can use it and others have
-/// access, that access is removed through the open descriptor under [`Repair::Allowed`], its other bits kept, and
-/// [`take_repaired`] says so with the permissions read back; under [`Repair::Deferred`] it is left and
+/// access, that access is removed through the open descriptor under [`PermissionFix::Allowed`], its other bits kept, and
+/// [`take_repaired`] says so with the permissions read back; under [`PermissionFix::Deferred`] it is left and
 /// [`Standing::Exposed`] returned. Otherwise returns what is wrong, what is expected and the command to run.
 ///
 /// Whether Stage Select can use it is the kernel's answer, through the descriptor, as well as the mode's for the
@@ -353,7 +357,7 @@ pub(super) fn closed_to_others(
     st: &Stat,
     path: &Path,
     needs: Needs,
-    repair: Repair,
+    fix: PermissionFix,
 ) -> std::result::Result<Standing, String> {
     let mode = st.st_mode as u32 & 0o7777;
     let (owner, gid) = owner_of(st);
@@ -391,7 +395,7 @@ pub(super) fn closed_to_others(
             Opened::Folder(fd) | Opened::File(fd) => fd,
             Opened::Not => return Err(refusal()),
         };
-        if repair == Repair::Deferred {
+        if fix == PermissionFix::Deferred {
             return Ok(Standing::Exposed(refusal()));
         }
         let closed = mode & !0o007;
@@ -534,9 +538,10 @@ impl FolderDir {
     }
 
     /// The directory `name` in this one, a `/`-separated path, no component of it followed if it is a symlink.
-    /// The folder's [`STATE`] directory, and so any path through it, opens only while it is closed to others
-    /// ([`FolderDir::closed`]): anyone else with access could otherwise replace the marker in it, or move a folder
-    /// Stage Select writes into out of the folder.
+    /// The folder's [`STATE`] directory, and so any path through it, opens only while Stage Select can use it
+    /// ([`closed_to_others`]). One open to others is opened for reading only, and nothing is written in it until
+    /// [`FolderDir::close_state`] closes it: anyone else with access could otherwise replace the marker in it, or move
+    /// a folder Stage Select writes into out of the folder.
     pub fn sub(&self, name: &str) -> io::Result<FolderDir> {
         let (parent, leaf) = self.resolve(name)?;
         let state = parent.is_none() && leaf == STATE;
@@ -556,7 +561,7 @@ impl FolderDir {
                                 &st,
                                 &self.at(name),
                                 Needs::Folder,
-                                Repair::Deferred,
+                                PermissionFix::Deferred,
                             ) {
                                 Err(why) => io::Error::new(io::ErrorKind::PermissionDenied, why),
                                 Ok(_) => self.error(name, e),
@@ -577,7 +582,7 @@ impl FolderDir {
         if state {
             // Others' access is not removed here: this may be another store's folder, as a backup of one is, until its
             // marker shows it is this store's.
-            match found.standing(Repair::Deferred)? {
+            match found.standing(PermissionFix::Deferred)? {
                 Ok(Standing::Closed) => {}
                 Ok(Standing::Exposed(why)) => found.exposed = Some(why),
                 Err(why) => return Err(self.unusable_state(why)),
@@ -628,7 +633,7 @@ impl FolderDir {
             &st,
             &self.at(STATE),
             Needs::Folder,
-            Repair::Allowed,
+            PermissionFix::Allowed,
         )
         .map(|_| ())
     }
@@ -689,7 +694,7 @@ impl FolderDir {
     /// it is not defended against. What this rejects is a directory anyone else could change, or one Stage Select
     /// can't use; [`Unusable::Access`] says how to fix it on the Host.
     pub fn closed(&self, empty: bool) -> io::Result<std::result::Result<Identity, Unusable>> {
-        match self.standing(Repair::Allowed)? {
+        match self.standing(PermissionFix::Allowed)? {
             Ok(_) => {}
             Err(why) => return Ok(Err(why)),
         }
@@ -700,8 +705,8 @@ impl FolderDir {
     }
 
     /// Whether this is a directory Stage Select may keep its own things in, as [`closed_to_others`] finds under
-    /// `repair`.
-    fn standing(&self, repair: Repair) -> io::Result<std::result::Result<Standing, Unusable>> {
+    /// `fix`.
+    fn standing(&self, fix: PermissionFix) -> io::Result<std::result::Result<Standing, Unusable>> {
         let st = rustix::fs::fstat(&self.fd).map_err(|e| with_path(&self.path, e.into()))?;
         if FolderDir::kind(&st) != FileType::Directory {
             return Ok(Err(Unusable::Kind("it is not a directory".into())));
@@ -711,7 +716,7 @@ impl FolderDir {
             &st,
             &self.path,
             Needs::Folder,
-            repair,
+            fix,
         )
         .map_err(Unusable::Access))
     }

@@ -235,7 +235,7 @@ pub(super) fn create_dir(
     let made = match parent.sub(&temp) {
         Ok(made) => made,
         // The folder just made, which Stage Select can't even open as it came out: recorded as this store's leftover,
-        // by the identity found at its unique name, so that once you fix it nothing is left to clear.
+        // by the identity found at its unique name, so that once the Operator fixes it nothing is left to clear.
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
             if let Ok(Some(st)) = parent.stat(&temp)
                 && is_dir(&st)

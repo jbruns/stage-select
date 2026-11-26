@@ -2758,7 +2758,7 @@ fn a_first_marker_stage_select_cannot_open_after_a_stop_is_refused_with_the_fix_
         "{message}"
     );
     assert!(!message.contains("move it"), "{message}");
-    // You run the command, and the next repair takes up the marker it left.
+    // The Operator runs the command, and the next repair takes up the marker it left.
     crate::builds::run_fix(&message, &temp);
     env.approve(&env.plan());
     assert!(env.set().join(".stage-select/marker").exists());

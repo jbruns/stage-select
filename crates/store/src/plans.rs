@@ -138,8 +138,8 @@ pub(super) fn to_json<T: serde::Serialize>(value: &T) -> String {
     serde_json::to_string(value).expect("store values always serialize")
 }
 
-/// The SHA-256 of the plan's canonical JSON: compact, with fields in declaration order and items in plan order.
-/// What an approval binds a plan by: the SHA-256 of its compact JSON, leaving out what Stage Select repaired of the
+/// What an approval binds a plan by: the SHA-256 of its canonical JSON, compact, with fields in declaration order
+/// and items in plan order, leaving out what Stage Select repaired of the
 /// folder's own entries, which is reported with the plan and added to as it is computed again, never approved.
 pub(super) fn digest(content: &PlanContent) -> String {
     let bytes = if content.repaired.is_empty() {
