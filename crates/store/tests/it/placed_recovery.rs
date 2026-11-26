@@ -420,17 +420,148 @@ fn a_store_whose_placed_file_its_audit_found_changed_opens_with_no_sha256_for_it
 }
 
 #[test]
-fn a_placed_zip_with_no_sha256_holding_its_roms_in_another_deflate_stream_is_a_conflict() {
+fn a_placed_zip_with_no_sha256_holding_its_roms_in_another_deflate_stream_is_refreshed() {
     let env = Env::new();
     let at = env.place_pong(StorageFormat::TorrentZip, pong);
-    // TorrentZip's structure and the same ROMs, but not TorrentZip's bytes for them.
+    // TorrentZip's structure and the same ROMs, deflated otherwise: the ROMs it was placed with, which prove it.
     write_torrentzip_deflated_at(&at, &[("Pong (USA).a26", b"pong")], 0);
+    let bytes = std::fs::read(&at).unwrap();
+
+    let check = env.check();
+
+    // Its bytes changed, and it holds the ROMs it was built with.
+    let file = checked(&check, "Pong (USA).zip");
+    assert_eq!(file.outcome, FileOutcome::Repacked, "{file:?}");
+    let placed = &env.store.placed_files(SET).unwrap()[0];
+    assert_eq!(placed.sha256.as_deref(), Some(sha256_hex(&bytes).as_str()));
+}
+
+/// Pong's ZIP as another TorrentZip tool may write it: TorrentZip's structure, with another deflate stream.
+fn pong_deflated_otherwise(env: &Env) {
+    write_torrentzip_deflated_at(
+        &env.set().join("Pong (USA).zip"),
+        &[("Pong (USA).a26", b"pong")],
+        0,
+    );
+}
+
+#[test]
+fn a_zip_another_tool_wrote_placed_by_a_rename_recovers_from_a_mode_change_on_its_first_check_or_audit()
+ {
+    for audit in [false, true] {
+        let env = Env::new();
+        let at = env.place_pong(StorageFormat::TorrentZip, pong_deflated_otherwise);
+        let bytes = std::fs::read(&at).unwrap();
+        assert_eq!(env.store.placed_files(SET).unwrap()[0].sha256, None);
+        chmod(&at);
+
+        if audit {
+            env.audit(AuditEvidence::Incremental);
+        } else {
+            let check = env.check();
+            let file = checked(&check, "Pong (USA).zip");
+            assert_eq!(file.outcome, FileOutcome::Refreshed, "{file:?}");
+        }
+
+        let placed = &env.store.placed_files(SET).unwrap()[0];
+        assert_eq!(
+            placed.sha256.as_deref(),
+            Some(sha256_hex(&bytes).as_str()),
+            "audit: {audit}"
+        );
+        assert_eq!(placed.ctime_ns, ctime_ns(&at), "audit: {audit}");
+        let check = env.check();
+        let file = checked(&check, "Pong (USA).zip");
+        assert_eq!(
+            (file.outcome, file.hashed),
+            (FileOutcome::Unchanged, false),
+            "audit: {audit}"
+        );
+    }
+}
+
+/// An iNES header: what the Header Rule `No-Intro_NES.xml` finds and the DAT's checksums leave out.
+fn ines() -> Vec<u8> {
+    let mut h = b"NES\x1a".to_vec();
+    h.resize(16, 0x01);
+    h
+}
+
+fn headered_env() -> Env {
+    Env::with_header(
+        "No-Intro_NES.xml",
+        &games_with(vec![rom("Pong (USA).a26", b"pong")]),
+    )
+}
+
+#[test]
+fn a_headered_zip_placed_by_a_rename_whose_mode_changed_is_proven_by_its_payload() {
+    let env = headered_env();
+    let at = env.place_pong(StorageFormat::TorrentZip, |env| {
+        write_torrentzip(
+            &env.set().join("Pong (USA).zip"),
+            &[("Pong (USA).a26", &[ines(), b"pong".to_vec()].concat())],
+        )
+    });
+    let bytes = std::fs::read(&at).unwrap();
+    chmod(&at);
 
     let check = env.check();
 
     let file = checked(&check, "Pong (USA).zip");
-    assert_eq!(file.outcome, FileOutcome::Conflict, "{file:?}");
-    assert_eq!(env.store.placed_files(SET).unwrap()[0].sha256, None);
+    assert_eq!(file.outcome, FileOutcome::Refreshed, "{file:?}");
+    let placed = &env.store.placed_files(SET).unwrap()[0];
+    assert_eq!(placed.sha256.as_deref(), Some(sha256_hex(&bytes).as_str()));
+}
+
+/// The Operator's choice for a Placed ZIP with no SHA-256: a member's Header is accepted as an Audit accepts it in a
+/// Source Set, unread by the proof, so a Header edited by hand, such as its mapper bits, isn't detected.
+#[test]
+fn a_placed_zip_with_no_sha256_whose_header_was_edited_is_still_proven_by_its_payload() {
+    let env = headered_env();
+    let at = env.place_pong(StorageFormat::TorrentZip, |env| {
+        write_torrentzip(
+            &env.set().join("Pong (USA).zip"),
+            &[("Pong (USA).a26", &[ines(), b"pong".to_vec()].concat())],
+        )
+    });
+    let mut edited = ines();
+    edited[6] ^= 0xf0;
+    write_torrentzip(
+        &at,
+        &[("Pong (USA).a26", &[edited, b"pong".to_vec()].concat())],
+    );
+
+    let check = env.check();
+
+    let file = checked(&check, "Pong (USA).zip");
+    assert_eq!(file.outcome, FileOutcome::Repacked, "{file:?}");
+    assert!(env.store.placed_files(SET).unwrap()[0].sha256.is_some());
+}
+
+/// A headered loose file isn't the ROM whole, so a Build converts it rather than renaming it, and records its
+/// SHA-256: a changed stamp is proven by that, never by its payload.
+#[test]
+fn a_headered_loose_game_is_converted_as_it_is_placed_and_keeps_its_sha256() {
+    let env = headered_env();
+    let headered = [ines(), b"pong".to_vec()].concat();
+    std::fs::write(env.set().join("Pong (USA).a26"), &headered).unwrap();
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::Loose);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    let pong = item(&plan, "Pong (USA)");
+    assert_eq!(
+        pong.place.as_ref().unwrap().how,
+        stage_select_api::build::PlaceHow::Convert
+    );
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    let placed = &env.store.placed_files(SET).unwrap()[0];
+    assert_eq!(
+        placed.sha256.as_deref(),
+        Some(sha256_hex(&headered).as_str())
+    );
 }
 
 #[test]

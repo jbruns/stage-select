@@ -49,16 +49,25 @@ impl Env {
 
     /// As [`Env::new`], with a DAT of `games`.
     pub(crate) fn with(games: &[(&'static str, Vec<RomSpec>)]) -> Env {
-        Env::setting(games, None)
+        Env::setting(games, None, None)
+    }
+
+    /// As [`Env::with`], with a DAT whose header names the Header Rule `rule`.
+    pub(crate) fn with_header(rule: &str, games: &[(&'static str, Vec<RomSpec>)]) -> Env {
+        Env::setting(games, None, Some(rule))
     }
 
     /// As [`Env::new`], with `sets` listing no writable paths until Alpha is registered with Stage Select let change
     /// it as `may_change` says.
     pub(crate) fn registering(may_change: bool) -> Env {
-        Env::setting(&games(), Some(may_change))
+        Env::setting(&games(), Some(may_change), None)
     }
 
-    fn setting(games: &[(&'static str, Vec<RomSpec>)], may_change: Option<bool>) -> Env {
+    fn setting(
+        games: &[(&'static str, Vec<RomSpec>)],
+        may_change: Option<bool>,
+        header_rule: Option<&str>,
+    ) -> Env {
         let tmp = tempfile::tempdir().unwrap();
         for dir in ["roots/sets/Alpha", "roots/play", "dats"] {
             std::fs::create_dir_all(tmp.path().join(dir)).unwrap();
@@ -71,11 +80,15 @@ impl Env {
                 RootSpec::new("play", tmp.path().join("roots/play")).library(),
             ],
         );
-        let dat = write_dat_from(
+        let dat = write_dat_as(
             &tmp.path().join("dats"),
-            "alpha.dat",
-            "1",
-            "No-Intro",
+            &Dat {
+                file: "alpha.dat",
+                version: "1",
+                provider: "No-Intro",
+                header_rule,
+                ..Dat::default()
+            },
             games,
         );
         let sha256 = store.import_dat(&dat, None).unwrap().0.sha256;

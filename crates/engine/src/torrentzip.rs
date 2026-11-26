@@ -5,15 +5,12 @@
 //! (raw, `-15` window bits, memory level 8), and stamped with one fixed DOS time. No member has an extra field other
 //! than ZIP64's, a comment, or attributes. The archive comment is `TORRENTZIPPED-` and the uppercase hex CRC-32 of the
 //! central directory headers. The validator checks that structure; it does not recompress members to compare bytes.
-//! [`canonical`] does: an archive it accepts is byte for byte the TorrentZip its members' names and payloads make.
 
 use std::cmp::Ordering;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
 use flate2::Compression;
-use flate2::read::DeflateDecoder;
 use flate2::write::DeflateEncoder;
-use sha2::{Digest, Sha256};
 
 /// The archive comment's prefix; the CRC-32 of the central directory follows as 8 uppercase hex digits.
 pub const COMMENT_PREFIX: &[u8] = b"TORRENTZIPPED-";
@@ -214,7 +211,7 @@ impl<W: Write + Seek> Writer<W> {
     }
 
     /// As [`Writer::new`], deflating at zlib's `level` rather than TorrentZip's 9: an archive with TorrentZip's
-    /// structure, which [`validate`] accepts, but not its bytes, which [`canonical`] refuses. For tests.
+    /// structure, which [`validate`] accepts, but not its bytes, as another TorrentZip tool may write it. For tests.
     #[doc(hidden)]
     pub fn deflating_at(out: W, level: u32) -> Result<Writer<W>, Error> {
         let mut writer = Writer::with_limits(out, LIMITS)?;
@@ -751,93 +748,6 @@ fn central_with(file: &mut (impl Read + Seek), limits: Limits) -> Result<Vec<Mem
 /// directory. Members are not decompressed.
 pub fn validate(file: &mut (impl Read + Seek)) -> Result<Vec<Member>, Error> {
     validate_with(file, LIMITS)
-}
-
-/// Checks that the archive in `file` is exactly the TorrentZip its members make: its structure, as [`validate`]
-/// checks it, and each member's deflate stream, which TorrentZip fixes as zlib's at level 9 and [`validate`] doesn't
-/// read. Each member is read twice, its stream hashed and then inflated and deflated again, so that what is held in
-/// memory doesn't grow with it.
-pub fn canonical(file: &mut (impl Read + Seek)) -> Result<Vec<Member>, Error> {
-    let members = validate(file)?;
-    for m in &members {
-        let (stored, utf8) = encode_name(&m.name);
-        let flags = FLAG_MAX_COMPRESSION | if utf8 { FLAG_UTF8 } else { 0 };
-        let zip64 = m.size >= LIMITS.wide;
-        let local = local_header(
-            &stored,
-            flags,
-            m.crc,
-            m.size,
-            m.compressed,
-            m.offset,
-            zip64,
-            LIMITS,
-        );
-        let start = m.offset + local.len() as u64;
-        file.seek(SeekFrom::Start(start))?;
-        let mut stream = Hashing::default();
-        let read = io::copy(&mut (&mut *file).take(m.compressed), &mut stream)?;
-        if read != m.compressed {
-            return Err(invalid(format!("{}: the archive is cut short", m.name)));
-        }
-        file.seek(SeekFrom::Start(start))?;
-        let mut inflated = Inflated {
-            inner: DeflateDecoder::new((&mut *file).take(m.compressed)),
-            crc: crc32fast::Hasher::new(),
-            size: 0,
-        };
-        let mut again = DeflateEncoder::new(Hashing::default(), Compression::best());
-        io::copy(&mut inflated, &mut again)?;
-        let again = again.finish()?;
-        if (inflated.size, inflated.crc.finalize()) != (m.size, m.crc) {
-            return Err(invalid(format!(
-                "{}: its payload isn't the size and CRC-32 its headers give",
-                m.name
-            )));
-        }
-        if (again.len, again.sha256.finalize()) != (stream.len, stream.sha256.finalize()) {
-            return Err(invalid(format!(
-                "{}: it isn't deflated as TorrentZip deflates it, with zlib at level 9",
-                m.name
-            )));
-        }
-    }
-    Ok(members)
-}
-
-/// What is written to it: its length and SHA-256.
-#[derive(Default)]
-struct Hashing {
-    len: u64,
-    sha256: Sha256,
-}
-
-impl Write for Hashing {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.sha256.update(buf);
-        self.len += buf.len() as u64;
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-/// A member's payload, inflated as it is read, with its size and CRC-32 so far.
-struct Inflated<R: Read> {
-    inner: DeflateDecoder<R>,
-    crc: crc32fast::Hasher,
-    size: u64,
-}
-
-impl<R: Read> Read for Inflated<R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let n = self.inner.read(buf)?;
-        self.crc.update(&buf[..n]);
-        self.size += n as u64;
-        Ok(n)
-    }
 }
 
 fn validate_with(file: &mut (impl Read + Seek), limits: Limits) -> Result<Vec<Member>, Error> {

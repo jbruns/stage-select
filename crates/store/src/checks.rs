@@ -595,9 +595,7 @@ pub(super) fn scan(
             };
             let (probe, hashed) = probe_of(target, &st, was.header(), &mut out);
             file.hashed |= hashed;
-            let canonical =
-                || canonical_while(dir, target, &crate::placements::stamp_of(&st), input.tally);
-            match probe.map(|p| (proven(placed, &p, Some(was), canonical), p)) {
+            match probe.map(|p| (proven(placed, &p, Some(was)), p)) {
                 Err(e) => {
                     file.outcome = FileOutcome::Unreadable;
                     file.detail = Some(e);
@@ -671,7 +669,7 @@ pub(super) fn scan(
                 // Nothing records the ROMs it was placed as: only its SHA-256 can prove it.
                 let (probe, hashed) = probe_of(target, &st, None, &mut out);
                 file.hashed = hashed;
-                match probe.map(|p| (proven(placed, &p, None, || false), p)) {
+                match probe.map(|p| (proven(placed, &p, None), p)) {
                     Err(e) => {
                         file.outcome = FileOutcome::Unreadable;
                         file.detail = Some(e);
@@ -823,17 +821,16 @@ impl PlacedAs<'_> {
 
 /// Whether the Placed Game's file `placed`, its stamp moved since it was recorded, still holds what it was placed as,
 /// read again as `probe` under its ROMs' Header Rule: its SHA-256 as recorded, or, with none recorded, as for a file
-/// placed by a rename before it kept its Audit's, exactly the bytes the ROMs it was placed as, `placed_as`, make. Only
-/// a canonical form says that, and only where each of those ROMs is listed with a SHA-1 or SHA-256: a TorrentZip
-/// holding exactly them, its bytes TorrentZip's for them, as `canonical` reads it to say; or a loose file that is the
-/// one of them, whole, with no Header left out. A ZIP member's Header under a Header Rule is left out of the proof, as
-/// an Audit leaves it out of its Finding; a loose file with one isn't one ROM whole, so the ROMs alone don't prove it.
-/// Otherwise why not.
+/// placed by a rename before it kept its Audit's, its payloads exactly the ROMs it was placed as, `placed_as`, each
+/// listed with a SHA-1 or SHA-256 that its payload has: a structurally valid TorrentZip holding exactly them, whatever
+/// its deflate streams, as another TorrentZip tool may have written it; or a loose file that is the one of them,
+/// whole, with no Header left out. A ZIP member's Header under a Header Rule is left out of the proof, as an Audit
+/// leaves it out of its Finding: the Operator's choice, so a Header edited by hand isn't detected. A loose file with
+/// one isn't one ROM whole, and is placed converted, with its SHA-256. Otherwise why not.
 pub(crate) fn proven(
     placed: &PlacedFile,
     probe: &Probe,
     placed_as: Option<PlacedAs>,
-    canonical: impl FnOnce() -> bool,
 ) -> std::result::Result<(), String> {
     let changed =
         "it changed since it was placed; an audit of its source set says what it holds now";
@@ -859,10 +856,7 @@ pub(crate) fn proven(
     }
     let exact = match was.loose {
         false => {
-            probe.zip
-                && probe.torrentzip
-                && stage_select_engine::build::holds(probe, was.roms)
-                && canonical()
+            probe.zip && probe.torrentzip && stage_select_engine::build::holds(probe, was.roms)
         }
         // A loose file is one ROM of its Game, named for it.
         true => {
@@ -889,23 +883,6 @@ pub(crate) fn proven(
 /// MD5 doesn't.
 pub(crate) fn identified(rom: &ExpectedRom) -> bool {
     rom.sha1.is_some() || rom.sha256.is_some()
-}
-
-/// Whether the regular file `rel` in `dir`, read while it is stamped `stamp`, before and after, is exactly the
-/// TorrentZip its members make. What it reads is counted to `tally`.
-pub(crate) fn canonical_while(
-    dir: &FolderDir,
-    rel: &str,
-    stamp: &stage_select_engine::FileStamp,
-    tally: &Tally,
-) -> bool {
-    let Ok(file) = dir.open_file(rel) else {
-        return false;
-    };
-    let held = |file: &File| {
-        rustix::fs::fstat(file).is_ok_and(|now| crate::placements::stamp_of(&now) == *stamp)
-    };
-    held(&file) && stage_select_engine::build::canonical(&file, tally) && held(&file)
 }
 
 impl Scan {

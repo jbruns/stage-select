@@ -882,9 +882,7 @@ impl Store {
             };
             let proof = match unchanged {
                 true => Ok(()),
-                false => crate::checks::proven(&was, &probe, placed_as, || {
-                    crate::checks::canonical_while(dir, &was.path, &stamp, &tally)
-                }),
+                false => crate::checks::proven(&was, &probe, placed_as),
             };
             if proof.is_ok() {
                 verified.push(Verified {

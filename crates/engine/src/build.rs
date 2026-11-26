@@ -858,13 +858,6 @@ pub fn probe(file: &File, tally: &Tally) -> io::Result<Probe> {
     probe_under(file, None, tally)
 }
 
-/// Whether `file` is exactly the TorrentZip its members make, as [`torrentzip::canonical`] says, read through `tally`.
-pub fn canonical(file: &File, tally: &Tally) -> bool {
-    let mut reader = BufReader::new(Counting::new(file, tally));
-    tally.file_read();
-    torrentzip::canonical(&mut reader).is_ok()
-}
-
 /// As [`probe`], but each payload's checksums leave out the Header `rule` finds at its start, as an Audit under a DAT
 /// naming that rule does. The file's own SHA-256 and size are still of all of it.
 pub fn probe_under(file: &File, rule: Option<HeaderRule>, tally: &Tally) -> io::Result<Probe> {

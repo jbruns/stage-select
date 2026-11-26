@@ -2,7 +2,7 @@
 
 use std::io::Cursor;
 
-use stage_select_engine::torrentzip::{Writer, canonical, compare_names, validate};
+use stage_select_engine::torrentzip::{Writer, compare_names, validate};
 
 /// `tests/data/golden-game.zip` was made once by igir 5.8.0 (`igir copy zip`), which writes TorrentZip with zlib
 /// 1.1.3, from a one-Game DAT listing these synthetic payloads.
@@ -46,26 +46,4 @@ fn the_writer_reproduces_an_independent_torrentzip_byte_for_byte() {
             ("★ star.bin", true)
         ]
     );
-}
-
-#[test]
-fn an_independent_torrentzip_is_canonical() {
-    let golden = include_bytes!("../data/golden-game.zip");
-
-    assert!(canonical(&mut Cursor::new(golden)).is_ok());
-}
-
-#[test]
-fn a_zip_with_torrentzips_structure_but_another_deflate_stream_isnt_canonical() {
-    let members = golden_members();
-    let members: Vec<(&str, &[u8])> = members.iter().map(|(n, p)| (*n, p.as_slice())).collect();
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("stored.zip");
-    crate::common::write_torrentzip_deflated_at(&path, &members, 0);
-    let stored = std::fs::read(&path).unwrap();
-    assert!(validate(&mut Cursor::new(&stored)).is_ok());
-
-    let refused = canonical(&mut Cursor::new(&stored)).unwrap_err();
-
-    assert!(refused.to_string().contains("A.bin"), "{refused}");
 }
