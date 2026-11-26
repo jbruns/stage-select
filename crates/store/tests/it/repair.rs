@@ -6144,3 +6144,62 @@ fn a_first_marker_open_to_others_is_closed_before_it_is_published() {
         assert!(!temp.exists(), "{case}");
     }
 }
+
+#[test]
+fn a_file_whose_mode_alone_changed_since_the_audit_is_read_again_and_repaired() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    write_zip(
+        &env.set().join("Combat (USA).zip"),
+        &[("Combat (USA).a26", b"combat")],
+    );
+    env.audit(AuditEvidence::Full);
+    crate::placed_recovery::chmod(&env.set().join("Pong (Anthology).a26"));
+    crate::placed_recovery::chmod(&env.set().join("Combat (USA).zip"));
+
+    let plan = env.plan();
+
+    assert!(plan.content.notes.is_empty(), "{:#?}", plan.content.notes);
+    assert_eq!(item(&plan, "game:Pong (USA)").kind, RepairKind::Rename);
+    assert_eq!(item(&plan, "game:Combat (USA)").kind, RepairKind::Repack);
+    let walk = env.store.enqueue_stat_walk("Alpha", "Operator").unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, walk.id);
+    env.store.run_stat_walk_job(walk.id).unwrap();
+    let alpha = env.store.source_set("Alpha").unwrap();
+    assert_eq!(
+        (alpha.stale, alpha.unconfirmed),
+        (vec![], 0),
+        "the re-read recorded their new stamps"
+    );
+    let done = env.approve(&plan);
+    env.run_queued_audit(&done);
+    let pong = env.latest_report();
+    let pong = pong.games.iter().find(|g| g.name == "Pong (USA)").unwrap();
+    assert_eq!(pong.status, GameStatus::Complete);
+}
+
+#[test]
+fn a_file_rewritten_unnoticed_since_the_audit_is_found_changed_by_its_re_read() {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    rewrite_unnoticed(&env.set().join("Pong (Anthology).a26"), b"gnop");
+
+    let plan = env.plan();
+
+    assert!(
+        plan.content.notes.iter().any(|n| n
+            == "Pong (Anthology).a26 changed since the audit read it, so it is left as it is; audit again to \
+                repair it"),
+        "{:#?}",
+        plan.content.notes
+    );
+    assert!(
+        plan.content
+            .items
+            .iter()
+            .all(|i| i.key != "game:Pong (USA)" || i.kind != RepairKind::Rename),
+        "{:#?}",
+        plan.content.items
+    );
+}

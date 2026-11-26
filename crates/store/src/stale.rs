@@ -1,5 +1,7 @@
 //! Stale Source Sets: the stat walk, a low-priority read-only Job that compares each file's stamp with the latest
-//! Audit's by the rule an Incremental Audit uses to reuse a read, and records what looks changed.
+//! Audit's by the rule an Incremental Audit uses to reuse a read, and records what looks changed. A file whose stamp
+//! moved only in its change time, as a change of permissions or owner moves it, is unconfirmed rather than changed
+//! (ADR 0031): the next Incremental Audit reads it again, as it reads any file whose stamp moved.
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -11,7 +13,8 @@ use super::jobs::{check_no_active, finish_running, job_by_id};
 use super::sets::{resolve, set_by_name};
 use super::{Error, Result, Store, now};
 use stage_select_api::{FollowedRevision, Job, JobKind, JobState, StatWalk};
-use stage_select_engine::{FileStamp, StatEntry};
+use stage_select_engine::payload::Checksums;
+use stage_select_engine::{FileStamp, HeaderRule, StatEntry};
 
 /// Why a restart Interrupted a stat walk, which is never queued again: the next one finds the same.
 pub(crate) const WALK_INTERRUPTED: &str = "the service stopped while the check for changes was running; nothing in \
@@ -38,6 +41,16 @@ struct Counts {
     changed: u64,
     added: u64,
     removed: u64,
+    unconfirmed: u64,
+}
+
+/// How a file the Audit saw compares with it now.
+#[derive(Debug, PartialEq, Eq)]
+enum Compared {
+    Same,
+    /// Its device, inode, size and modification time hold; only its change time moved.
+    Unconfirmed,
+    Changed,
 }
 
 impl Counts {
@@ -53,19 +66,29 @@ impl Counts {
             match baseline.stamps.get(rel) {
                 None => counts.added += 1,
                 Some(before) => {
-                    let changed = match (before, stamp) {
-                        (Some(before), Some(Some(now))) => before != now,
-                        (None, Some(Some(now))) => {
-                            now.mtime_ns > baseline.started_ns || now.ctime_ns > baseline.started_ns
+                    let compared = match (before, stamp) {
+                        (Some(before), Some(Some(now))) if before == now => Compared::Same,
+                        (Some(before), Some(Some(now))) if only_ctime_moved(before, now) => {
+                            Compared::Unconfirmed
                         }
+                        (Some(_), Some(Some(_))) => Compared::Changed,
+                        (None, Some(Some(now))) if now.mtime_ns > baseline.started_ns => {
+                            Compared::Changed
+                        }
+                        (None, Some(Some(now))) if now.ctime_ns > baseline.started_ns => {
+                            Compared::Unconfirmed
+                        }
+                        (None, Some(Some(_))) => Compared::Same,
                         // A file the audit stamped that can no longer be reached: a dangling symlink, or one that
                         // now leaves the root.
-                        (Some(_), None) => true,
+                        (Some(_), None) => Compared::Changed,
                         // Unreadable to the audit too, or a platform with no stamps.
-                        (None, None) | (_, Some(None)) => false,
+                        (None, None) | (_, Some(None)) => Compared::Same,
                     };
-                    if changed {
-                        counts.changed += 1;
+                    match compared {
+                        Compared::Same => {}
+                        Compared::Unconfirmed => counts.unconfirmed += 1,
+                        Compared::Changed => counts.changed += 1,
                     }
                 }
             }
@@ -77,6 +100,16 @@ impl Counts {
             .count() as u64;
         counts
     }
+}
+
+/// Whether `now` is the file `before` stamped, by its device, inode, size and modification time, with only its change
+/// time moved.
+pub(crate) fn only_ctime_moved(before: &FileStamp, now: &FileStamp) -> bool {
+    before.ctime_ns != now.ctime_ns
+        && FileStamp {
+            ctime_ns: now.ctime_ns,
+            ..*before
+        } == *now
 }
 
 /// The Source Set's latest finished Audit, if any.
@@ -148,19 +181,29 @@ fn yield_to(c: &Connection, set: i64, since: &str) -> Result<bool> {
 fn record(tx: &Transaction, set: i64, audit: i64, job: i64, counts: &Counts) -> Result<()> {
     let watch = crate::observe::StaleWatch::start(tx)?;
     let at = now();
-    let latest: Option<(i64, i64, i64, i64, i64)> = tx
+    let latest: Option<(i64, i64, i64, i64, i64, i64)> = tx
         .query_row(
-            "SELECT id, audit_id, changed, added, removed FROM stat_walks
+            "SELECT id, audit_id, changed, added, removed, unconfirmed FROM stat_walks
              WHERE source_set_id = ?1 ORDER BY id DESC LIMIT 1",
             [set],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
         )
         .optional()?;
-    let same = |(_, a, c, ad, r): (i64, i64, i64, i64, i64)| {
+    let same = |(_, a, c, ad, r, u): (i64, i64, i64, i64, i64, i64)| {
         a == audit
             && c as u64 == counts.changed
             && ad as u64 == counts.added
             && r as u64 == counts.removed
+            && u as u64 == counts.unconfirmed
     };
     if let Some(latest) = latest.filter(|l| same(*l)) {
         tx.execute(
@@ -170,12 +213,13 @@ fn record(tx: &Transaction, set: i64, audit: i64, job: i64, counts: &Counts) -> 
         return watch.finish(tx);
     }
     tx.execute(
-        "DELETE FROM stat_walks WHERE source_set_id = ?1 AND changed + added + removed = 0",
+        "DELETE FROM stat_walks WHERE source_set_id = ?1 AND changed + added + removed + unconfirmed = 0",
         [set],
     )?;
     tx.execute(
-        "INSERT INTO stat_walks (source_set_id, audit_id, job_id, found_at, checked_at, changed, added, removed)
-         VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7)",
+        "INSERT INTO stat_walks (source_set_id, audit_id, job_id, found_at, checked_at, changed, added, removed,
+                                 unconfirmed)
+         VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7, ?8)",
         params![
             set,
             audit,
@@ -183,7 +227,8 @@ fn record(tx: &Transaction, set: i64, audit: i64, job: i64, counts: &Counts) -> 
             at,
             counts.changed as i64,
             counts.added as i64,
-            counts.removed as i64
+            counts.removed as i64,
+            counts.unconfirmed as i64
         ],
     )?;
     watch.finish(tx)
@@ -208,6 +253,87 @@ pub(crate) fn note_followed_revisions(tx: &Transaction) -> Result<()> {
 }
 
 impl Store {
+    /// Reads again each file at the paths `moved` gives, in the folder `folder` of Source Set `set`, whose stamp moved
+    /// only in its change time since Audit `audit` recorded it, as a change of permissions or owner moves it. Each one
+    /// still holding exactly what the read the Audit recorded found, under the Header Rule `header`, is recorded with
+    /// its new stamp, as that Audit's and its read's, and returned with it; nothing else changes (ADR 0031). A file read
+    /// as a Disk, or one read through a symbolic link, is left for the next Audit.
+    pub(crate) fn confirm_unchanged(
+        &self,
+        (set, audit): (i64, i64),
+        folder: &std::path::Path,
+        header: Option<HeaderRule>,
+        moved: &[(&str, FileStamp)],
+    ) -> Result<Vec<(String, FileStamp)>> {
+        let mut confirmed = Vec::new();
+        for (path, recorded) in moved {
+            let members = self.read(|c| {
+                let row: Option<(FileStamp, String, Option<String>, Option<String>)> = c
+                    .query_row(
+                        "SELECT dev, ino, size, mtime_ns, ctime_ns, members, header_rule, disk_sha1
+                         FROM payload_reads WHERE source_set_id = ?1 AND path = ?2",
+                        params![set, path],
+                        |r| {
+                            Ok((
+                                FileStamp {
+                                    dev: r.get::<_, i64>(0)? as u64,
+                                    ino: r.get::<_, i64>(1)? as u64,
+                                    size: r.get::<_, i64>(2)? as u64,
+                                    mtime_ns: r.get::<_, i64>(3)? as i128,
+                                    ctime_ns: r.get::<_, i64>(4)? as i128,
+                                },
+                                r.get(5)?,
+                                r.get(6)?,
+                                r.get(7)?,
+                            ))
+                        },
+                    )
+                    .optional()?;
+                Ok(row.and_then(|(stamp, members, rule, disk)| {
+                    (stamp == *recorded
+                        && disk.is_none()
+                        && rule.as_deref() == header.map(HeaderRule::as_str))
+                    .then(|| {
+                        serde_json::from_str::<Vec<(Option<String>, Checksums)>>(&members).ok()
+                    })
+                    .flatten()
+                }))
+            })?;
+            let Some(members) = members else {
+                continue;
+            };
+            // Planned for you, by no Job: no Job's meter counts it.
+            let Some(read) = stage_select_engine::read_again(
+                &folder.join(path),
+                folder,
+                header,
+                &Default::default(),
+            ) else {
+                continue;
+            };
+            if !only_ctime_moved(recorded, &read.stamp)
+                || read.disk.is_some()
+                || read.members != members
+            {
+                continue;
+            }
+            let ctime = read.stamp.ctime_ns as i64;
+            self.write(|tx| {
+                tx.execute(
+                    "UPDATE payload_reads SET ctime_ns = ?3, read_at = ?4 WHERE source_set_id = ?1 AND path = ?2",
+                    params![set, path, ctime, read.read_at.to_string()],
+                )?;
+                tx.execute(
+                    "UPDATE audit_stamps SET ctime_ns = ?3 WHERE audit_id = ?1 AND path = ?2 AND unreadable = 0",
+                    params![audit, path, ctime],
+                )?;
+                Ok(())
+            })?;
+            confirmed.push((path.to_string(), read.stamp));
+        }
+        Ok(confirmed)
+    }
+
     /// The DAT Revisions that made the Source Set `name` Stale because it Follows its DAT, newest first.
     pub fn followed_revisions(&self, name: &str) -> Result<Vec<FollowedRevision>> {
         self.read(|c| {
@@ -348,13 +474,13 @@ impl Store {
         )))
     }
 
-    /// The stat walks of the Source Set `name` that found files changed, added or removed, newest first.
+    /// The stat walks of the Source Set `name` that found files changed, added, removed or unconfirmed, newest first.
     pub fn stat_walks(&self, name: &str) -> Result<Vec<StatWalk>> {
         self.read(|c| {
             let set = set_by_name(c, name)?;
             let mut rows = c.prepare(
-                "SELECT id, audit_id, found_at, checked_at, changed, added, removed FROM stat_walks
-                 WHERE source_set_id = ?1 AND changed + added + removed > 0 ORDER BY id DESC",
+                "SELECT id, audit_id, found_at, checked_at, changed, added, removed, unconfirmed FROM stat_walks
+                 WHERE source_set_id = ?1 AND changed + added + removed + unconfirmed > 0 ORDER BY id DESC",
             )?;
             let walks = rows
                 .query_map([set.id], |r| {
@@ -367,6 +493,7 @@ impl Store {
                         changed: r.get::<_, i64>(4)? as u64,
                         added: r.get::<_, i64>(5)? as u64,
                         removed: r.get::<_, i64>(6)? as u64,
+                        unconfirmed: r.get::<_, i64>(7)? as u64,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;

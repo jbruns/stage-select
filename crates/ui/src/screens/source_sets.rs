@@ -574,29 +574,31 @@ fn set_detail(row: SetRow) -> AnyView {
     .into_any()
 }
 
-/// Why the source set is stale, one line each with its cause's icon, and whether it follows its DAT.
+/// Why the source set is stale, one line each with its cause's icon, and whether it follows its DAT; then what a check
+/// found of files whose permissions or owner alone changed, which leaves it fresh.
 pub fn stale_lines(set: &SourceSetRecord) -> AnyView {
     let causes = model::stale_causes(&set.stale);
-    (!causes.is_empty())
-        .then(|| {
-            view! {
-                <ul class="plain reasons">
-                    {causes
-                        .into_iter()
-                        .map(|(cause, line)| {
-                            view! {
-                                <li>
-                                    <StatusIcon status=cause tab_stop=false />
-                                    " "
-                                    {line}
-                                </li>
-                            }
-                        })
-                        .collect_view()}
-                </ul>
-            }
-        })
-        .into_any()
+    let unconfirmed =
+        model::unconfirmed_line(set.unconfirmed).map(|line| view! { <p class="note">{line}</p> });
+    let causes = (!causes.is_empty()).then(|| {
+        view! {
+            <ul class="plain reasons">
+                {causes
+                    .into_iter()
+                    .map(|(cause, line)| {
+                        view! {
+                            <li>
+                                <StatusIcon status=cause tab_stop=false />
+                                " "
+                                {line}
+                            </li>
+                        }
+                    })
+                    .collect_view()}
+            </ul>
+        }
+    });
+    view! { {causes} {unconfirmed} }.into_any()
 }
 
 async fn summaries() -> Result<Vec<SourceSetSummary>, String> {
