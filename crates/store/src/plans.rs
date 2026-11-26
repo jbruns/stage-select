@@ -231,6 +231,10 @@ struct Inputs {
     placed_rows: HashMap<i64, (String, String)>,
     /// Whether a test has said to treat the Source Set and the folder as on different filesystems.
     copy_across: bool,
+    /// Each file of the Source Set's own folder read again as the plan was made, its stamp having moved only in its
+    /// change time since the latest Audit: with the stamp it was confirmed at, or none where it couldn't be. A rename
+    /// places a file unread, so one is placed only while it is still as confirmed.
+    reread: HashMap<String, Option<FileStamp>>,
     /// The games removed from the folder, and those this plan removes, with what becomes of their files.
     removed: BTreeMap<String, RemoveAction>,
     /// The games this plan removes that its Selection or Additions would otherwise build, so removing them leaves
@@ -442,6 +446,7 @@ fn load(
             })?
             .collect::<rusqlite::Result<_>>()?,
         copy_across: false,
+        reread: HashMap::new(),
         folder,
         set_root: set.record.root,
         set_path: set.record.path,
@@ -3121,12 +3126,12 @@ pub(super) fn insert_plan(tx: &Transaction, planned: &Planned, check: Option<i64
 }
 
 impl Store {
-    /// Computes what building `selection` into the Library Folder would do, with your `choices`.
     /// Under Single Copy, where this folder holds the Source Set's Placed Games, reads again each file of its own
     /// folder a selected Game could be placed from whose stamp moved only in its change time since the latest Audit,
     /// as a change of permissions or owner moves it ([`Store::confirm_unchanged`]). A rename places a file unread, on
     /// the strength of that Audit's read: one that holds what it read is placed as read, and one that holds other
-    /// bytes is recorded as changed and is no source of this plan. Returns the paths of those, for the plan's notes.
+    /// bytes is recorded as changed and is not used as a source by this plan. One that can't be read again is copied,
+    /// not placed ([`Inputs::reread`]). Returns the paths of those that changed, for the plan's notes.
     fn reread_placed_sources(
         &self,
         roots: &crate::roots::Roots,
@@ -3185,9 +3190,14 @@ impl Store {
         let reread =
             self.confirm_unchanged((inputs.folder.source_set_id, audit), &dir.path, &moved)?;
         inputs.entries.retain(|e| !reread.changed.contains(&e.path));
+        inputs.reread = moved.iter().map(|(p, _)| ((*p).to_owned(), None)).collect();
+        inputs
+            .reread
+            .extend(reread.confirmed.into_iter().map(|(p, s)| (p, Some(s))));
         Ok(reread.changed)
     }
 
+    /// Computes what building `selection` into the Library Folder would do, with your `choices`.
     pub(super) fn compute_plan(
         &self,
         folder: i64,

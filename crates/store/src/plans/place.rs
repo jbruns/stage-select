@@ -29,6 +29,9 @@ const MIXED: &str = "some of its files are built here already and others aren't"
 const NOT_BUILT: &str = "not every file of it can be built here";
 const READ_ELSEWHERE: &str = "another game is written from its ZIP in the source set as well, so that ZIP stays \
                               there";
+const UNCONFIRMED: &str = "the permissions or owner of its files in the source set changed since the audit, and \
+                           they couldn't be read again to show their contents didn't, so they stay there; audit \
+                           again to place it";
 const NOT_SELF_CONTAINED: &str = "its ZIP in the source set doesn't yet hold every ROM it needs, so it is written from \
                                   other games' ZIPs too, which stay there";
 
@@ -406,6 +409,19 @@ fn placement(
         let (file, identity, ctime_ns) = sources
             .file(chosen_path(&chosen, &source.path))
             .ok_or(None)?;
+        // A file read again as the plan was made is placed unread only while it is as that read confirmed it.
+        if let Some(confirmed) = inputs.reread.get(source.path.as_str()) {
+            let now = stage_select_engine::FileStamp {
+                dev: identity.dev,
+                ino: identity.ino,
+                size: file.size,
+                mtime_ns: file.mtime_ns,
+                ctime_ns,
+            };
+            if *confirmed != Some(now) {
+                return Err(Some(UNCONFIRMED));
+            }
+        }
         originals.push(PlacedOriginal {
             path: source.path.clone(),
             file,

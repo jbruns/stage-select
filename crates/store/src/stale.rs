@@ -274,10 +274,16 @@ pub(crate) struct Reread {
     pub(crate) changed: Vec<String>,
 }
 
-/// Records that a re-read found Source Set `set`'s file `path` holding other bytes than Audit `audit` read: its stamp
-/// is marked, so that a stat walk counts it changed, its read is forgotten, and the latest walk against the Audit
-/// counts it changed rather than unconfirmed, or a walk is recorded that does, so the Source Set is Stale now.
-fn record_differs(tx: &Transaction, (set, audit): (i64, i64), path: &str) -> Result<()> {
+/// Records that a re-read found Source Set `set`'s file `path`, its change time `ctime_ns`, holding other bytes than
+/// Audit `audit` read: its stamp is marked, so that a stat walk counts it changed, its read is forgotten, and the latest
+/// walk against the Audit counts it changed, or a walk is recorded that does, so the Source Set is Stale now. That walk
+/// counted it unconfirmed, and counts it so no longer, only where it ran after its change time moved.
+fn record_differs(
+    tx: &Transaction,
+    (set, audit): (i64, i64),
+    path: &str,
+    ctime_ns: i128,
+) -> Result<()> {
     let watch = crate::observe::StaleWatch::start(tx)?;
     tx.execute(
         "UPDATE audit_stamps SET differs = 1 WHERE audit_id = ?1 AND path = ?2 AND unreadable = 0",
@@ -288,21 +294,26 @@ fn record_differs(tx: &Transaction, (set, audit): (i64, i64), path: &str) -> Res
         params![set, path],
     )?;
     let at = now();
-    let latest: Option<i64> = tx
+    let latest: Option<(i64, String)> = tx
         .query_row(
-            "SELECT id FROM stat_walks WHERE source_set_id = ?1 AND audit_id = ?2
+            "SELECT id, checked_at FROM stat_walks WHERE source_set_id = ?1 AND audit_id = ?2
              AND id = (SELECT MAX(id) FROM stat_walks WHERE source_set_id = ?1)",
             params![set, audit],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?;
     match latest {
-        Some(walk) => tx.execute(
-            "UPDATE stat_walks SET changed = changed + 1, unconfirmed = MAX(unconfirmed - 1, 0),
-                                   found_at = ?2, checked_at = ?2
-             WHERE id = ?1",
-            params![walk, at],
-        )?,
+        Some((walk, checked)) => {
+            let saw_it = checked
+                .parse::<jiff::Timestamp>()
+                .is_ok_and(|at| at.as_nanosecond() >= ctime_ns);
+            tx.execute(
+                "UPDATE stat_walks SET changed = changed + 1, unconfirmed = MAX(unconfirmed - ?3, 0),
+                                       found_at = ?2, checked_at = ?2
+                 WHERE id = ?1",
+                params![walk, at, i64::from(saw_it)],
+            )?
+        }
         None => tx.execute(
             "INSERT INTO stat_walks (source_set_id, audit_id, job_id, found_at, checked_at, changed, added, removed,
                                      unconfirmed)
@@ -396,7 +407,7 @@ impl Store {
                 continue;
             }
             if read.members != members {
-                self.write(|tx| record_differs(tx, (set, audit), path))?;
+                self.write(|tx| record_differs(tx, (set, audit), path, read.stamp.ctime_ns))?;
                 out.changed.push(path.to_string());
                 continue;
             }

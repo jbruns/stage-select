@@ -2025,3 +2025,30 @@ fn a_file_whose_permissions_alone_changed_is_read_again_and_placed_as_audited() 
     assert_eq!(env.walk(), None);
     assert_eq!(env.store.source_set(SET).unwrap().unconfirmed, 0);
 }
+
+/// A file whose permissions alone changed since the audit, which can't be read again to show its contents didn't, stays
+/// in the source set: it isn't placed unread.
+#[test]
+fn a_file_that_cant_be_read_again_after_a_change_of_permissions_is_not_placed() {
+    use std::os::unix::fs::PermissionsExt;
+    let env = Env::new();
+    loose_pong(&env);
+    env.audit(AuditEvidence::Full);
+    let path = env.set().join("Pong (USA).a26");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o200)).unwrap();
+    env.single_copy(StorageFormat::Loose);
+    let selection = env.select(&["Pong (USA)"]);
+
+    let plan = env.plan(&env.folder, selection);
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(item(&plan, "Pong (USA)").place.is_none(), "{plan:?}");
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("couldn't be read again")),
+        "{:?}",
+        plan.content.notes
+    );
+}
