@@ -3742,7 +3742,7 @@ impl Store {
                     );
                 };
                 self.write(|tx| {
-                    crate::placements::move_placed(tx, folder, from_rel, to_rel, &st)?;
+                    crate::placements::move_placed(tx, folder, (from_rel, to_rel), &st, roms)?;
                     tx.execute(
                         "UPDATE repair_steps SET state = 'done', finished_at = ?2 WHERE id = ?1",
                         params![step.id, now()],
@@ -4114,6 +4114,7 @@ impl Store {
             RepairStep::Fill { roms, loose, .. } => {
                 (roms.iter().map(|r| r.rom.clone()).collect(), *loose)
             }
+            // Only a Fill step fills: no ROMs, and nothing is recorded of what it holds.
             _ => (Vec::new(), false),
         };
         Ok(Ok(Filled {

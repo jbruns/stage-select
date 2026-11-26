@@ -200,13 +200,13 @@ fn games(n: i64) -> String {
 }
 
 /// Records that the Placed Game's file `from` in Library Folder `folder` is now `to` there, statted as `now`: as a
-/// Repair renamed it. It stays a file of the Game it was placed as.
+/// Repair renamed it, read again as exactly `roms`. It stays a file of the Game it was placed as.
 pub(crate) fn move_placed(
     tx: &Transaction,
     folder: i64,
-    from: &str,
-    to: &str,
+    (from, to): (&str, &str),
     now: &Stat,
+    roms: &[stage_select_api::build::ExpectedRom],
 ) -> Result<()> {
     let (file, identity) = (file_stat(now), Identity::of(now));
     tx.execute(
@@ -230,18 +230,20 @@ pub(crate) fn move_placed(
             stage_select_api::storage::placed_path(folder, to)
         ],
     )?;
-    // What the Build that placed it recorded it holding moves with it: the same bytes, under its new name.
+    // What the Build that placed it recorded moves with it: the same bytes, under its new name, holding the ROMs the
+    // Repair read it as, named as they are now.
     if from != to {
         tx.execute(
             "DELETE FROM built_files WHERE folder_id = ?1 AND target = ?2
              AND EXISTS (SELECT 1 FROM built_files WHERE folder_id = ?1 AND target = ?3)",
             params![folder, to, from],
         )?;
-        tx.execute(
-            "UPDATE built_files SET target = ?3 WHERE folder_id = ?1 AND target = ?2",
-            params![folder, from, to],
-        )?;
     }
+    let roms = serde_json::to_string(roms).map_err(|e| Error::Io(e.to_string()))?;
+    tx.execute(
+        "UPDATE built_files SET target = ?3, roms = ?4 WHERE folder_id = ?1 AND target = ?2 AND chd = 0",
+        params![folder, from, to, roms],
+    )?;
     Ok(())
 }
 
@@ -260,36 +262,30 @@ pub(crate) struct RepairWrote<'a> {
 
 /// Records in the Build record of `w.folder` that a Repair wrote `w.path`, as [`RepairWrote`] says: what a check
 /// compares it with, and what proves it home, are then what it holds now, not what the Build that placed the Game
-/// wrote. It keeps that Build's provenance, from the record of `w.path`, else of one of the files it replaced, else of
-/// any file of its Game there, and the records of the files it replaced go; with none of them recorded, nothing is,
-/// and its SHA-256 alone proves it.
+/// wrote. It keeps that Build's provenance, from the record of `w.path`, else of one of the files it replaced, and the
+/// records of the files it replaced go; with none of them recorded, nothing is, and its SHA-256 alone proves it.
 pub(crate) fn record_rewritten(tx: &Transaction, w: &RepairWrote) -> Result<()> {
+    // Nothing says what it holds: its SHA-256 alone proves it.
+    if w.roms.is_empty() {
+        return Ok(());
+    }
     let mut candidates = vec![w.path];
     candidates.extend(w.replaced.iter().copied());
-    let mut template: Option<String> = None;
+    // The record whose Build provenance the new one keeps.
+    let mut provenance: Option<String> = None;
     for at in candidates {
-        template = tx
+        provenance = tx
             .query_row(
                 "SELECT target FROM built_files WHERE folder_id = ?1 AND target = ?2 AND game = ?3 AND chd = 0",
                 params![w.folder, at, w.game],
                 |r| r.get(0),
             )
             .optional()?;
-        if template.is_some() {
+        if provenance.is_some() {
             break;
         }
     }
-    if template.is_none() {
-        template = tx
-            .query_row(
-                "SELECT target FROM built_files WHERE folder_id = ?1 AND game = ?2 AND chd = 0
-                 ORDER BY target LIMIT 1",
-                params![w.folder, w.game],
-                |r| r.get(0),
-            )
-            .optional()?;
-    }
-    let Some(template) = template else {
+    let Some(provenance) = provenance else {
         return Ok(());
     };
     let roms = serde_json::to_string(w.roms).map_err(|e| Error::Io(e.to_string()))?;
@@ -299,14 +295,14 @@ pub(crate) fn record_rewritten(tx: &Transaction, w: &RepairWrote) -> Result<()> 
                                   roms, sources, size, mtime_ns, sha256, torrentzip, loose, addition_id, chd,
                                   chd_sha1, chd_raw_sha1, disk)
          SELECT folder_id, ?3, game, kind, build_id, selection_id, audit_id, dat_revision_id, ?4, sources, ?5, ?6,
-                ?7, 1, ?8, addition_id, 0, NULL, NULL, disk
+                ?7, NOT ?8, ?8, addition_id, 0, NULL, NULL, disk
          FROM built_files WHERE folder_id = ?1 AND target = ?2
          ON CONFLICT (folder_id, target) DO UPDATE SET
              roms = excluded.roms, size = excluded.size, mtime_ns = excluded.mtime_ns, sha256 = excluded.sha256,
-             torrentzip = 1, loose = excluded.loose",
+             torrentzip = excluded.torrentzip, loose = excluded.loose",
         params![
             w.folder,
-            template,
+            provenance,
             w.path,
             roms,
             file.size as i64,
@@ -861,14 +857,14 @@ fn home_by_roms(
     if roms.is_empty() || !roms.iter().all(crate::checks::identified) {
         return false;
     }
-    let mut mine = taken.to_vec();
+    let mut tentative = taken.to_vec();
     let all = roms.iter().all(|rom| {
-        take(home, &mut mine, |p| {
+        take(home, &mut tentative, |p| {
             stage_select_engine::build::matches(&p.sums, rom)
         })
     });
     if all {
-        taken.copy_from_slice(&mine);
+        taken.copy_from_slice(&tentative);
     }
     all
 }

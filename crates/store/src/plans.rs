@@ -176,8 +176,9 @@ struct Inputs {
     folder: FolderRow,
     set_root: String,
     set_path: String,
-    /// Where the Source Set's latest Audit stamped each Placed file by its identity, as [`crate::checks::Home::same`].
-    same: HashMap<String, String>,
+    /// Where the Source Set's latest Audit stamped each Placed file by its identity, as
+    /// [`crate::checks::Home::by_identity`].
+    by_identity: HashMap<String, String>,
     selection_id: i64,
     selection: Selection,
     rows: Vec<ReleaseRow>,
@@ -401,6 +402,7 @@ fn load(
             )
             .or_insert_with(|| addition.addition.name.clone());
     }
+    let placed = crate::placements::placed_files_in(c, folder.id)?;
     Ok(Inputs {
         removed,
         left_out,
@@ -417,12 +419,8 @@ fn load(
         store: store_id(c)?,
         built: read_built(c, folder.id)?,
         originals: read_originals(c, folder.id)?,
-        placed: crate::placements::placed_files_in(c, folder.id)?,
-        same: crate::placements::stamped_home(
-            c,
-            folder.source_set_id,
-            &crate::placements::placed_files_in(c, folder.id)?,
-        )?,
+        by_identity: crate::placements::stamped_home(c, folder.source_set_id, &placed)?,
+        placed,
         holding: crate::placements::holding_folder(c, folder.source_set_id)?,
         placed_rows: c
             .prepare(
@@ -623,7 +621,7 @@ fn check_folder(
                     .ok()
                     .map(|dir| crate::checks::Home {
                         dir,
-                        same: inputs.same.clone(),
+                        by_identity: inputs.by_identity.clone(),
                     }),
             };
             meter.start(

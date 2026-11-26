@@ -138,7 +138,7 @@ pub(crate) struct Home {
     pub dir: FolderDir,
     /// For each Placed file, by its path in its Library Folder, the path in the Source Set's folder where the Source
     /// Set's latest Audit stamped a file of its recorded device and inode.
-    pub same: HashMap<String, String>,
+    pub by_identity: HashMap<String, String>,
 }
 
 /// What a check says of a Placed Game's file it found missing where a file of its name is in its Source Set's folder:
@@ -147,18 +147,16 @@ pub(crate) const FOUND_HOME: &str =
     "a file of the same name is in your source set; audit it to see whether it holds this game";
 
 /// What a check says of a Placed Game's file it found missing where the same file, by its device and inode, is in its
-/// Source Set's folder as `path`: the file placed, which may have changed since.
-fn found_same(path: &str) -> String {
-    format!(
-        "the same file is in your source set, as {path}; audit it to see whether it still holds this game"
-    )
-}
+/// Source Set's folder: [`FOUND_SAME`]`.0`, its path there, then [`FOUND_SAME`]`.1`. The file placed, which may have
+/// changed since.
+const FOUND_SAME: (&str, &str) = (
+    "the same file is in your source set, as ",
+    "; audit it to see whether it still holds this game",
+);
 
 /// Whether `detail`, a check's of a Placed Game's missing file, says where in its Source Set's folder it may be.
 pub(crate) fn is_found_home(detail: &str) -> bool {
-    detail == FOUND_HOME
-        || (detail.starts_with("the same file is in your source set, as ")
-            && detail.ends_with("; audit it to see whether it still holds this game"))
+    detail == FOUND_HOME || (detail.starts_with(FOUND_SAME.0) && detail.ends_with(FOUND_SAME.1))
 }
 
 /// Where the Placed Game's file `placed`, missing where it was placed, is in its Source Set's folder `home`, as the
@@ -167,13 +165,14 @@ pub(crate) fn is_found_home(detail: &str) -> bool {
 /// Only an Audit, reading it, tells whether it holds the Game.
 fn found_home(home: Option<&Home>, placed: &PlacedFile) -> Option<String> {
     let home = home?;
-    if let Some(at) = home.same.get(&placed.path)
+    if let Some(at) = home.by_identity.get(&placed.path)
         && home.dir.stat(at).ok().flatten().is_some_and(|st| {
+            let identity = Identity::of(&st);
             FolderDir::kind(&st) == FileType::RegularFile
-                && (Identity::of(&st).dev, Identity::of(&st).ino) == (placed.dev, placed.ino)
+                && (identity.dev, identity.ino) == (placed.dev, placed.ino)
         })
     {
-        return Some(found_same(at));
+        return Some(format!("{}{at}{}", FOUND_SAME.0, FOUND_SAME.1));
     }
     [placed.path.as_str(), name_of(&placed.path)]
         .iter()
@@ -1111,8 +1110,8 @@ struct CheckInputs {
     placed: Vec<PlacedFile>,
     /// The Root and path of the folder's Source Set.
     set: (String, String),
-    /// Where the Source Set's latest Audit stamped each Placed file by its identity, as [`Home::same`].
-    same: HashMap<String, String>,
+    /// Where the Source Set's latest Audit stamped each Placed file by its identity, as [`Home::by_identity`].
+    by_identity: HashMap<String, String>,
 }
 
 impl Store {
@@ -1215,22 +1214,19 @@ impl Store {
                 stage_select_api::storage::StorageScope::PlayLibraries,
                 &folder.system,
             )?;
+            let placed = crate::placements::placed_files_in(&tx, folder.id)?;
             Ok(CheckInputs {
                 storage,
                 store: store_id(&tx)?,
                 built: read_built(&tx, folder.id)?,
                 cached: read_probes(&tx, folder.id)?,
                 acks: read_acks(&tx, folder.id)?,
-                placed: crate::placements::placed_files_in(&tx, folder.id)?,
+                by_identity: crate::placements::stamped_home(&tx, folder.source_set_id, &placed)?,
+                placed,
                 set: {
                     let set = set_by_id(&tx, folder.source_set_id)?;
                     (set.record.root, set.record.path)
                 },
-                same: crate::placements::stamped_home(
-                    &tx,
-                    folder.source_set_id,
-                    &crate::placements::placed_files_in(&tx, folder.id)?,
-                )?,
                 folder,
                 selection,
                 selected,
@@ -1247,7 +1243,7 @@ impl Store {
                 .ok()
                 .map(|dir| Home {
                     dir,
-                    same: inputs.same.clone(),
+                    by_identity: inputs.by_identity.clone(),
                 }),
         };
         let dat = match inputs.revision.1 {
