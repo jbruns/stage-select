@@ -2160,6 +2160,7 @@ impl Store {
             generation,
             items,
             fingerprint: fingerprint(&dir).map_err(|e| Error::Io(e.to_string()))?,
+            repaired: crate::folder_dir::take_repaired(dir.path()),
         };
         let digest = digest(&content);
         self.write(|tx| {

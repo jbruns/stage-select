@@ -1489,6 +1489,7 @@ fn compute(
             cleanup: None,
             storage: inputs.storage,
             notes,
+            repaired: Vec::new(),
             sbi_pack: inputs.sbi.as_ref().map(|p| p.sha256.clone()),
             folder_deletion: None,
         },
@@ -3231,7 +3232,7 @@ impl Store {
 
     /// Computes again the plan whose content is `content`, a cleanup or a build, as it would be now.
     pub(super) fn recompute(&self, content: &PlanContent) -> Result<Planned> {
-        match &content.cleanup {
+        let mut planned = match &content.cleanup {
             Some(cleanup) => self.compute_cleanup(content.folder, &cleanup.choices),
             None => self.compute_plan(
                 content.folder,
@@ -3239,7 +3240,20 @@ impl Store {
                 &content.choices,
                 &PlanMeter::default(),
             ),
-        }
+        }?;
+        // What planning repaired was done once, when it was planned, and is no part of what is approved.
+        planned.content.repaired = content.repaired.clone();
+        Ok(planned)
+    }
+
+    /// What Stage Select changed of the permissions of Library Folder `folder`'s own entries since a plan of it last
+    /// said so, for its plan to say.
+    pub(super) fn repaired_in(&self, folder: i64) -> Result<Vec<String>> {
+        let row = self.read(|c| folder_by_id(c, folder))?;
+        Ok(match self.roots().root(&row.root) {
+            Some(root) => crate::folder_dir::take_repaired(&root.path.join(&row.path)),
+            None => Vec::new(),
+        })
     }
 
     /// Plans building `selection` into Library Folder `folder`, and stores the plan for review.
@@ -3295,7 +3309,8 @@ impl Store {
                 "you chose both to adopt {both} and to set it aside; choose one"
             )));
         }
-        let planned = self.compute_plan(folder, request.selection, &choices, meter)?;
+        let mut planned = self.compute_plan(folder, request.selection, &choices, meter)?;
+        planned.content.repaired = self.repaired_in(folder)?;
         self.write(|tx| {
             let active = folder_by_id(tx, folder)?.active_job;
             let check = match (&planned.check, active) {

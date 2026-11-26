@@ -285,6 +285,12 @@ pub fn IngestPlanReview(plan: i64, refresh: RwSignal<u64>) -> impl IntoView {
         latest.get().map(|p| {
             view! {
                 <p>{action_text(p.content.action)}</p>
+                {(!p.content.repaired.is_empty()).then(|| view! {
+                    <h3>"Notes"</h3>
+                    <ul class="plain">
+                        {p.content.repaired.iter().map(|n| view! { <li>{n.clone()}</li> }).collect_view()}
+                    </ul>
+                })}
                 <p>
                     "Digest " <code class="hash">{short_sha(&p.digest).to_string()}</code>
                     {format!(

@@ -2507,9 +2507,9 @@ fn something_moved_aside_that_cannot_be_moved_back_stays_tracked_until_it_is() {
 }
 
 #[test]
-fn a_folder_that_is_not_the_empty_private_one_just_made_is_never_used() {
+fn a_folder_that_is_not_the_empty_closed_one_just_made_is_never_used() {
     use std::os::unix::fs::PermissionsExt;
-    for tamper in ["a file in it", "a group-writable mode"] {
+    for tamper in ["a file in it", "another owner's mode open to others"] {
         let env = Env::new();
         let (folder, plan) = built_then_deselected(&env);
         let dir = env.play().join("atari2600");
@@ -2522,8 +2522,9 @@ fn a_folder_that_is_not_the_empty_private_one_just_made_is_never_used() {
                     if tamper == "a file in it" {
                         std::fs::write(temp.join("theirs"), b"theirs").unwrap();
                     } else {
-                        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o770))
+                        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o777))
                             .unwrap();
+                        owned_by_another(&temp, false);
                     }
                 }
             })));
@@ -2547,7 +2548,7 @@ fn a_folder_that_is_not_the_empty_private_one_just_made_is_never_used() {
         assert!(blockers(&next).contains(&BlockerKind::Recovery), "{tamper}");
     }
 
-    // A recorded retention area whose mode was opened up is no longer trusted.
+    // A recorded retention area another user owns whose mode was opened up to others is no longer trusted.
     let env = Env::new();
     let (folder, plan) = built_then_deselected(&env);
     let dir = env.play().join("atari2600");
@@ -2555,6 +2556,7 @@ fn a_folder_that_is_not_the_empty_private_one_just_made_is_never_used() {
     let area = dir.join(RETAINED);
     let deletion = plan_delete_all(&env, &folder);
     std::fs::set_permissions(&area, std::fs::Permissions::from_mode(0o777)).unwrap();
+    owned_by_another(&area, false);
     let done = env
         .store
         .approve_kept_deletion(
@@ -2567,7 +2569,9 @@ fn a_folder_that_is_not_the_empty_private_one_just_made_is_never_used() {
     assert!(
         done.outcomes
             .iter()
-            .all(|o| !o.deleted && o.detail.as_deref().unwrap().contains("private"))
+            .all(|o| !o.deleted && o.detail.as_deref().unwrap().contains("chmod o-rwx")),
+        "{:?}",
+        done.outcomes
     );
     assert_eq!(
         env.store.kept_files(folder.id).unwrap().len(),
@@ -2575,26 +2579,211 @@ fn a_folder_that_is_not_the_empty_private_one_just_made_is_never_used() {
     );
 }
 
+/// Makes `path` read as owned by a user other than the one the test runs as, in its own group or, with `outside`,
+/// in one the test's user isn't in.
+pub(crate) fn owned_by_another(path: &Path, outside: bool) {
+    use std::os::unix::fs::MetadataExt;
+    let st = std::fs::symlink_metadata(path).unwrap();
+    let gid = if outside { 0x7fff_fff0 } else { st.gid() };
+    stage_select_store::pretend_owner(path, Some((st.uid() + 1, gid))).unwrap();
+}
+
+/// The permission bits of `path`, setgid included.
+pub(crate) fn mode_of(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::symlink_metadata(path)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o7777
+}
+
+/// Sets `path`'s permission bits, setgid included, and checks they took.
+pub(crate) fn set_mode(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    assert_eq!(mode_of(path), mode, "{}", path.display());
+}
+
+/// The ways a `.stage-select` folder Stage Select can write and others can't is left by the Operator, each of which
+/// lets a plan run (ADR 0031): group-writable and setgid, private and setgid, and owned by another user with group
+/// write. Sets `state` so.
+pub(crate) const USABLE: [&str; 3] = ["2770", "2700", "another owner, group-writable"];
+
+pub(crate) fn make_usable(state: &Path, case: &str) {
+    match case {
+        "2770" => set_mode(state, 0o2770),
+        "2700" => set_mode(state, 0o2700),
+        _ => {
+            set_mode(state, 0o2770);
+            owned_by_another(state, false);
+        }
+    }
+}
+
+/// Builds every game into a new folder, leaves its `.stage-select` as `change` does, then plans the selection of Pong
+/// alone, which keeps every other built file aside in it.
+fn built_then_changed(env: &Env, change: impl FnOnce(&Path)) -> (LibraryFolder, Plan) {
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let folder = env.folder("atari2600");
+    assert_eq!(env.build(&env.plan(&folder, id)).state, JobState::Succeeded);
+    change(&env.play().join("atari2600/.stage-select"));
+    let fewer = env.record(&selection(&env.sha256, vec![group("Pong (USA)")]));
+    let plan = env.plan(&folder, fewer);
+    (folder, plan)
+}
+
 #[cfg(unix)]
 #[test]
-fn a_stage_select_folder_that_is_not_private_to_the_service_is_never_trusted() {
-    use std::os::unix::fs::PermissionsExt;
-    for tamper in ["a group-readable mode", "a symlink", "a file"] {
+fn a_stage_select_folder_stage_select_can_write_and_others_cannot_lets_a_build_run() {
+    for case in USABLE {
+        let env = Env::new();
+        let (folder, plan) = built_then_changed(&env, |state| make_usable(state, case));
+        let state = env.play().join("atari2600/.stage-select");
+        let mode = mode_of(&state);
+
+        assert!(plan.approvable(), "{case}: {:?}", plan.content.blockers);
+        assert_eq!(env.build(&plan).state, JobState::Succeeded, "{case}");
+
+        assert_eq!(
+            env.store.kept_files(folder.id).unwrap().len(),
+            plan.content.removals.len(),
+            "{case}: kept aside in it"
+        );
+        assert_eq!(mode_of(&state), mode, "{case}: left as it is");
+        assert!(
+            plan.content.repaired.is_empty(),
+            "{case}: {:?}",
+            plan.content.repaired
+        );
+        stage_select_store::pretend_owner(&state, None).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stage_select_folder_open_to_others_that_stage_select_owns_is_closed_and_the_plan_says_so() {
+    let env = Env::new();
+    let (folder, plan) = built_then_changed(&env, |state| set_mode(state, 0o777));
+    let state = env.play().join("atari2600/.stage-select");
+
+    assert_eq!(
+        mode_of(&state),
+        0o770,
+        "others' access removed, the group's kept"
+    );
+    assert!(plan.approvable(), "{:?}", plan.content.blockers);
+    assert_eq!(
+        plan.content.repaired,
+        [format!(
+            "Others had access to {} (its permissions were 777), so Stage Select removed it: its permissions are \
+             now 770.",
+            state.display()
+        )]
+    );
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert!(!env.store.kept_files(folder.id).unwrap().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stage_select_folder_stage_select_cannot_fix_is_refused_with_the_command_that_fixes_it() {
+    // What is wrong, how the folder is left so, the command, and who runs it.
+    type Case = (&'static str, fn(&Path), &'static str, &'static str);
+    let cases: [Case; 4] = [
+        (
+            "Stage Select can't read and write it",
+            |state| set_mode(state, 0o500),
+            "chmod u+rwx",
+            "its owner or as root",
+        ),
+        (
+            "others have access to it",
+            |state| {
+                set_mode(state, 0o2775);
+                owned_by_another(state, false);
+            },
+            "chmod o-rwx",
+            "its owner or as root",
+        ),
+        (
+            "Stage Select can't read and write it and others have access to it",
+            |state| {
+                set_mode(state, 0o2705);
+                owned_by_another(state, false);
+            },
+            "chmod g+rwx,o-rwx",
+            "its owner or as root",
+        ),
+        (
+            "Stage Select can't read and write it",
+            |state| {
+                set_mode(state, 0o2770);
+                owned_by_another(state, true);
+            },
+            "chown UID",
+            "root",
+        ),
+    ];
+    for (wrong, change, command, who) in cases {
+        let env = Env::new();
+        let (folder, plan) = built_then_changed(&env, change);
+        let state = env.play().join("atari2600/.stage-select");
+        let mode = mode_of(&state);
+
+        assert_eq!(
+            blockers(&plan),
+            BTreeSet::from([BlockerKind::Marker]),
+            "{wrong}"
+        );
+        let message = &plan.content.blockers[0].message;
+        assert!(
+            message.starts_with(&format!("{} can't be used: {wrong} (", state.display())),
+            "{message}"
+        );
+        assert!(
+            message.contains(
+                "no one beyond its owner and group may have access to it. To fix it, run this on the host as "
+            ),
+            "{message}"
+        );
+        let uid = {
+            use std::os::unix::fs::MetadataExt;
+            std::fs::metadata(env.store.dir()).unwrap().uid()
+        };
+        let command = command.replace("UID", &uid.to_string());
+        assert!(
+            message.ends_with(&format!(
+                "as {who}, then try again: {command} '{}'",
+                state.display()
+            )),
+            "{message}"
+        );
+        assert!(!message.contains("Move it"), "{message}");
+        assert_eq!(mode_of(&state), mode, "{wrong}: left as it is");
+
+        // You run the command, and the next plan runs with nothing left to clear.
+        stage_select_store::pretend_owner(&state, None).unwrap();
+        set_mode(&state, 0o700);
+        let plan = env.plan(&folder, plan.content.selection);
+        assert!(plan.approvable(), "{wrong}: {:?}", plan.content.blockers);
+        assert_eq!(env.build(&plan).state, JobState::Succeeded, "{wrong}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stage_select_folder_that_is_not_a_directory_is_never_trusted() {
+    for tamper in ["a symlink", "a file"] {
         let env = Env::new();
         env.audit();
         let id = env.record(&everything(&env.sha256));
         let folder = env.folder("atari2600");
         let dir = env.play().join("atari2600");
         let state = dir.join(".stage-select");
-        assert_eq!(
-            std::fs::metadata(&state).unwrap().permissions().mode() & 0o777,
-            0o700,
-            "it is made private"
-        );
+        assert_eq!(mode_of(&state) & 0o777, 0o700, "it is made private");
         match tamper {
-            "a group-readable mode" => {
-                std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o750)).unwrap()
-            }
             "a symlink" => {
                 let elsewhere = env.tmp.path().join("elsewhere");
                 std::fs::rename(&state, &elsewhere).unwrap();
@@ -2616,7 +2805,7 @@ fn a_stage_select_folder_that_is_not_private_to_the_service_is_never_trusted() {
         assert!(
             plan.content.blockers[0]
                 .message
-                .contains("is not Stage Select's own private folder"),
+                .contains("is not Stage Select's own folder: it is not a directory"),
             "{tamper}: {:?}",
             plan.content.blockers
         );
@@ -5771,7 +5960,7 @@ fn a_play_library_is_converted_to_loose_and_back_with_each_original_kept() {
         ("Breakout (USA).zip", false, ItemKind::Unchanged)
     );
     assert_eq!(
-        plan.content.notes,
+        plan.content.repaired,
         [format!("1 game is not stored loose: {MULTI_ROM_STAYS_ZIP}")]
     );
     assert!(

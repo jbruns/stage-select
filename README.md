@@ -1515,9 +1515,14 @@ its own profile. A source set cannot be registered in a `library` root, and noth
 Registering a library folder needs a folder that is empty or missing; registration creates it and writes a
 marker, `.stage-select/marker`, holding the store's id, the folder's id and its build generation. Everything Stage
 Select keeps in a folder it manages is inside `.stage-select/`: the marker, the folder a build stages files in, and
-the kept files under `retained/`. It is made private to the service's user, and Stage Select uses it only while it
-still is: a `.stage-select` that is a symlink, a file, owned by another user or readable by others blocks the folder
-until you move it out. Nothing else in the folder is Stage Select's. Audits never read `.stage-select/`,
+the kept files under `retained/`. It is made private to the service's user. Whoever owns it, Stage Select uses it,
+and each folder in it, while the service can read and write it and no one beyond its owner and group has access: a
+`.stage-select` at `2770` or `2700`, or one another user owns that the service's group can read and write, is fine.
+Where Stage Select owns one of these folders and others have access to it, it removes that access itself, keeping the
+owner's and group's, and the next plan's notes say so. One it can't fix blocks the folder with a message that says
+what is wrong, what is expected and the command to run on the host, such as `chmod o-rwx '<path>'` as its owner or
+root; once you run it, the next plan goes ahead, with nothing left to clear. A `.stage-select` that is a symlink or a
+file blocks the folder until you move it out. Nothing else in the folder is Stage Select's. Audits never read `.stage-select/`,
 and a check never reports what is in it as a change to the folder. A plan refuses a folder whose
 marker is missing, names another store or folder, or has another generation, as after restoring a backup or mounting
 the wrong share.
@@ -1561,7 +1566,7 @@ replacement: the old file is set aside and the new one written in the same build
 one rename that never replaces anything, into `.stage-select/retained/<generation>/<name>.kept` in the same folder,
 only while it is still the file the plan found. The retention area and each generation's folder are created under a
 temporary name the store records, made durable, renamed into place without replacing anything, and used only while
-they are still the empty folder made, owned by the service and private to it. One never renamed into place is left,
+they are the folder made, closed to others as `.stage-select` is. One never renamed into place is left,
 recorded; none of these folders is ever removed, even once empty. The store records each kept file with its original name, the build
 that kept it and its provenance, and holds that provenance's selection and audit from pruning. A plan never removes a
 file Stage Select did not build.
@@ -1667,7 +1672,8 @@ interrupted until a new plan finishes the folder. Renaming without replacing nee
 yours does not, the build fails rather than risk overwriting a file. A ROM name with a path separator, a `..`
 part, a drive or a device name such as `CON` is a blocked item.
 
-The staging folder is private to the server's user. Each file is renamed into place only while the staged file is
+The staging folder is made private to the server's user, and used while it is closed to others as `.stage-select`
+is. Each file is renamed into place only while the staged file is
 still the one verified, and recorded only if the file then in place is that one; otherwise it is left and the build
 fails. The store records the next generation before the marker follows it, and a marker is never moved back.
 While a build is queued or running, its selection and audit are kept from being pruned.

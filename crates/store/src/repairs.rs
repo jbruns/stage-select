@@ -1096,6 +1096,10 @@ impl Store {
         }
         let (generation, marked) = self.read(|c| source_folder(c, set.id))?;
         let needs = self.release_needs(&planned, &dir, generation + 1)?;
+        // What Stage Select changed of the permissions of the Source Set's own entries, it says.
+        planned
+            .notes
+            .extend(crate::folder_dir::take_repaired(dir.path()));
         if let Some(needs) = needs {
             planned.notes.push(format!(
                 "{}, and the plan can't be approved without it",
@@ -2001,11 +2005,18 @@ impl Store {
                     return not_it(self);
                 };
                 let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
-                if !(st.st_size == 0
-                    && st.st_nlink == 1
-                    && st.st_uid == rustix::process::geteuid().as_raw())
-                {
+                if !(st.st_size == 0 && st.st_nlink == 1) {
                     return not_it(self);
+                }
+                // Whoever owns it, as for Stage Select's own folders (ADR 0031). What it can't fix is left pending,
+                // so that once you fix it the next repair takes it up again.
+                if let Err(why) = crate::folder_dir::closed_to_others(
+                    &file,
+                    &st,
+                    &dir.path().join(MARKER_NEW),
+                    crate::folder_dir::Needs::File,
+                ) {
+                    return Ok(Err(why));
                 }
                 self.record_marker_temp(set, Identity::of(&st))?;
                 file

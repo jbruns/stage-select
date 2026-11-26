@@ -186,12 +186,12 @@ fn is_dir(st: &rustix::fs::Stat) -> bool {
 
 /// Creates the directory `name` in `parent`, which is recorded under `key`: in `folder_dirs`, or, for a Build's
 /// staging directory, in `folder_temps`. It is made for this service's user only, under a unique temporary name
-/// committed to `folder_temp_names` before it is made, checked through its open descriptor to be the empty, private
-/// directory just made ([`FolderDir::private`]), recorded in `folder_temps` by identity, made durable, and renamed
-/// to `name` without replacing anything; its parent is then made durable, and it is used only if what is at `name`
-/// is still the directory made, which is then recorded. Nothing is ever removed by name: a temporary folder that was
-/// not renamed into place is recorded as a leftover of this store and left. Recovery records one a stop left behind,
-/// whichever step it stopped at, from the name or identity committed before it.
+/// committed to `folder_temp_names` before it is made, checked through its open descriptor to be the empty
+/// directory just made, closed to others ([`FolderDir::closed`]), recorded in `folder_temps` by identity, made
+/// durable, and renamed to `name` without replacing anything; its parent is then made durable, and it is used only
+/// if what is at `name` is still the directory made, which is then recorded. Nothing is ever removed by name: a
+/// temporary folder that was not renamed into place is recorded as a leftover of this store and left. Recovery
+/// records one a stop left behind, whichever step it stopped at, from the name or identity committed before it.
 pub(super) fn create_dir(
     store: &Store,
     folder: impl Into<Scope>,
@@ -234,13 +234,15 @@ pub(super) fn create_dir(
         Ok(made) => made,
         Err(e) => return not_made(e.to_string()),
     };
-    let id = match made.private(true) {
+    let id = match made.closed(true) {
         Ok(Ok(id)) => id,
         Ok(Err(why)) => {
-            return not_made(format!(
-                "{}/{temp} is not the folder Stage Select just created there: {why}; it was left as it is",
-                parent.path().display()
-            ));
+            return not_made(why.explain(|why| {
+                format!(
+                    "{}/{temp} is not the folder Stage Select just created there: {why}; it was left as it is",
+                    parent.path().display()
+                )
+            }));
         }
         Err(e) => return not_made(e.to_string()),
     };
@@ -284,7 +286,7 @@ pub(super) fn create_dir(
         Ok(dir) => dir,
         Err(e) => return Ok(Err(e.to_string())),
     };
-    match dir.private(true) {
+    match dir.closed(true) {
         Ok(Ok(found)) if found == id => {}
         Ok(_) => {
             forget_temp(store, folder, &temp_key)?;
@@ -372,7 +374,7 @@ fn record_leftover(store: &Store, folder: impl Into<Scope>, key: &str, id: Ident
 }
 
 /// Opens the directory `name` in `parent`, which `folder_dirs` records under `key`, and checks it is the directory
-/// recorded, still private to this service's user ([`FolderDir::private`]). When nothing is there and `create` is
+/// recorded, still closed to others ([`FolderDir::closed`]). When nothing is there and `create` is
 /// set, creates it with [`create_dir`]; otherwise returns `None`.
 fn own_dir(
     store: &Store,
@@ -399,13 +401,15 @@ fn own_dir(
                 Ok(dir) => dir,
                 Err(e) => return Ok(Err(e.to_string())),
             };
-            match dir.private(false) {
+            match dir.closed(false) {
                 Ok(Ok(id)) if Some(id) == recorded => Ok(Ok(Some(dir))),
                 Ok(Ok(_)) => Ok(Err(not_ours(parent, name))),
-                Ok(Err(why)) => Ok(Err(format!(
-                    "{}/{name} is no longer private to this service: {why}; it was left as it is",
-                    parent.path().display()
-                ))),
+                Ok(Err(why)) => Ok(Err(why.explain(|why| {
+                    format!(
+                        "{}/{name} is no longer Stage Select's own folder: {why}; it was left as it is",
+                        parent.path().display()
+                    )
+                }))),
                 Err(e) => Ok(Err(e.to_string())),
             }
         }
@@ -510,12 +514,12 @@ pub(super) fn settle_dir_temps(
         };
         let Some(id) = id else {
             // Made, if at all, by this store's last attempt: recorded only when it is still the empty directory,
-            // private to this service, that attempt made.
+            // closed to others, that attempt made.
             let made = match parent.stat(last) {
                 Err(e) => return Ok(Err(e.to_string())),
                 Ok(None) => None,
                 Ok(Some(st)) if !is_dir(&st) => None,
-                Ok(Some(_)) => match parent.sub(last).and_then(|made| made.private(true)) {
+                Ok(Some(_)) => match parent.sub(last).and_then(|made| made.closed(true)) {
                     Ok(Ok(id)) => Some(id),
                     Ok(Err(_)) => None,
                     Err(e) => return Ok(Err(e.to_string())),

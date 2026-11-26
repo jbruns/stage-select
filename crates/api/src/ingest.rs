@@ -425,6 +425,10 @@ pub struct IngestPlanContent {
     pub items: Vec<IngestPlanItem>,
     /// Every entry of the folder but Stage Select's own, by name.
     pub fingerprint: Vec<FolderEntry>,
+    /// What Stage Select changed, without a plan, of the permissions of the folder's own `.stage-select` folders since a
+    /// plan of it last said so (ADR 0031). Absent when nothing, so plans made before it keep their digest.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repaired: Vec<String>,
 }
 
 /// What happened to one item of an approved plan.

@@ -1772,3 +1772,70 @@ fn an_optional_rom_of_a_game_with_nothing_to_check_is_needed_while_absent() {
         })
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_stage_select_folder_stage_select_can_write_and_others_cannot_lets_an_ingest_plan_run() {
+    use crate::builds::{USABLE, make_usable, mode_of};
+    for case in USABLE {
+        let env = Env::new();
+        let state = env.dir("in").join(".stage-select");
+        make_usable(&state, case);
+        let mode = mode_of(&state);
+        env.put("mystery.a26", b"homebrew");
+        env.scan();
+        env.scan();
+
+        let plan = env.plan(IngestAction::Discard, &["mystery.a26"]);
+        let applied = env
+            .store
+            .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+
+        assert!(
+            applied.outcomes.iter().all(|o| o.moved),
+            "{case}: {applied:?}"
+        );
+        assert_eq!(
+            env.listing(),
+            [".stage-select/retained/1/mystery.a26.kept"],
+            "{case}"
+        );
+        assert_eq!(mode_of(&state), mode, "{case}: left as it is");
+        stage_select_store::pretend_owner(&state, None).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stage_select_folder_open_to_others_that_stage_select_owns_is_closed_and_the_ingest_plan_says_so()
+ {
+    use crate::builds::{mode_of, set_mode};
+    let env = Env::new();
+    let state = env.dir("in").join(".stage-select");
+    set_mode(&state, 0o777);
+    env.put("mystery.a26", b"homebrew");
+    env.scan();
+    env.scan();
+
+    let plan = env.plan(IngestAction::Discard, &["mystery.a26"]);
+
+    assert_eq!(
+        mode_of(&state),
+        0o770,
+        "others' access removed, the group's kept"
+    );
+    assert_eq!(
+        plan.content.repaired,
+        [format!(
+            "Others had access to {} (its permissions were 777), so Stage Select removed it: its permissions are \
+             now 770.",
+            state.display()
+        )]
+    );
+    let applied = env
+        .store
+        .approve_ingest_plan(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    assert!(applied.outcomes.iter().all(|o| o.moved), "{applied:?}");
+}

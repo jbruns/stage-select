@@ -1434,13 +1434,15 @@ impl Store {
             )));
         }
         let made = root.sub(&temp_name).map_err(io)?;
-        let temp = match made.private(true).map_err(io)? {
+        let temp = match made.closed(true).map_err(io)? {
             Ok(temp) => temp,
             Err(why) => {
-                return Ok(Err(format!(
-                    "{} is not the folder Stage Select made: {why}; it was left as it is",
-                    made.path().display()
-                )));
+                return Ok(Err(why.explain(|why| {
+                    format!(
+                        "{} is not the folder Stage Select made: {why}; it was left as it is",
+                        made.path().display()
+                    )
+                })));
             }
         };
         let (dev, ino) = temp.to_sql();

@@ -5919,3 +5919,80 @@ fn a_repair_plan_counts_the_files_it_walks_then_each_game_it_plans() {
         "counting changes nothing planned"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn a_stage_select_folder_stage_select_can_write_and_others_cannot_lets_a_repair_run() {
+    use crate::builds::{USABLE, make_usable, mode_of};
+    for case in USABLE {
+        let env = Env::new();
+        env.put("Pong (Anthology).a26", b"pong");
+        env.audit(AuditEvidence::Full);
+        let first = env.approve(&env.plan());
+        let state = env.set().join(".stage-select");
+        make_usable(&state, case);
+        let mode = mode_of(&state);
+        env.put("Combat (Anthology).a26", b"combat");
+        env.run_queued_audit(&first);
+
+        let plan = env.plan();
+        assert_eq!(
+            item(&plan, "game:Combat (USA)").kind,
+            RepairKind::Rename,
+            "{case}"
+        );
+        env.approve(&plan);
+
+        assert!(
+            env.listing().contains(&"Combat (USA).zip".to_owned()),
+            "{case}: {:?}",
+            env.listing()
+        );
+        assert_eq!(
+            env.store.source_kept_files("Alpha").unwrap().len(),
+            2,
+            "{case}"
+        );
+        assert_eq!(mode_of(&state), mode, "{case}: left as it is");
+        assert!(
+            plan.content.notes.is_empty(),
+            "{case}: {:?}",
+            plan.content.notes
+        );
+        stage_select_store::pretend_owner(&state, None).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stage_select_folder_open_to_others_that_stage_select_owns_is_closed_and_the_repair_plan_says_so()
+ {
+    use crate::builds::{mode_of, set_mode};
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let first = env.approve(&env.plan());
+    let state = env.set().join(".stage-select");
+    set_mode(&state, 0o777);
+    env.put("Combat (Anthology).a26", b"combat");
+    env.run_queued_audit(&first);
+
+    let plan = env.plan();
+
+    assert_eq!(
+        mode_of(&state),
+        0o770,
+        "others' access removed, the group's kept"
+    );
+    assert!(
+        plan.content.notes.contains(&format!(
+            "Others had access to {} (its permissions were 777), so Stage Select removed it: its permissions are \
+             now 770.",
+            state.display()
+        )),
+        "{:?}",
+        plan.content.notes
+    );
+    env.approve(&plan);
+    assert!(env.listing().contains(&"Combat (USA).zip".to_owned()));
+}

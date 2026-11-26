@@ -177,6 +177,24 @@ pub struct Store {
     romm_syncs_waiting: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
+/// Makes the entry at `path` read, wherever Stage Select checks who owns one of its own entries, as owned by the user
+/// and group `owner`, or, with `None`, by whoever its filesystem says: an owner other than the test's own user, or a
+/// group it isn't in, which an unprivileged test can't otherwise arrange. It holds for every store in the process, by
+/// the entry's identity.
+#[doc(hidden)]
+pub fn pretend_owner(path: &Path, owner: Option<(u32, u32)>) -> std::io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let st = std::fs::symlink_metadata(path)?;
+    folder_dir::pretend_owner(
+        folder_dir::Identity {
+            dev: st.dev(),
+            ino: st.ino(),
+        },
+        owner,
+    );
+    Ok(())
+}
+
 /// What a test runs at each [`Fault`] point.
 #[doc(hidden)]
 pub type FaultHook = std::sync::Arc<dyn Fn(Fault) + Send + Sync>;

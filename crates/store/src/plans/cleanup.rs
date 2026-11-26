@@ -754,6 +754,7 @@ impl Store {
                 }),
                 storage: inputs.storage,
                 notes: Vec::new(),
+                repaired: Vec::new(),
                 sbi_pack: None,
                 folder_deletion: None,
             },
@@ -908,7 +909,8 @@ impl Store {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
-        let planned = self.compute_cleanup(folder, &choices)?;
+        let mut planned = self.compute_cleanup(folder, &choices)?;
+        planned.content.repaired = self.repaired_in(folder)?;
         self.fault_point(Fault::Scanned);
         self.write(|tx| {
             let active = folder_by_id(tx, folder)?.active_job;
