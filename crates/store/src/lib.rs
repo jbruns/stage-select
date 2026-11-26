@@ -145,6 +145,8 @@ pub struct Store {
     publishing: Mutex<()>,
     /// Held while an Additions Set's folder is created.
     set_dirs: Mutex<()>,
+    /// Held while a plan retries the cleanup of a Library Folder's stopped Builds, so that no two retry at once.
+    recovering: Mutex<()>,
     /// Held while a registration is made or Unregistered, its marker written or removed, or a Library Folder's move
     /// reserves its destination, so that none of them interleave. Taken before the writer, never inside a write.
     lifecycle: Mutex<()>,
@@ -175,6 +177,33 @@ pub struct Store {
     free_space: std::sync::atomic::AtomicU64,
     /// How many of this store's syncs of the RomM Additions collection wait their turn, for tests.
     romm_syncs_waiting: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+// The seams let a caller make an entry read as another user's, so no optimized build, which every shipped binary is,
+// may have them: `cargo build --release --all-features`, or a dependent that turns the feature on, fails here. The
+// store's tests build with debug assertions, as `cargo test` and `cargo nextest run` do by default.
+#[cfg(all(feature = "test-seams", not(debug_assertions)))]
+compile_error!(
+    "the store's test-seams feature is for its own tests only, and never builds with --release; build without it"
+);
+
+/// Makes the entry at `path` read, wherever Stage Select checks who owns one of its own entries, as owned by the user
+/// and group `owner`, or, with `None`, by whoever its filesystem says: an owner other than the test's own user, or a
+/// group it isn't in, which an unprivileged test can't otherwise arrange. It holds for every store in the process, by
+/// the entry's identity. Only with the `test-seams` feature, which only the store's own tests enable.
+#[cfg(feature = "test-seams")]
+#[doc(hidden)]
+pub fn pretend_owner(path: &Path, owner: Option<(u32, u32)>) -> std::io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let st = std::fs::symlink_metadata(path)?;
+    folder_dir::pretend_owner(
+        folder_dir::Identity {
+            dev: st.dev(),
+            ino: st.ino(),
+        },
+        owner,
+    );
+    Ok(())
 }
 
 /// What a test runs at each [`Fault`] point.
@@ -277,6 +306,9 @@ pub enum Fault {
     /// After a Source Set file of a placing item with this sequence number is deleted, or kept, before the store
     /// records which.
     PlaceDisposed(i64),
+    /// After a Source Set file of a placing item with this sequence number is moved into the Source Set's kept
+    /// files, before either folder is synced or anything is recorded.
+    PlaceKeptAside(i64),
     /// After a returning item with this sequence number commits its intent to rename its placed files home, before
     /// each rename.
     ReturnRenaming(i64),
@@ -550,6 +582,7 @@ impl Store {
             fault: Mutex::new(None),
             publishing: Mutex::new(()),
             set_dirs: Mutex::new(()),
+            recovering: Mutex::new(()),
             lifecycle: Mutex::new(()),
             observer: std::sync::OnceLock::new(),
             ceilings: ceilings::Live::default(),

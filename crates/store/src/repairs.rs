@@ -49,7 +49,9 @@ use crate::ingest::OwedAudits;
 use crate::ingest::fill_candidates;
 use crate::ingest::moves::{Destination, Move};
 use crate::jobs::{finish_running, job_by_id};
-use crate::kept::{Scope, name_key, open_area_deleting, open_retention, settle_dir_temps, unique};
+use crate::kept::{
+    Scope, kept_found, name_key, open_area_deleting, open_retention, settle_dir_temps, unique,
+};
 use crate::plan_meter::PlanMeter;
 use crate::plans::returns::{bytes, rounded};
 use crate::plans::{json, to_json};
@@ -99,7 +101,7 @@ fn check_set_marker(
 ) -> std::result::Result<(), String> {
     let path = dir.path().display();
     match read_set_marker(dir) {
-        MarkerFound::Present(marker) if marker == *expected => Ok(()),
+        MarkerFound::Present(marker) if marker == *expected => dir.close_state(expected),
         MarkerFound::Absent if rule == MarkerRule::Creating => Ok(()),
         MarkerFound::Present(marker) if marker.store != expected.store => Err(format!(
             "{path}: its .stage-select marker is from another store; is this the right folder, or the right mount? \
@@ -925,6 +927,15 @@ impl Store {
         let dat = Dat::read(&self.blob_path(&report.dat_revision.sha256))
             .map_err(|e| Error::Io(e.to_string()))?;
         let dir = FolderDir::open(&root.path, &record.path).map_err(io_err)?;
+        // Others' access to its own folder is removed only once its marker shows it is this store's Source Set. One
+        // that can't be removed is refused, with how to fix it, when the plan is approved.
+        let expected = SourceSetMarker {
+            store: self.read(store_id)?,
+            source_set: set.id,
+        };
+        if matches!(read_set_marker(&dir), MarkerFound::Present(marker) if marker == expected) {
+            let _ = dir.close_state(&expected);
+        }
         let folder = dir.identity().map_err(io_err)?;
         let reported: HashSet<&str> = report.entries.iter().map(|e| e.path.as_str()).collect();
         // The files the Audit read are as good a guess as any of how many there are now.
@@ -1096,6 +1107,10 @@ impl Store {
         }
         let (generation, marked) = self.read(|c| source_folder(c, set.id))?;
         let needs = self.release_needs(&planned, &dir, generation + 1)?;
+        // What Stage Select changed of the permissions of the Source Set's own entries, it says.
+        planned
+            .notes
+            .extend(crate::folder_dir::take_repaired(dir.path()));
         if let Some(needs) = needs {
             planned.notes.push(format!(
                 "{}, and the plan can't be approved without it",
@@ -1974,12 +1989,41 @@ impl Store {
                  folder, then plan the repair again. Nothing in it was changed"
             )))
         };
+        let at = dir.path().join(MARKER_NEW);
+        // Why the marker temp, `st` as found, could not be opened to write with `e`, where its permissions or its
+        // folder's keep Stage Select out: what is wrong and how to fix it, the temp left pending so that once the
+        // Operator fixes it the next repair takes it up again. `None` for anything else.
+        let denied = |e: &io::Error, st: Option<rustix::fs::Stat>| -> Option<String> {
+            if e.kind() != io::ErrorKind::PermissionDenied {
+                return None;
+            }
+            if let Ok(Some(why)) = dir.state_exposed() {
+                return Some(why);
+            }
+            let st = st.filter(|st| FolderDir::kind(st) == FileType::RegularFile)?;
+            crate::folder_dir::closed_to_others(
+                crate::folder_dir::Opened::Not,
+                &st,
+                &at,
+                crate::folder_dir::Needs::File,
+                crate::folder_dir::PermissionFix::Deferred,
+            )
+            .err()
+        };
         // Opened once: checked, written and published through the one descriptor, held throughout, so nothing put in
         // its place, even with the inode number it freed, is ever written to.
         let mut file = match (stat(MARKER_NEW)?, recorded) {
-            (Some(_), Some(id)) => {
-                let Ok(mut file) = dir.open_write(MARKER_NEW) else {
-                    return not_it(self);
+            (Some(found), Some(id)) => {
+                let mut file = match dir.open_write(MARKER_NEW) {
+                    Ok(file) => file,
+                    Err(e) => {
+                        if is_file(&found, id)
+                            && let Some(why) = denied(&e, Some(found))
+                        {
+                            return Ok(Err(why));
+                        }
+                        return not_it(self);
+                    }
                 };
                 let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
                 let mut held = Vec::new();
@@ -1996,15 +2040,18 @@ impl Store {
                 }
                 file
             }
-            (Some(_), None) if pending => {
-                let Ok(file) = dir.open_write(MARKER_NEW) else {
-                    return not_it(self);
+            (Some(found), None) if pending => {
+                // Whoever owns it, as for Stage Select's own folders (ADR 0031). What it can't fix is left pending,
+                // so that once the Operator fixes it the next repair takes it up again.
+                let file = match dir.open_write(MARKER_NEW) {
+                    Ok(file) => file,
+                    Err(e) => match denied(&e, Some(found)) {
+                        Some(why) => return Ok(Err(why)),
+                        None => return not_it(self),
+                    },
                 };
                 let st = rustix::fs::fstat(&file).map_err(|e| io_err(e.into()))?;
-                if !(st.st_size == 0
-                    && st.st_nlink == 1
-                    && st.st_uid == rustix::process::geteuid().as_raw())
-                {
+                if !(st.st_size == 0 && st.st_nlink == 1) {
                     return not_it(self);
                 }
                 self.record_marker_temp(set, Identity::of(&st))?;
@@ -2028,11 +2075,40 @@ impl Store {
                             return Ok(Err(format!("{path}: {e}; nothing in it was changed")));
                         }
                     };
+                // Made exclusively through this descriptor, so it is this store's: the umask's "other" bits are
+                // taken off before anything is written, as for a folder it makes, with nothing to report.
+                if let Ok(st) = rustix::fs::fstat(&file) {
+                    // `st_mode` is `u32` on Linux and `u16` on macOS.
+                    #[allow(clippy::unnecessary_cast)]
+                    let mode = st.st_mode as u32 & 0o7777;
+                    let _ = rustix::fs::fchmod(
+                        &file,
+                        rustix::fs::Mode::from_raw_mode((mode & !0o007) as _),
+                    );
+                }
                 self.record_marker_temp(set, Identity::of_fd(&file).map_err(io_err)?)?;
                 file
             }
         };
         let id = Identity::of_fd(&file).map_err(io_err)?;
+        // Whichever way it was found or made, it is closed to others through the descriptor held before anything is
+        // written to it, and again before it is published: a temp that came out, or was made, open to others is never
+        // the marker. One that can't be closed is refused with how to fix it, its record kept, so that once it is
+        // fixed the next repair takes it up again.
+        let closed = |file: &std::fs::File| -> Result<std::result::Result<(), String>> {
+            let st = rustix::fs::fstat(file).map_err(|e| io_err(e.into()))?;
+            Ok(crate::folder_dir::closed_to_others(
+                crate::folder_dir::Opened::File(std::os::fd::AsFd::as_fd(file)),
+                &st,
+                &at,
+                crate::folder_dir::Needs::File,
+                crate::folder_dir::PermissionFix::Allowed,
+            )
+            .map(|_| ()))
+        };
+        if let Err(why) = closed(&file)? {
+            return Ok(Err(why));
+        }
         self.fault_point(Fault::RepairMarkerChecked);
         {
             use std::io::{Seek, Write};
@@ -2043,6 +2119,9 @@ impl Store {
                 .map_err(io_err)?;
         }
         self.fault_point(Fault::RepairMarkerWritten);
+        if let Err(why) = closed(&file)? {
+            return Ok(Err(why));
+        }
         if !stat(MARKER_NEW)?.is_some_and(|st| is_file(&st, id)) {
             forget(self)?;
             return Ok(Err(format!(
@@ -3056,8 +3135,13 @@ impl Store {
         }
         deleting.sync().map_err(io_err)?;
         generation.sync().map_err(io_err)?;
-        let st = match generation.stat(kept).map_err(io_err)? {
-            Some(st) if FolderDir::kind(&st) == FileType::RegularFile => st,
+        let staged = format!(
+            "{}/{staged_name}, a file Stage Select staged,",
+            r.dir.path().display()
+        );
+        let st = match kept_found((&r.dir, &generation), content.generation, kept, &staged)? {
+            Err(moved) => return Ok(Err(moved)),
+            Ok(Some(st)) if FolderDir::kind(&st) == FileType::RegularFile => st,
             _ => {
                 return Ok(Err(format!(
                     "{}/{staged_name}, a file Stage Select staged, changed since it was written, and is neither in \
@@ -3295,7 +3379,14 @@ impl Store {
         // Whether this call or one before a stop moved it, both folders are synced before it is recorded kept.
         parent.sync().map_err(io_err)?;
         generation.sync().map_err(io_err)?;
-        let st = match generation.stat(kept).map_err(io_err)? {
+        let found = match kept_found((&r.dir, generation), content.generation, kept, path)? {
+            Ok(found) => found,
+            Err(moved) => {
+                self.fail_step(step, "failed", moved)?;
+                return Ok(Ok(None));
+            }
+        };
+        let st = match found {
             // The stamp recorded is the one `seen` was trusted with, never one taken from the kept name now.
             Some(st)
                 if FolderDir::kind(&st) == FileType::RegularFile
@@ -3456,6 +3547,21 @@ impl Store {
             }
         };
         self.fault_point(Fault::RepairMoved(step.seq));
+        match kept_found((&r.dir, &generation), content.generation, kept, path)? {
+            Ok(Some(found)) if Identity::of(&found) == Identity::of(&st) => {}
+            Ok(_) => {
+                self.fail_step(
+                    step,
+                    "failed",
+                    format!("{path}'s copy is not at {kept} in the kept files; nothing records it as kept"),
+                )?;
+                return Ok(Ok(None));
+            }
+            Err(moved) => {
+                self.fail_step(step, "failed", moved)?;
+                return Ok(Ok(None));
+            }
+        }
         let file = file_stat(&st);
         let (dev, ino) = Identity::of(&st).to_sql();
         let kept_id = self.write(|tx| {
@@ -4200,8 +4306,11 @@ impl Store {
         r.dir.sync_holding(staged_name).map_err(io_err)?;
         generation.sync().map_err(io_err)?;
         self.fault_point(Fault::RepairFoundSynced(step.seq));
-        if let Some(st) = generation.stat(kept).map_err(io_err)? {
-            return settle(&st);
+        let kept_at = r.plan.content.generation;
+        match kept_found((&r.dir, generation), kept_at, kept, staged_name)? {
+            Ok(Some(st)) => return settle(&st),
+            Ok(None) => {}
+            Err(moved) => return self.step_failed(step, "failed", moved),
         }
         match r.dir.stat(staged_name).map_err(io_err)? {
             Some(st) if FolderDir::kind(&st) == FileType::RegularFile => {
@@ -4218,11 +4327,12 @@ impl Store {
                 }
                 r.dir.sync_holding(staged_name).map_err(io_err)?;
                 generation.sync().map_err(io_err)?;
-                match generation.stat(kept).map_err(io_err)? {
-                    Some(st) => settle(&st),
-                    None => Ok(Err(format!(
+                match kept_found((&r.dir, generation), kept_at, kept, staged_name)? {
+                    Ok(Some(st)) => settle(&st),
+                    Ok(None) => Ok(Err(format!(
                         "{kept} was moved from the kept files as it was set aside"
                     ))),
+                    Err(moved) => self.step_failed(step, "failed", moved),
                 }
             }
             Some(_) => self.step_failed(

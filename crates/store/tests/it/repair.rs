@@ -2725,6 +2725,46 @@ fn a_first_marker_a_stop_left_unpublished_is_published_when_the_repair_runs_agai
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn a_first_marker_stage_select_cannot_open_after_a_stop_is_refused_with_the_fix_and_kept() {
+    let env = Env::new();
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let approved = env
+        .store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.store.inject_fault(Some(Fault::RepairMarkerWritten));
+    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.run_repair_job(&approved)
+    }));
+    assert!(ran.is_err(), "{ran:?}");
+    env.store.inject_fault(None);
+    let temp = env.set().join(".stage-select/marker.new");
+    crate::builds::set_mode(&temp, 0o400);
+    env.store.recover_jobs(WORKERS).unwrap();
+
+    let ended = env.run_repair_job(&env.store.repair_plan(plan.id).unwrap());
+
+    assert_eq!(ended.state, JobState::Failed, "{ended:?}");
+    let message = ended.error.unwrap();
+    assert!(
+        message.starts_with(&format!(
+            "{} can't be used: Stage Select can't read and write it (",
+            temp.display()
+        )),
+        "{message}"
+    );
+    assert!(!message.contains("move it"), "{message}");
+    // The Operator runs the command, and the next repair takes up the marker it left.
+    crate::builds::run_fix(&message, &temp);
+    env.approve(&env.plan());
+    assert!(env.set().join(".stage-select/marker").exists());
+    assert!(!temp.exists());
+}
+
 #[test]
 fn a_file_put_in_place_of_a_first_marker_a_stop_left_is_never_written_over() {
     let env = Env::new();
@@ -5918,4 +5958,189 @@ fn a_repair_plan_counts_the_files_it_walks_then_each_game_it_plans() {
         env.plan().digest,
         "counting changes nothing planned"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stage_select_folder_stage_select_can_write_and_others_cannot_lets_a_repair_run() {
+    use crate::builds::{USABLE, make_usable, mode_of};
+    for case in USABLE {
+        let env = Env::new();
+        env.put("Pong (Anthology).a26", b"pong");
+        env.audit(AuditEvidence::Full);
+        let first = env.approve(&env.plan());
+        let state = env.set().join(".stage-select");
+        make_usable(&state, case);
+        let mode = mode_of(&state);
+        env.put("Combat (Anthology).a26", b"combat");
+        env.run_queued_audit(&first);
+
+        let plan = env.plan();
+        assert_eq!(
+            item(&plan, "game:Combat (USA)").kind,
+            RepairKind::Rename,
+            "{case}"
+        );
+        env.approve(&plan);
+
+        assert!(
+            env.listing().contains(&"Combat (USA).zip".to_owned()),
+            "{case}: {:?}",
+            env.listing()
+        );
+        assert_eq!(
+            env.store.source_kept_files("Alpha").unwrap().len(),
+            2,
+            "{case}"
+        );
+        assert_eq!(mode_of(&state), mode, "{case}: left as it is");
+        assert!(
+            plan.content.notes.is_empty(),
+            "{case}: {:?}",
+            plan.content.notes
+        );
+        stage_select_store::pretend_owner(&state, None).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stage_select_folder_open_to_others_that_stage_select_owns_is_closed_and_the_repair_plan_says_so()
+ {
+    use crate::builds::{mode_of, set_mode};
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.audit(AuditEvidence::Full);
+    let first = env.approve(&env.plan());
+    let state = env.set().join(".stage-select");
+    set_mode(&state, 0o777);
+    env.put("Combat (Anthology).a26", b"combat");
+    env.run_queued_audit(&first);
+
+    let plan = env.plan();
+
+    assert_eq!(
+        mode_of(&state),
+        0o770,
+        "others' access removed, the group's kept"
+    );
+    assert!(
+        plan.content.notes.contains(&format!(
+            "Others had access to {} (its permissions were 777), so Stage Select removed their access: its \
+             permissions are now 770.",
+            state.display()
+        )),
+        "{:?}",
+        plan.content.notes
+    );
+    env.approve(&plan);
+    assert!(env.listing().contains(&"Combat (USA).zip".to_owned()));
+}
+
+/// A file a Repair moved into the Source Set's Kept Files is recorded kept only where the record says it is: one whose
+/// retention area was moved meanwhile, as anyone in the folder's group may, is not recorded, and the step says where
+/// to look.
+#[test]
+fn a_kept_files_folder_moved_while_a_repair_keeps_a_file_aside_is_never_recorded_as_the_files_place()
+ {
+    let env = Env::new();
+    env.put("Pong (Anthology).a26", b"pong");
+    env.put("readme.txt", b"hello");
+    env.audit(AuditEvidence::Full);
+    let plan = env.plan();
+    let keep = plan
+        .content
+        .steps
+        .iter()
+        .position(|s| matches!(s.step, RepairStep::Keep { .. }))
+        .unwrap() as u32;
+    let area = env.set().join(".stage-select/retained");
+    let moved = env.set().join(".stage-select/retained-moved");
+    let (from, to) = (area.clone(), moved.clone());
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if fault == Fault::RepairMoved(keep) && from.exists() && !to.exists() {
+                std::fs::rename(&from, &to).unwrap();
+            }
+        })));
+    let approved = env
+        .store
+        .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+        .unwrap();
+    env.run_repair_job(&approved);
+    env.store.hook_faults(None);
+
+    let aside: Vec<String> = Env::files(&moved)
+        .into_iter()
+        .filter_map(|f| {
+            f.rsplit('/')
+                .next()?
+                .strip_suffix(".kept")
+                .map(str::to_owned)
+        })
+        .collect();
+    assert_eq!(aside.len(), 1, "{aside:?}");
+    let recorded = env.store.source_kept_files("Alpha").unwrap();
+    assert!(
+        recorded.iter().all(|k| k.name != aside[0]),
+        "recorded where it is not: {recorded:?}"
+    );
+    let done = env.store.repair_plan(plan.id).unwrap();
+    assert!(
+        done.outcomes.iter().any(|o| o
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("was moved before it was recorded, so it is not at"))),
+        "{:#?}",
+        done.outcomes
+    );
+}
+
+/// The first marker is never published open to others, whichever way its temporary file came to be: as it was being
+/// written, or as a stop left it before the next repair took it up again.
+#[cfg(unix)]
+#[test]
+fn a_first_marker_open_to_others_is_closed_before_it_is_published() {
+    use crate::builds::{mode_of, set_mode};
+    for case in ["as it is written", "after a stop"] {
+        let env = Env::new();
+        env.put("readme.txt", b"hello");
+        env.audit(AuditEvidence::Full);
+        let plan = env.plan();
+        let approved = env
+            .store
+            .approve_repair(plan.id, &plan.digest, "Operator", WORKERS)
+            .unwrap();
+        let temp = env.set().join(".stage-select/marker.new");
+        let ended = match case {
+            "as it is written" => {
+                let at = temp.clone();
+                env.store
+                    .hook_faults(Some(std::sync::Arc::new(move |fault| {
+                        if fault == Fault::RepairMarkerWritten {
+                            set_mode(&at, 0o666);
+                        }
+                    })));
+                let ended = env.run_repair_job(&approved);
+                env.store.hook_faults(None);
+                ended
+            }
+            _ => {
+                env.store.inject_fault(Some(Fault::RepairMarkerChecked));
+                let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    env.run_repair_job(&approved)
+                }));
+                assert!(ran.is_err(), "{ran:?}");
+                env.store.inject_fault(None);
+                set_mode(&temp, 0o666);
+                env.store.recover_jobs(WORKERS).unwrap();
+                env.run_repair_job(&env.store.repair_plan(plan.id).unwrap())
+            }
+        };
+
+        assert_eq!(ended.state, JobState::Succeeded, "{case}: {ended:?}");
+        let marker = env.set().join(".stage-select/marker");
+        assert_eq!(mode_of(&marker), 0o660, "{case}");
+        assert!(!temp.exists(), "{case}");
+    }
 }

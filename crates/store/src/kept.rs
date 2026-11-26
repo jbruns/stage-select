@@ -22,7 +22,9 @@ use stage_select_api::repair::KeptFileReviewed;
 
 use super::builds::{sha256_of, temps};
 use super::checks::Seen;
-use super::folder_dir::{FolderDir, Identity, ctime_ns, file_stat, parent_made, parent_of};
+use super::folder_dir::{
+    FolderDir, Identity, Unusable, ctime_ns, file_stat, parent_made, parent_of,
+};
 use super::folders::{check_marker, folder_by_id, open_writable_folder, store_id};
 use super::plans::{json, to_json};
 use super::{Error, Fault, Result, Store, now};
@@ -186,12 +188,13 @@ fn is_dir(st: &rustix::fs::Stat) -> bool {
 
 /// Creates the directory `name` in `parent`, which is recorded under `key`: in `folder_dirs`, or, for a Build's
 /// staging directory, in `folder_temps`. It is made for this service's user only, under a unique temporary name
-/// committed to `folder_temp_names` before it is made, checked through its open descriptor to be the empty, private
-/// directory just made ([`FolderDir::private`]), recorded in `folder_temps` by identity, made durable, and renamed
-/// to `name` without replacing anything; its parent is then made durable, and it is used only if what is at `name`
-/// is still the directory made, which is then recorded. Nothing is ever removed by name: a temporary folder that was
-/// not renamed into place is recorded as a leftover of this store and left. Recovery records one a stop left behind,
-/// whichever step it stopped at, from the name or identity committed before it.
+/// committed to `folder_temp_names` before it is made, checked through its open descriptor to be the empty
+/// directory just made, closed to others, with nothing about it changed ([`FolderDir::made_closed`]), recorded in
+/// `folder_temps` by identity, made durable, and renamed to `name` without replacing anything; its parent is then made
+/// durable, and it is used only if what is at `name` is still the directory made, by identity, before others' access
+/// to it is removed ([`FolderDir::closed`]), which is then recorded. Nothing is ever removed by name: a
+/// temporary folder that was not renamed into place is recorded as a leftover of this store and left. Recovery
+/// records one a stop left behind, whichever step it stopped at, from the name or identity committed before it.
 pub(super) fn create_dir(
     store: &Store,
     folder: impl Into<Scope>,
@@ -230,17 +233,24 @@ pub(super) fn create_dir(
     } else {
         Fault::MadeDir
     });
+    // Until its identity is recorded, nothing shows that what is at the temporary name is the folder just made, so
+    // nothing about it is changed. One Stage Select can't open or use is refused with how to fix it, its name left
+    // committed: once it is fixed, the next plan records it as this store's leftover, as after a stop here.
     let made = match parent.sub(&temp) {
         Ok(made) => made,
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Ok(Err(e.to_string())),
         Err(e) => return not_made(e.to_string()),
     };
-    let id = match made.private(true) {
+    let id = match made.made_closed() {
         Ok(Ok(id)) => id,
+        Ok(Err(Unusable::Access(why))) => return Ok(Err(why)),
         Ok(Err(why)) => {
-            return not_made(format!(
-                "{}/{temp} is not the folder Stage Select just created there: {why}; it was left as it is",
-                parent.path().display()
-            ));
+            return not_made(why.explain(|why| {
+                format!(
+                    "{}/{temp} is not the folder Stage Select just created there: {why}; it was left as it is",
+                    parent.path().display()
+                )
+            }));
         }
         Err(e) => return not_made(e.to_string()),
     };
@@ -284,8 +294,26 @@ pub(super) fn create_dir(
         Ok(dir) => dir,
         Err(e) => return Ok(Err(e.to_string())),
     };
-    match dir.private(true) {
+    // What was opened must be the folder made, recorded by identity, before anything about it is changed.
+    if dir.identity().ok() != Some(id) {
+        forget_temp(store, folder, &temp_key)?;
+        return Ok(Err(not_ours(parent, name)));
+    }
+    match dir.closed(true) {
         Ok(Ok(found)) if found == id => {}
+        // Still the folder made, which Stage Select can't use as it is now: recorded as made, and used once the
+        // Operator fixes it.
+        Ok(Err(Unusable::Access(why))) => {
+            store.write(|tx| {
+                record_made(tx, folder, key, id)?;
+                tx.execute(
+                    &folder.sql("DELETE FROM {temps} WHERE folder_id = ?1 AND name = ?2"),
+                    params![folder.id(), temp_key],
+                )?;
+                Ok(())
+            })?;
+            return Ok(Err(why));
+        }
         Ok(_) => {
             forget_temp(store, folder, &temp_key)?;
             return Ok(Err(not_ours(parent, name)));
@@ -372,7 +400,7 @@ fn record_leftover(store: &Store, folder: impl Into<Scope>, key: &str, id: Ident
 }
 
 /// Opens the directory `name` in `parent`, which `folder_dirs` records under `key`, and checks it is the directory
-/// recorded, still private to this service's user ([`FolderDir::private`]). When nothing is there and `create` is
+/// recorded, still closed to others ([`FolderDir::closed`]). When nothing is there and `create` is
 /// set, creates it with [`create_dir`]; otherwise returns `None`.
 fn own_dir(
     store: &Store,
@@ -399,13 +427,20 @@ fn own_dir(
                 Ok(dir) => dir,
                 Err(e) => return Ok(Err(e.to_string())),
             };
-            match dir.private(false) {
+            // What was opened, not what was found at the name before, must be the folder recorded before anything
+            // about it is changed: something put in its place since is never repaired.
+            if dir.identity().ok() != recorded {
+                return Ok(Err(not_ours(parent, name)));
+            }
+            match dir.closed(false) {
                 Ok(Ok(id)) if Some(id) == recorded => Ok(Ok(Some(dir))),
                 Ok(Ok(_)) => Ok(Err(not_ours(parent, name))),
-                Ok(Err(why)) => Ok(Err(format!(
-                    "{}/{name} is no longer private to this service: {why}; it was left as it is",
-                    parent.path().display()
-                ))),
+                Ok(Err(why)) => Ok(Err(why.explain(|why| {
+                    format!(
+                        "{}/{name} is no longer Stage Select's own folder: {why}; it was left as it is",
+                        parent.path().display()
+                    )
+                }))),
                 Err(e) => Ok(Err(e.to_string())),
             }
         }
@@ -510,13 +545,16 @@ pub(super) fn settle_dir_temps(
         };
         let Some(id) = id else {
             // Made, if at all, by this store's last attempt: recorded only when it is still the empty directory,
-            // private to this service, that attempt made.
+            // closed to others, that attempt made.
             let made = match parent.stat(last) {
                 Err(e) => return Ok(Err(e.to_string())),
                 Ok(None) => None,
                 Ok(Some(st)) if !is_dir(&st) => None,
-                Ok(Some(_)) => match parent.sub(last).and_then(|made| made.private(true)) {
+                // Nothing about it is changed, as nothing recorded shows it is the one made. One Stage Select can't
+                // use is refused with how to fix it, its name kept, and recorded once it is fixed.
+                Ok(Some(_)) => match parent.sub(last).and_then(|made| made.made_closed()) {
                     Ok(Ok(id)) => Some(id),
+                    Ok(Err(Unusable::Access(why))) => return Ok(Err(why)),
                     Ok(Err(_)) => None,
                     Err(e) => return Ok(Err(e.to_string())),
                 },
@@ -583,6 +621,36 @@ pub(super) fn open_retention(
     let key = generation_dir(generation);
     Ok(own_dir(store, folder, &area, &name, &key, create)?
         .map(|found| found.map(|generation| Retention { area, generation })))
+}
+
+/// What is at `kept` in `held`, the folder of generation `generation` in the retention area of the folder opened as
+/// `dir`, that something was just moved or copied into, from `lstat`: `None` when nothing is. Every keep looks here
+/// before it records anything kept. It is found through `held` and again through `dir`, by the path its record will
+/// give, and the two must be one entry: anyone in the folder's group may move the retention area, or a generation's
+/// folder in it, aside while it is held open, and an entry is recorded kept only where it is. `Err` says that
+/// `what` was set aside but not where its record would say, and where to look.
+pub(super) fn kept_found(
+    (dir, held): (&FolderDir, &FolderDir),
+    generation: u64,
+    kept: &str,
+    what: &str,
+) -> Result<std::result::Result<Option<rustix::fs::Stat>, String>> {
+    let io = |e: io::Error| Error::Io(e.to_string());
+    let found = held.stat(kept).map_err(io)?;
+    let recorded = format!("{}/{kept}", generation_dir(generation));
+    let there = dir.stat(&recorded).map_err(io)?;
+    Ok(match (found, there) {
+        (None, None) => Ok(None),
+        (Some(found), Some(there)) if Identity::of(&found) == Identity::of(&there) => {
+            Ok(Some(found))
+        }
+        _ => Err(format!(
+            "{what} was set aside into {}, but that folder, or the one holding it, was moved before it was \
+             recorded, so it is not at {}; find it where that folder went. Nothing records it as kept",
+            held.path().display(),
+            dir.path().join(&recorded).display()
+        )),
+    })
 }
 
 /// Whether `name` in `dir` is, without following a symlink, the regular file `id` with `file`'s size and
@@ -1008,11 +1076,22 @@ impl Store {
             })
             .map_err(|e| Error::Io(e.to_string()))?;
         self.fault_point(Fault::AfterKeep(k.seq));
-        if !is_kept_entry(&retention.generation, &kept, id, None, directory) {
-            let error = format!(
-                "{}/{kept} is not the file moved there; it was left as it is",
-                retention.generation.path().display()
-            );
+        let kind = if directory {
+            FileType::Directory
+        } else {
+            FileType::RegularFile
+        };
+        let found = kept_found((dir, &retention.generation), k.generation, &kept, name)?;
+        let ours =
+            matches!(&found, Ok(Some(st)) if FolderDir::kind(st) == kind && Identity::of(st) == id);
+        if !ours {
+            let error = match found {
+                Err(moved) => moved,
+                Ok(_) => format!(
+                    "{}/{kept} is not the file moved there; it was left as it is",
+                    retention.generation.path().display()
+                ),
+            };
             self.write(|tx| {
                 tx.execute(
                     "UPDATE kept_files SET state = 'lost', error = ?2 WHERE id = ?1",

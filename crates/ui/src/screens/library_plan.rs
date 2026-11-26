@@ -922,10 +922,16 @@ fn PlanView(plan: Plan, folder: i64, refresh: RwSignal<u64>) -> impl IntoView {
                     Nothing changes until you approve."
                 </p>
                 {planned_from(plan)}
-                {(!plan.content.notes.is_empty()).then(|| view! {
+                {(!plan.content.notes.is_empty() || !plan.content.repaired.is_empty()).then(|| view! {
                     <h3>"Notes"</h3>
                     <ul class="plain">
-                        {plan.content.notes.iter().map(|n| view! { <li>{n.clone()}</li> }).collect_view()}
+                        {plan
+                            .content
+                            .notes
+                            .iter()
+                            .chain(&plan.content.repaired)
+                            .map(|n| view! { <li>{n.clone()}</li> })
+                            .collect_view()}
                     </ul>
                 })}
                 {(!plan.changes.is_empty()).then(|| view! {

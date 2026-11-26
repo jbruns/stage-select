@@ -218,7 +218,7 @@ pub(super) fn check_ingest_marker(
 ) -> std::result::Result<(), String> {
     let path = dir.path().display();
     match read_ingest_marker(dir) {
-        MarkerFound::Present(marker) if marker == *expected => Ok(()),
+        MarkerFound::Present(marker) if marker == *expected => dir.close_state(expected),
         MarkerFound::Present(marker) if marker.store != expected.store => Err(format!(
             "{path}: its .stage-select marker is from another store; is this the right folder, or the right mount? \
              Nothing in it was changed"
@@ -2160,6 +2160,7 @@ impl Store {
             generation,
             items,
             fingerprint: fingerprint(&dir).map_err(|e| Error::Io(e.to_string()))?,
+            repaired: crate::folder_dir::take_repaired(dir.path()),
         };
         let digest = digest(&content);
         self.write(|tx| {

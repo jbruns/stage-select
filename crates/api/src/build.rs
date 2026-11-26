@@ -801,6 +801,11 @@ pub struct PlanContent {
     /// What the plan does not do as the storage policy says, or for want of anything to build, and why.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+    /// What Stage Select changed, without a plan, of the permissions of the folder's own `.stage-select` folders since a
+    /// plan of it last said so (ADR 0031): said once, and no part of what an approval binds, so a plan made again
+    /// keeps it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repaired: Vec<String>,
     /// The SHA-256 of the SBI pack the plan's SBI files come from, when its system puts SBI files beside its discs:
     /// a plan whose pack is no longer the system's is stale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -935,7 +940,7 @@ pub struct Approval {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Plan {
     pub id: i64,
-    /// The SHA-256 of the canonical JSON of `content`, which an approval binds to.
+    /// The SHA-256 of the canonical JSON of `content`, without its `repaired`, which an approval binds to.
     pub digest: String,
     pub created_at: String,
     pub content: PlanContent,

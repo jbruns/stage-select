@@ -633,6 +633,53 @@ fn a_copy_whose_original_changes_before_it_is_deleted_keeps_the_original_in_the_
     assert_kept_by_build(&env, job.id, None);
 }
 
+/// A Source Set file a Build moved into the Source Set's Kept Files is recorded kept only where the record says it is:
+/// one whose retention area was moved meanwhile, as anyone in the folder's group may, is not recorded, and the item
+/// says where to look.
+#[test]
+fn a_kept_files_folder_moved_while_a_build_keeps_an_original_is_never_recorded_as_its_place() {
+    let env = Env::new();
+    pong_zip(&env);
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    env.store.copy_across_filesystems(true);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    let original = env.set().join("Pong (USA).zip");
+    let area = env.set().join(".stage-select/retained");
+    let moved = env.set().join(".stage-select/retained-moved");
+    let (from, to) = (area, moved);
+    env.store
+        .hook_faults(Some(std::sync::Arc::new(move |fault| {
+            if matches!(fault, Fault::PlaceRecorded(_)) {
+                overwrite_keeping_stamp(&original);
+            }
+            if matches!(fault, Fault::PlaceKeptAside(_)) && from.exists() && !to.exists() {
+                std::fs::rename(&from, &to).unwrap();
+            }
+        })));
+    let job = env.build(&plan);
+    env.store.hook_faults(None);
+
+    assert!(
+        private_files(&env.set())
+            .iter()
+            .any(|f| f.starts_with(".stage-select/retained-moved/")
+                && f.ends_with("Pong (USA).zip.kept")),
+        "{:?}",
+        private_files(&env.set())
+    );
+    assert!(
+        env.store.source_kept_files(SET).unwrap().is_empty(),
+        "recorded where it is not"
+    );
+    let said = format!("{:?} {:?}", job.error, env.item(job.id, "Pong (USA)").error);
+    assert!(
+        said.contains("was moved before it was recorded, so it is not at"),
+        "{said}"
+    );
+}
+
 /// Asserts that the source set's one kept file is its Pong (USA).zip, kept by the build of job `job`, and holds
 /// `bytes` if given; nothing else is left in its private folders.
 fn assert_kept_by_build(env: &Env, job: i64, bytes: Option<&[u8]>) {

@@ -2114,6 +2114,7 @@ impl Store {
                 newer.id
             )));
         }
+        self.note_repaired(plan_id, &again.content.repaired)?;
         if let Some(cleanup) = &content.cleanup {
             return self
                 .carry_out_cleanup(job, plan_id, content, cleanup, &again, build_id, progress);
@@ -3553,6 +3554,12 @@ impl Store {
                 marker.generation, folder.generation
             )));
         };
+        // Shown to be this store's folder. Before anything in it is changed, others' access to its .stage-select
+        // (as a recursive chmod on the Host while the service was down gives) is removed, through a descriptor its
+        // whole marker is matched through again.
+        if let Err(reason) = dir.close_state(&marker) {
+            return Ok(Err(reason));
+        }
         if let Err(reason) = settle_dir_temps(self, folder.id, &dir)? {
             return Ok(Err(reason));
         }
@@ -3781,6 +3788,30 @@ impl Store {
             )?;
         }
         Ok(Ok(()))
+    }
+
+    /// Retries the cleanup of each Build of Library Folder `folder` that ended without its folder being cleaned up,
+    /// as when the service starts, so that once the Operator fixes what stopped it the next plan goes ahead without a
+    /// restart.
+    /// Nothing is retried while a Job of the folder is queued or running: a Build that failed cleans up its own
+    /// folder before its Job ends. Why a cleanup left the folder as it is stays recorded for the plan to show.
+    pub(super) fn retry_recovery(&self, folder: i64) -> Result<()> {
+        let _held = self.recovering.lock().unwrap_or_else(|e| e.into_inner());
+        let builds: Vec<i64> = self.read(|c| {
+            if folder_by_id(c, folder)?.active_job.is_some() {
+                return Ok(Vec::new());
+            }
+            let mut stmt = c.prepare(
+                "SELECT id FROM builds WHERE folder_id = ?1 AND cleaned_at IS NULL
+                   AND state IN ('failed', 'interrupted') ORDER BY id",
+            )?;
+            let rows = stmt.query_map([folder], |r| r.get(0))?;
+            Ok(rows.collect::<Result<_, _>>()?)
+        })?;
+        for id in builds {
+            self.recover_build(id, None)?;
+        }
+        Ok(())
     }
 
     /// Run when the service starts, after [`Store::recover_jobs`]: cleans up the folder of each Build that ended

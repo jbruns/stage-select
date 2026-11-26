@@ -40,7 +40,7 @@ use crate::builds::sha256_of;
 use crate::checks::Seen;
 use crate::folder_dir::{FolderDir, Identity, create_staged, ctime_ns, file_stat, staged_name};
 use crate::folders::{check_marker, folder_by_id, open_writable_folder, store_id};
-use crate::kept::{Scope, open_area_deleting, open_retention, unique};
+use crate::kept::{Scope, kept_found, open_area_deleting, open_retention, unique};
 use crate::plans::{json, to_json};
 use crate::repairs::{MarkerRule, open_repairable};
 use crate::{Error, Fault, Result, Store, now};
@@ -1098,7 +1098,11 @@ impl Store {
         // Whether this call or one before a stop renamed it, both folders are synced before it is recorded kept.
         dir.sync().map_err(io)?;
         retention.sync().map_err(io)?;
-        let st = match retention.stat(&aside).map_err(io)? {
+        let kept_st = match kept_found((src, &retention), generation, &aside, name)? {
+            Ok(kept_st) => kept_st,
+            Err(moved) => return Ok(Aside::Ended(moved)),
+        };
+        let st = match kept_st {
             Some(st) if Identity::of(&st) == found => st,
             None => {
                 return Ok(Aside::Ended(format!(
@@ -2052,7 +2056,16 @@ impl Store {
         // Whether this call or one before a stop renamed it, both folders are synced before it is recorded kept.
         src.sync().map_err(io)?;
         retention.generation.sync().map_err(io)?;
-        let Some(st) = retention.generation.stat(&kept).map_err(io)? else {
+        let found = match kept_found((src, &retention.generation), generation, &kept, &m.name)? {
+            Ok(found) => found,
+            Err(moved) => {
+                return Ok(Ok((
+                    None,
+                    Some(format!("the {made} is in place, but {moved}")),
+                )));
+            }
+        };
+        let Some(st) = found else {
             return Ok(Ok((
                 None,
                 Some(format!(
@@ -2948,6 +2961,37 @@ mod tests {
             assert_eq!(kept.len(), 1, "{case}");
             assert_eq!(kept[0].name, original, "{case}");
         }
+    }
+
+    /// An original a move set aside is recorded kept only where the record says it is: one whose kept files folder
+    /// was moved meanwhile, as anyone in the folder's group may, is not recorded, and the move says where to look.
+    #[test]
+    fn a_kept_files_folder_moved_while_an_original_is_kept_is_never_recorded_as_its_place() {
+        let env = env();
+        env.put("pong.a26", b"pong");
+        let mv = env.mv("pong.a26", atari("Pong (USA).a26"), None);
+        FORCE_COPY.with(|f| f.set(true));
+        let area = env.tmp.path().join("in/.stage-select/retained");
+        let moved = env.tmp.path().join("in/.stage-select/retained-moved");
+        let (from, to) = (area.clone(), moved.clone());
+        env.store
+            .hook_faults(Some(std::sync::Arc::new(move |fault: Fault| {
+                if fault == Fault::IngestSetAside && from.exists() && !to.exists() {
+                    std::fs::rename(&from, &to).unwrap();
+                }
+            })));
+        let _ = env.store.move_out(mv);
+        env.store.hook_faults(None);
+        FORCE_COPY.with(|f| f.set(false));
+
+        assert!(moved.join("1/pong.a26.kept").exists());
+        assert!(env.store.ingest_kept_files("in").unwrap().is_empty());
+        let (_, error, note) = last_move(&env);
+        let said = format!("{error:?} {note:?}");
+        assert!(
+            said.contains("was moved before it was recorded, so it is not at"),
+            "{said}"
+        );
     }
 
     #[test]
