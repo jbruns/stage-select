@@ -6184,6 +6184,10 @@ fn a_file_rewritten_unnoticed_since_the_audit_is_found_changed_by_its_re_read() 
     env.put("Pong (Anthology).a26", b"pong");
     env.audit(AuditEvidence::Full);
     rewrite_unnoticed(&env.set().join("Pong (Anthology).a26"), b"gnop");
+    let job = env.store.enqueue_stat_walk("Alpha", "Operator").unwrap();
+    assert_eq!(env.store.claim_job().unwrap().unwrap().id, job.id);
+    env.store.run_stat_walk_job(job.id).unwrap();
+    assert_eq!(env.store.source_set("Alpha").unwrap().unconfirmed, 1);
 
     let plan = env.plan();
 
@@ -6201,5 +6205,16 @@ fn a_file_rewritten_unnoticed_since_the_audit_is_found_changed_by_its_re_read() 
             .all(|i| i.key != "game:Pong (USA)" || i.kind != RepairKind::Rename),
         "{:#?}",
         plan.content.items
+    );
+    // The re-read proved it changed: the source set is Stale, and no copy says only its permissions changed.
+    let set = env.store.source_set("Alpha").unwrap();
+    assert_eq!(set.unconfirmed, 0, "{set:?}");
+    assert!(
+        set.stale.iter().any(|s| matches!(
+            s,
+            stage_select_api::SourceSetStale::FilesChanged { changed: 1, .. }
+        )),
+        "{:?}",
+        set.stale
     );
 }

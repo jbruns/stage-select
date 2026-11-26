@@ -1957,3 +1957,71 @@ fn a_change_of_permissions_inside_a_plans_window_asks_you_to_review_it_again_and
         (Vec::<String>::new(), vec!["Pong (USA).a26".into()])
     );
 }
+
+/// A loose file overwritten in place with other bytes of the same length, its modification time put back, looks to a
+/// stat walk like a change of permissions. The plan reads it again: it isn't placed, you are told it changed since the
+/// audit, and the source set is Stale.
+#[test]
+fn a_file_rewritten_unnoticed_since_the_audit_is_read_again_and_not_placed() {
+    let env = Env::new();
+    loose_pong(&env);
+    env.audit(AuditEvidence::Full);
+    overwrite_keeping_stamp(&env.set().join("Pong (USA).a26"));
+    env.assert_unconfirmed();
+    env.single_copy(StorageFormat::Loose);
+    let selection = env.select(&["Pong (USA)"]);
+
+    let plan = env.plan(&env.folder, selection);
+
+    assert!(
+        plan.content.items.iter().all(|i| i.place.is_none()),
+        "{:?}",
+        plan.content.items
+    );
+    assert!(
+        plan.content
+            .notes
+            .iter()
+            .any(|n| n.contains("Pong (USA).a26 changed since the audit read it")),
+        "{:?}",
+        plan.content.notes
+    );
+    let set = env.store.source_set(SET).unwrap();
+    assert_eq!(set.unconfirmed, 0, "{set:?}");
+    assert!(
+        set.stale.iter().any(|s| matches!(
+            s,
+            stage_select_api::SourceSetStale::FilesChanged { changed: 1, .. }
+        )),
+        "{:?}",
+        set.stale
+    );
+    assert_eq!(
+        env.walk(),
+        Some((1, 0, 0)),
+        "the next check finds it changed too"
+    );
+}
+
+/// A file whose permissions alone changed since the audit is read again as the plan is made, so the audit's stamp and
+/// read follow it into place, and nothing looks changed after the build.
+#[test]
+fn a_file_whose_permissions_alone_changed_is_read_again_and_placed_as_audited() {
+    let env = Env::new();
+    loose_pong(&env);
+    env.audit(AuditEvidence::Full);
+    crate::placed_recovery::chmod(&env.set().join("Pong (USA).a26"));
+    env.single_copy(StorageFormat::Loose);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(
+        item(&plan, "Pong (USA)").place.as_ref().unwrap().how,
+        PlaceHow::Rename
+    );
+
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+
+    assert_eq!(env.files().1, ["Pong (USA).a26"]);
+    assert_eq!(env.walk(), None);
+    assert_eq!(env.store.source_set(SET).unwrap().unconfirmed, 0);
+}

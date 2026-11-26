@@ -30,6 +30,8 @@ struct Baseline {
     audit: i64,
     /// Every path the Audit saw, with its stamp where it recorded one.
     stamps: BTreeMap<String, Option<FileStamp>>,
+    /// The files a re-read found holding other bytes than the Audit read, whatever their stamp says now.
+    differs: BTreeSet<String>,
     /// When the Audit started, in nanoseconds since the Unix epoch: a file it saw without a stamp looks changed if
     /// its modification or status change time is later.
     started_ns: i128,
@@ -69,6 +71,9 @@ impl Counts {
                 None => counts.added += 1,
                 Some(before) => {
                     let compared = match (before, stamp) {
+                        (Some(_), Some(Some(_))) if baseline.differs.contains(rel) => {
+                            Compared::Changed
+                        }
                         (Some(before), Some(Some(now))) if before == now => Compared::Same,
                         (Some(before), Some(Some(now))) if only_ctime_moved(before, now) => {
                             Compared::Unconfirmed
@@ -161,9 +166,14 @@ fn baseline(c: &Connection, audit: i64) -> Result<Baseline> {
             stamps.insert(path, Some(stamp));
         }
     }
+    let differs = c
+        .prepare("SELECT path FROM audit_stamps WHERE audit_id = ?1 AND differs = 1")?
+        .query_map([audit], |r| r.get::<_, String>(0))?
+        .collect::<rusqlite::Result<BTreeSet<_>>>()?;
     Ok(Baseline {
         audit,
         stamps,
+        differs,
         started_ns,
     })
 }
@@ -255,22 +265,82 @@ pub(crate) fn note_followed_revisions(tx: &Transaction) -> Result<()> {
     Ok(())
 }
 
+/// What [`Store::confirm_unchanged`] found of the files it read again.
+#[derive(Debug, Default)]
+pub(crate) struct Reread {
+    /// Each file holding what the Audit read, with its new stamp.
+    pub(crate) confirmed: Vec<(String, FileStamp)>,
+    /// Each file a re-read found holding other bytes, now or before.
+    pub(crate) changed: Vec<String>,
+}
+
+/// Records that a re-read found Source Set `set`'s file `path` holding other bytes than Audit `audit` read: its stamp
+/// is marked, so that a stat walk counts it changed, its read is forgotten, and the latest walk against the Audit
+/// counts it changed rather than unconfirmed, or a walk is recorded that does, so the Source Set is Stale now.
+fn record_differs(tx: &Transaction, (set, audit): (i64, i64), path: &str) -> Result<()> {
+    let watch = crate::observe::StaleWatch::start(tx)?;
+    tx.execute(
+        "UPDATE audit_stamps SET differs = 1 WHERE audit_id = ?1 AND path = ?2 AND unreadable = 0",
+        params![audit, path],
+    )?;
+    tx.execute(
+        "DELETE FROM payload_reads WHERE source_set_id = ?1 AND path = ?2",
+        params![set, path],
+    )?;
+    let at = now();
+    let latest: Option<i64> = tx
+        .query_row(
+            "SELECT id FROM stat_walks WHERE source_set_id = ?1 AND audit_id = ?2
+             AND id = (SELECT MAX(id) FROM stat_walks WHERE source_set_id = ?1)",
+            params![set, audit],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match latest {
+        Some(walk) => tx.execute(
+            "UPDATE stat_walks SET changed = changed + 1, unconfirmed = MAX(unconfirmed - 1, 0),
+                                   found_at = ?2, checked_at = ?2
+             WHERE id = ?1",
+            params![walk, at],
+        )?,
+        None => tx.execute(
+            "INSERT INTO stat_walks (source_set_id, audit_id, job_id, found_at, checked_at, changed, added, removed,
+                                     unconfirmed)
+             VALUES (?1, ?2, NULL, ?3, ?3, 1, 0, 0, 0)",
+            params![set, audit, at],
+        )?,
+    };
+    watch.finish(tx)
+}
+
 impl Store {
     /// Reads again each file at the paths `moved` gives, in the folder `folder` of Source Set `set`, whose stamp moved
-    /// only in its change time since Audit `audit` recorded it, as a change of permissions or owner moves it. Each one
-    /// still holding exactly what the read the Audit recorded found, under the Header Rule `header`, is recorded with
-    /// its new stamp, as that Audit's and its read's, and returned with it; nothing else changes (ADR 0031). A file read
-    /// as a Disk, or one read through a symbolic link, is left for the next Audit.
+    /// only in its change time since Audit `audit` recorded it, as a change of permissions or owner moves it (ADR
+    /// 0031). Each one still holding exactly what the read the Audit recorded found, under the Header Rule it was read
+    /// under, is recorded with its new stamp, as that Audit's and its read's, and is confirmed. Each one holding other
+    /// bytes is recorded as changed: the stamp is marked so that a stat walk counts it changed, the read is forgotten,
+    /// and the latest walk against the Audit counts it changed rather than unconfirmed, so the Source Set is Stale. A
+    /// file read as a Disk, one read through a symbolic link, or one that can't be read, is left for the next Audit.
     pub(crate) fn confirm_unchanged(
         &self,
         (set, audit): (i64, i64),
         folder: &std::path::Path,
-        header: Option<HeaderRule>,
         moved: &[(&str, FileStamp)],
-    ) -> Result<Vec<(String, FileStamp)>> {
-        let mut confirmed = Vec::new();
+    ) -> Result<Reread> {
+        let mut out = Reread::default();
         for (path, recorded) in moved {
-            let members = self.read(|c| {
+            let found = self.read(|c| {
+                let differs: bool = c
+                    .query_row(
+                        "SELECT differs FROM audit_stamps WHERE audit_id = ?1 AND path = ?2 AND unreadable = 0",
+                        params![audit, path],
+                        |r| r.get(0),
+                    )
+                    .optional()?
+                    .unwrap_or(false);
+                if differs {
+                    return Ok(Err(()));
+                }
                 let row: Option<(FileStamp, String, Option<String>, Option<String>)> = c
                     .query_row(
                         "SELECT dev, ino, size, mtime_ns, ctime_ns, members, header_rule, disk_sha1
@@ -292,18 +362,26 @@ impl Store {
                         },
                     )
                     .optional()?;
-                Ok(row.and_then(|(stamp, members, rule, disk)| {
-                    (stamp == *recorded
-                        && disk.is_none()
-                        && rule.as_deref() == header.map(HeaderRule::as_str))
-                    .then(|| {
-                        serde_json::from_str::<Vec<(Option<String>, Checksums)>>(&members).ok()
-                    })
-                    .flatten()
-                }))
+                Ok(Ok(row.and_then(|(stamp, members, rule, disk)| {
+                    let rule = match rule {
+                        Some(rule) => Some(HeaderRule::parse(&rule)?),
+                        None => None,
+                    };
+                    (stamp == *recorded && disk.is_none())
+                        .then(|| {
+                            serde_json::from_str::<Vec<(Option<String>, Checksums)>>(&members).ok()
+                        })
+                        .flatten()
+                        .map(|members| (members, rule))
+                })))
             })?;
-            let Some(members) = members else {
-                continue;
+            let (members, header) = match found {
+                Err(()) => {
+                    out.changed.push(path.to_string());
+                    continue;
+                }
+                Ok(None) => continue,
+                Ok(Some(found)) => found,
             };
             // Planned for the Operator, by no Job: no Job's meter counts it.
             let Some(read) = stage_select_engine::read_again(
@@ -314,10 +392,12 @@ impl Store {
             ) else {
                 continue;
             };
-            if !only_ctime_moved(recorded, &read.stamp)
-                || read.disk.is_some()
-                || read.members != members
-            {
+            if !only_ctime_moved(recorded, &read.stamp) || read.disk.is_some() {
+                continue;
+            }
+            if read.members != members {
+                self.write(|tx| record_differs(tx, (set, audit), path))?;
+                out.changed.push(path.to_string());
                 continue;
             }
             let ctime = read.stamp.ctime_ns as i64;
@@ -332,9 +412,9 @@ impl Store {
                 )?;
                 Ok(())
             })?;
-            confirmed.push((path.to_string(), read.stamp));
+            out.confirmed.push((path.to_string(), read.stamp));
         }
-        Ok(confirmed)
+        Ok(out)
     }
 
     /// The DAT Revisions that made the Source Set `name` Stale because it Follows its DAT, newest first.

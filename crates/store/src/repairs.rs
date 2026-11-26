@@ -966,13 +966,9 @@ impl Store {
                 crate::stale::only_ctime_moved(stamp, &now).then_some((path.as_str(), *stamp))
             })
             .collect();
-        let confirmed = self.confirm_unchanged(
-            (set.id, audit.id),
-            &root.path.join(&record.path),
-            header,
-            &moved,
-        )?;
-        stamps.extend(confirmed);
+        let reread =
+            self.confirm_unchanged((set.id, audit.id), &root.path.join(&record.path), &moved)?;
+        stamps.extend(reread.confirmed);
         // The checksums the Audit read of each file holding a Mismatched Entry, which its item shows beside the DAT's.
         let mismatched: BTreeSet<&str> = (report.entries.iter())
             .filter(|e| e.finding == stage_select_api::Finding::Mismatched)
@@ -4916,7 +4912,7 @@ fn item_folder(c: &Connection, item: i64) -> Result<i64> {
 
 /// The stamp each file had when Audit `audit` read its payloads, by path: those it read in full, or, when
 /// `unreadable`, those with a payload it could not read.
-fn audit_stamps(
+pub(crate) fn audit_stamps(
     c: &Connection,
     audit: i64,
     unreadable: bool,
