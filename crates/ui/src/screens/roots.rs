@@ -3,17 +3,21 @@
 
 use leptos::prelude::*;
 use leptos_router::components::A;
+use stage_select_api::permissions::PermissionSettings;
 use stage_select_api::roots::{FolderSuggestions, RootEdited, RootKind, RootSpec};
+use stage_select_api::settings::{SettingsUpdate, SettingsView};
 use stage_select_api::{Root, SourceSetRecord};
+use std::collections::BTreeMap;
 
 use crate::api;
 use crate::model::when;
 use crate::parts::choice::Choice;
 use crate::parts::folder_picker::{Create, FolderPicker};
 use crate::parts::help::Help;
-use crate::parts::message::{Message, MessageKind, Problem};
+use crate::parts::message::{Message, MessageKind, Problem, Said};
 use crate::parts::overlay::Drawer;
 use crate::parts::pending::{ActionPending, Pending};
+use crate::permissions_model::PolicyDraft;
 use crate::roots_model::{
     RootDraft, access, changeable_line, changeable_sets, kind_label, kind_note, voided_lines,
 };
@@ -141,6 +145,7 @@ pub fn Roots() -> impl IntoView {
                     })
             }}
         </Pending>
+        <PolicyForm roots=Signal::derive(move || roots.get().and_then(Result::ok).unwrap_or_default()) />
         <Help summary="What a root is">
             <p>
                 "A root is a folder the service may work in. Register a root before you register anything in it. Its \
@@ -444,5 +449,193 @@ fn UnregisterRoot(
             <button type="button" on:click=move |_| cancel()>"Cancel"</button>
         </div>
         </ActionPending>
+    }
+}
+
+/// Which policy a row of the permission policy's table sets: every root's, or one root's own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PolicyRow {
+    Every,
+    Root(String),
+}
+
+impl PolicyRow {
+    fn name(&self) -> String {
+        match self {
+            PolicyRow::Every => "every root".into(),
+            PolicyRow::Root(name) => name.clone(),
+        }
+    }
+}
+
+/// The permission policy: one for every root, and each root's own in its place, as typed.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct PolicyDrafts {
+    every: PolicyDraft,
+    roots: BTreeMap<String, PolicyDraft>,
+}
+
+impl PolicyDrafts {
+    fn of(settings: &PermissionSettings) -> PolicyDrafts {
+        PolicyDrafts {
+            every: PolicyDraft::of(settings.global),
+            roots: settings
+                .roots
+                .iter()
+                .map(|(name, p)| (name.clone(), PolicyDraft::of(Some(*p))))
+                .collect(),
+        }
+    }
+
+    fn get(&self, row: &PolicyRow) -> PolicyDraft {
+        match row {
+            PolicyRow::Every => self.every.clone(),
+            PolicyRow::Root(name) => self.roots.get(name).cloned().unwrap_or_default(),
+        }
+    }
+
+    fn get_mut(&mut self, row: &PolicyRow) -> &mut PolicyDraft {
+        match row {
+            PolicyRow::Every => &mut self.every,
+            PolicyRow::Root(name) => self.roots.entry(name.clone()).or_default(),
+        }
+    }
+
+    /// The settings typed, or what is wrong with them.
+    fn read(&self) -> Result<PermissionSettings, String> {
+        let mut roots = BTreeMap::new();
+        for (name, draft) in &self.roots {
+            if let Some(policy) = draft.read(name)? {
+                roots.insert(name.clone(), policy);
+            }
+        }
+        Ok(PermissionSettings {
+            global: self.every.read("every root")?,
+            roots,
+        })
+    }
+}
+
+/// The permission policy's form: the mode and group you want for files and folders, for every root and each root's
+/// own in its place.
+#[component]
+fn PolicyForm(roots: Signal<Vec<Root>>) -> impl IntoView {
+    let settings = LocalResource::new(|| api::get::<SettingsView>("/settings"));
+    let draft = RwSignal::new(PolicyDrafts::default());
+    Effect::new(move || {
+        if let Some(Ok(settings)) = settings.get() {
+            draft.set(PolicyDrafts::of(&settings.permissions));
+        }
+    });
+    let said = RwSignal::new(None::<Result<String, String>>);
+    let save = move |_| {
+        let permissions = match draft.with_untracked(PolicyDrafts::read) {
+            Ok(p) => p,
+            Err(problem) => {
+                said.set(Some(Err(problem)));
+                return;
+            }
+        };
+        let update = SettingsUpdate {
+            permissions: Some(permissions),
+            ..Default::default()
+        };
+        leptos::task::spawn_local(async move {
+            said.set(Some(
+                match api::patch::<_, SettingsView>("/settings", &update).await {
+                    Ok(now) => {
+                        draft.set(PolicyDrafts::of(&now.permissions));
+                        Ok("Saved the permission policy. Check a folder to compare it.".into())
+                    }
+                    Err(problem) => Err(format!("Couldn't save the permission policy: {problem}")),
+                },
+            ));
+        });
+    };
+    let field = move |row: PolicyRow, which: usize| {
+        let row = StoredValue::new(row);
+        let (label, placeholder) = match which {
+            0 => ("file mode", "0660"),
+            1 => ("folder mode", "2770"),
+            _ => ("group", "none"),
+        };
+        view! {
+            <input
+                type="text"
+                inputmode="numeric"
+                size="6"
+                aria-label=move || format!("{}: {label}", row.with_value(PolicyRow::name))
+                placeholder=placeholder
+                prop:value=move || {
+                    let d = draft.with(|d| d.get(&row.get_value()));
+                    match which {
+                        0 => d.file_mode,
+                        1 => d.folder_mode,
+                        _ => d.group,
+                    }
+                }
+                on:input=move |ev| {
+                    let value = event_target_value(&ev);
+                    draft.update(|d| {
+                        let d = d.get_mut(&row.get_value());
+                        match which {
+                            0 => d.file_mode = value,
+                            1 => d.folder_mode = value,
+                            _ => d.group = value,
+                        }
+                    });
+                }
+            />
+        }
+    };
+    let row = move |row: PolicyRow, label: String| {
+        view! {
+            <tr>
+                <th scope="row">{label}</th>
+                <td>{field(row.clone(), 0)}</td>
+                <td>{field(row.clone(), 1)}</td>
+                <td>{field(row, 2)}</td>
+            </tr>
+        }
+    };
+    view! {
+        <h2 id="permission-policy">"Permission policy"</h2>
+        <p>
+            "The mode and group you want for files and folders. Leave a root's empty to use every root's; leave              every root's empty to keep the host's defaults."
+        </p>
+        <div class="table-scroll">
+            <table aria-label="Permission policy">
+                <thead>
+                    <tr>
+                        <th scope="col"><span class="label">"Root"</span></th>
+                        <th scope="col"><span class="label">"File mode"</span></th>
+                        <th scope="col"><span class="label">"Folder mode"</span></th>
+                        <th scope="col"><span class="label">"Group"</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {row(PolicyRow::Every, "Every root".into())}
+                    {move || {
+                        roots
+                            .get()
+                            .into_iter()
+                            .map(|root| row(PolicyRow::Root(root.name.clone()), root.name))
+                            .collect_view()
+                    }}
+                </tbody>
+            </table>
+        </div>
+        <div class="actions">
+            <button type="button" on:click=save>"Save the permission policy"</button>
+        </div>
+        <Said said />
+        <Help summary="What the permission policy does">
+            <p>
+                "Stage Select gives every file and folder it writes your policy's mode, and its group when you give                  one by number, as id -g shows it. A folder mode such as 2770 includes setgid, so new files take the                  folder's group."
+            </p>
+            <p>
+                "Each check of a source set or library folder compares what it sees with your policy, and its                  Permissions tab lists what differs. That never makes a source set stale or a library folder drift.                  Stage Select restores what it owns through a plan you approve, changes a group only to one it is                  in, and for the rest gives you the command to run on the host. A source set it may not change is                  only reported."
+            </p>
+        </Help>
     }
 }

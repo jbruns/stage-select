@@ -368,6 +368,12 @@ fn SetPage(set: SourceSetRecord) -> impl IntoView {
                 PageTab::Kept => {
                     view! { <KeptFiles place=KeptPlace::SourceSet(name.get_value()) /> }.into_any()
                 }
+                PageTab::Permissions => view! {
+                    <crate::screens::permissions::PermissionsTab
+                        place=crate::screens::permissions::Place::SourceSet(name.get_value())
+                    />
+                }
+                .into_any(),
                 PageTab::Repair => ().into_any(),
             })
             }).into_any())

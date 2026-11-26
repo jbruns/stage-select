@@ -16,6 +16,7 @@ mod library_plan;
 mod library_romm;
 pub mod lifecycle;
 mod operations;
+pub mod permissions;
 mod profiles;
 pub mod repair;
 mod roots;
