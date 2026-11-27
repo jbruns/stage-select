@@ -102,8 +102,9 @@ pub fn disc(title: &str) -> Option<Disc> {
 /// group has between all its releases.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscCheck {
-    /// The disc numbers each selected release must have: those of the group's titles your settings don't exclude,
-    /// and every disc of a selected release, excluded or not.
+    /// The disc numbers the selected releases must have between them: those of the group's titles your settings
+    /// don't exclude, and every disc of a selected release, excluded or not. In a group made for one disc, only each
+    /// selected release's own discs in it.
     pub discs: BTreeSet<u32>,
     /// The disc numbers of the selected releases that your settings exclude.
     pub excluded: BTreeSet<u32>,
@@ -181,21 +182,60 @@ fn chosen<'a>(selected: impl IntoIterator<Item = &'a str>) -> BTreeMap<String, B
     chosen
 }
 
-/// The disc numbers the `chosen` releases must cover between them: those of the group's titles your settings don't
+/// Whether a group name, as Selection writes it (lowercased, for a clone list's group), carries a disc tag: the
+/// clone list made the group for one disc, so each title in it is that disc in its own release, whatever number
+/// that release gives it. Disc names are normalized as [`normalize`] does, whatever their case.
+fn names_one_disc(group: &str) -> bool {
+    let mut name = group.to_lowercase();
+    for (key, value) in DISC_RENAME {
+        let (key, value) = (key.to_lowercase(), value.to_lowercase());
+        if name.contains(&key) {
+            name = name.replace(&key, &value);
+        }
+    }
+    disc(&name.replace("(disc ", "(Disc ")).is_some()
+}
+
+/// The disc numbers each of the `chosen` releases must have: those of the group's titles your settings don't
 /// exclude, and every disc of a chosen release, even an excluded one. So an excluded demo disc never counts, but an
 /// excluded disc of the chosen release does. A disc outside the Source Set's Coverage still counts (ADR 0014, ADR
 /// 0021): Coverage narrows what may be chosen, never how many discs make the game whole.
-fn expected(group: &SelectionGroup, chosen: &BTreeMap<String, BTreeSet<u32>>) -> BTreeSet<u32> {
-    let excluded: BTreeSet<&str> = group
-        .left_out
+///
+/// In a group the clone list made for one disc ([`names_one_disc`]), another release's disc number says which
+/// disc that title is in its own release, not a disc a chosen release lacks: each chosen release must have only its
+/// own discs in the group, excluded or not.
+fn expected(
+    group: &SelectionGroup,
+    chosen: &BTreeMap<String, BTreeSet<u32>>,
+) -> BTreeMap<String, BTreeSet<u32>> {
+    let discs: Vec<(bool, Disc)> = {
+        let excluded: BTreeSet<&str> = group
+            .left_out
+            .iter()
+            .filter(|e| !e.rule.is_coverage())
+            .map(|e| e.title.as_str())
+            .collect();
+        titles(group)
+            .filter_map(|title| Some((excluded.contains(title), disc(title)?)))
+            .collect()
+    };
+    if names_one_disc(&group.group) {
+        return chosen
+            .keys()
+            .map(|release| {
+                let own = discs.iter().filter(|(_, d)| d.release == *release);
+                (release.clone(), own.map(|(_, d)| d.number).collect())
+            })
+            .collect();
+    }
+    let all: BTreeSet<u32> = discs
         .iter()
-        .filter(|e| !e.rule.is_coverage())
-        .map(|e| e.title.as_str())
-        .collect();
-    titles(group)
-        .filter_map(|title| Some((excluded.contains(title), disc(title)?)))
         .filter(|(excluded, d)| !excluded || chosen.contains_key(&d.release))
         .map(|(_, d)| d.number)
+        .collect();
+    chosen
+        .keys()
+        .map(|release| (release.clone(), all.clone()))
         .collect()
 }
 
@@ -209,12 +249,12 @@ pub fn check<'a>(
     if chosen.is_empty() {
         return None;
     }
-    let discs = expected(group, &chosen);
+    let expected = expected(group, &chosen);
     // "Different releases" means a release that lacks a disc, not more than one release: several whole releases,
     // such as USA 1-2 and Europe 1-2 when the profile keeps more than one, are each a whole game.
     chosen
-        .values()
-        .any(|have| !discs.is_subset(have))
+        .iter()
+        .any(|(release, have)| !expected[release].is_subset(have))
         .then(|| DiscCheck {
             excluded: group
                 .left_out
@@ -223,7 +263,7 @@ pub fn check<'a>(
                 .filter(|d| chosen.contains_key(&d.release))
                 .map(|d| d.number)
                 .collect(),
-            discs,
+            discs: expected.into_values().flatten().collect(),
             chosen,
         })
 }
@@ -246,10 +286,8 @@ pub fn uncovered<'a>(
         return BTreeSet::new();
     }
     let have: BTreeSet<u32> = chosen.values().flatten().copied().collect();
-    expected(group, &chosen)
-        .difference(&have)
-        .copied()
-        .collect()
+    let expected: BTreeSet<u32> = expected(group, &chosen).into_values().flatten().collect();
+    expected.difference(&have).copied().collect()
 }
 
 /// The Operator's choice for the group, when it is applied.
@@ -567,5 +605,111 @@ mod tests {
         mark_unresolved(&mut s);
         assert!(s.groups.iter().all(|g| !g.unresolved), "{s:#?}");
         assert!(s.groups.iter().all(|g| missing(g).is_empty()));
+    }
+
+    /// A group the clone list makes for one disc, named as Selection names it, lowercased: USA numbers it Disc 1,
+    /// Europe, outside the Source Set's Coverage, Disc 2.
+    fn per_disc(kept: &[&str]) -> SelectionGroup {
+        let mut g = group(kept, &[]);
+        g.group = "rival - united (disc 1) (arcade disc)".into();
+        g.clones = ["Rival (USA) (Disc 1) (Arcade Disc)"]
+            .into_iter()
+            .filter(|t| !kept.contains(t))
+            .map(|title| CloneGame {
+                title: title.into(),
+                clone_of: String::new(),
+                rule: rule(),
+            })
+            .collect();
+        g.left_out = vec![LeftOutGame {
+            title: "Rival (Europe) (Disc 2) (Arcade Disc)".into(),
+            rule: Rule::coverage(),
+            reason: "Coverage".into(),
+        }];
+        g
+    }
+
+    #[test]
+    fn in_a_per_disc_group_a_title_numbered_differently_in_another_region_is_no_disc_the_pick_lacks()
+     {
+        let mut s = selection(vec![per_disc(&["Rival (USA) (Disc 1) (Arcade Disc)"])]);
+        mark_unresolved(&mut s);
+        assert!(!s.groups[0].unresolved, "{:#?}", s.groups[0]);
+        assert_eq!(check_picks(&s.groups[0]), None);
+        assert_eq!(unresolved_reason(&s.groups[0]), None);
+        assert!(missing(&s.groups[0]).is_empty());
+    }
+
+    #[test]
+    fn in_a_per_disc_group_your_choice_of_one_title_resolves_it() {
+        let usa = "Rival (USA) (Disc 1) (Arcade Disc)";
+        let mut g = per_disc(&[usa]);
+        g.choice = Some(GroupChoice {
+            checked: [usa.to_owned()].into(),
+            status: ChoiceStatus::Applied,
+            picks: vec![usa.into()],
+            engine_unresolved: true,
+            problems: vec![],
+        });
+        let mut s = selection(vec![g]);
+        mark_uncovered_choices(&mut s);
+        assert!(!s.groups[0].unresolved, "{:#?}", s.groups[0]);
+        assert_eq!(unresolved_reason(&s.groups[0]), None);
+        assert!(missing(&s.groups[0]).is_empty());
+    }
+
+    #[test]
+    fn in_a_per_disc_group_a_release_still_needs_its_own_discs_there() {
+        let mut g = per_disc(&["Rival (USA) (Disc 1) (Arcade Disc)"]);
+        g.left_out.push(LeftOutGame {
+            title: "Rival (USA) (Disc 2) (Arcade Disc)".into(),
+            rule: Rule::coverage(),
+            reason: "Coverage".into(),
+        });
+        let mut s = selection(vec![g]);
+        mark_unresolved(&mut s);
+        assert!(s.groups[0].unresolved);
+        assert_eq!(
+            check_picks(&s.groups[0]).unwrap().reason(),
+            "Rival (USA) (Arcade Disc) is selected without disc 2, which your settings exclude"
+        );
+    }
+
+    #[test]
+    fn a_group_named_without_a_disc_tag_still_counts_every_regions_discs_outside_coverage_too() {
+        let mut g = group(&["Title (USA) (Disc 1)", "Title (USA) (Disc 2)"], &[]);
+        g.left_out = [
+            "Title (Europe) (Disc 1)",
+            "Title (Europe) (Disc 2)",
+            "Title (Europe) (Disc 3)",
+        ]
+        .into_iter()
+        .map(|title| LeftOutGame {
+            title: title.into(),
+            rule: Rule::coverage(),
+            reason: "Coverage".into(),
+        })
+        .collect();
+        let mut s = selection(vec![g]);
+        mark_unresolved(&mut s);
+        assert!(s.groups[0].unresolved);
+        assert_eq!(
+            check_picks(&s.groups[0]).unwrap().reason(),
+            "Title (USA) is selected without disc 3, which another version in the game group has"
+        );
+    }
+
+    #[test]
+    fn a_group_name_carries_a_disc_tag_in_any_case_and_any_spelling() {
+        for (name, tagged) in [
+            ("rival - united (disc 1) (arcade disc)", true),
+            ("Rival - United (Disc 2) (Evolution Disc)", true),
+            ("saga (disk b)", true),
+            ("saga (cd 2)", true),
+            ("saga", false),
+            ("saga (disc writer)", false),
+        ] {
+            assert_eq!(names_one_disc(name), tagged, "{name}");
+        }
     }
 }
