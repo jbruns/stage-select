@@ -715,6 +715,38 @@ pub(super) fn recorded_content_sha256(c: &Connection, id: i64) -> Result<String>
     }
 }
 
+/// Forgets Audit `audit`'s recorded content SHA-256, as a rewrite of its Entries does in the transaction that makes it
+/// (#385): until [`record_content_sha256`] records it again, [`recorded_content_sha256`] works it out from its rows.
+/// Worked out at each rewrite instead, a Build placing every Game of a large Source Set would hash its Audit once per
+/// Game.
+pub(crate) fn forget_content_sha256(tx: &Transaction, audit: i64) -> Result<()> {
+    tx.execute(
+        "UPDATE audits SET content_sha256 = NULL WHERE id = ?1",
+        [audit],
+    )?;
+    Ok(())
+}
+
+/// Records the content SHA-256 of each finished Audit whose Entries were rewritten since it was last recorded
+/// ([`forget_content_sha256`]), from its rows as they are now.
+pub(crate) fn record_content_sha256(tx: &Transaction) -> Result<()> {
+    let ids: Vec<i64> = tx
+        .prepare(
+            "SELECT id FROM audits
+             WHERE status = 'finished' AND pruned_at IS NULL AND content_sha256 IS NULL",
+        )?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    for id in ids {
+        let content = content_sha256(tx, id)?;
+        tx.execute(
+            "UPDATE audits SET content_sha256 = ?2 WHERE id = ?1",
+            params![id, content],
+        )?;
+    }
+    Ok(())
+}
+
 /// Deletes the Audits matching `condition`, with their Entries and Game Statuses.
 pub(super) fn delete_audits(
     tx: &Transaction,

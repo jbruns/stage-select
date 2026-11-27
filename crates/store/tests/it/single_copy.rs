@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::common::*;
 use stage_select_api::build::{
-    AddLibraryFolder, ItemKind, ItemState, LibraryFolder, PlaceHow, Plan, PlanItem,
+    AddLibraryFolder, ItemKind, ItemState, LibraryFolder, PlaceHow, Plan, PlanItem, Stale,
 };
 use stage_select_api::selection::{
     CoverageDrift, KeptGame, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
@@ -2051,4 +2051,78 @@ fn a_file_that_cant_be_read_again_after_a_change_of_permissions_is_not_placed() 
         "{:?}",
         plan.content.notes
     );
+}
+
+/// The Library Folder's Stale reasons.
+pub(crate) fn folder_stale(env: &Env) -> Vec<Stale> {
+    env.store.library_folder(env.folder.id).unwrap().stale
+}
+
+/// A Source Set holding Pong as a TorrentZip and Combat loose, audited in full, with Single Copy on (#385).
+fn audited_both() -> Env {
+    let env = Env::new();
+    pong_zip(&env);
+    std::fs::write(env.set().join("Combat (USA).a26"), b"combat").unwrap();
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    env
+}
+
+/// Builds the folder placing Pong and Combat.
+fn place_both(env: &Env) {
+    let selection = env.select(&["Pong (USA)", "Combat (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
+    assert_eq!(item(&plan, "Combat (USA)").kind, ItemKind::Place);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 2);
+    assert_eq!(folder_stale(env), []);
+}
+
+#[test]
+fn an_audit_that_finds_what_a_placing_builds_audit_found_leaves_the_folder_fresh() {
+    let env = audited_both();
+    place_both(&env);
+    env.audit(AuditEvidence::Incremental);
+    assert_eq!(folder_stale(&env), []);
+    env.audit(AuditEvidence::Full);
+    assert_eq!(folder_stale(&env), []);
+}
+
+#[test]
+fn a_placed_file_removed_after_a_placing_build_still_makes_the_folder_stale() {
+    let env = audited_both();
+    place_both(&env);
+    std::fs::remove_file(env.library().join("Combat (USA).zip")).unwrap();
+    env.audit(AuditEvidence::Incremental);
+    assert!(
+        matches!(
+            folder_stale(&env).as_slice(),
+            [Stale::SourceSetChanged { .. }]
+        ),
+        "{:?}",
+        folder_stale(&env)
+    );
+}
+
+#[test]
+fn an_upgraded_store_whose_builds_audit_kept_its_content_from_before_placing_reads_fresh() {
+    let db = |env: &Env| {
+        rusqlite::Connection::open(env.store.dir().join(stage_select_store::DATABASE)).unwrap()
+    };
+    let env = audited_both();
+    let before: String = db(&env)
+        .query_row("SELECT content_sha256 FROM audits", [], |r| r.get(0))
+        .unwrap();
+    place_both(&env);
+    // As 0.14.0 left it: the Audit's Entries name the placed files, its content SHA-256 the files as it found them.
+    db(&env)
+        .execute_batch(&format!(
+            "UPDATE audits SET content_sha256 = '{before}'; PRAGMA user_version = 10;"
+        ))
+        .unwrap();
+    let (env, blocked) = env.restart();
+    assert_eq!(blocked, []);
+    env.audit(AuditEvidence::Incremental);
+    assert_eq!(folder_stale(&env), []);
 }

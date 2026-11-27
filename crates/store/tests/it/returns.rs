@@ -1512,3 +1512,23 @@ fn a_claims_stamp_follows_its_file_home() {
     overwrite_keeping_stamp(&env.set().join("Pong (USA).zip"));
     env.assert_unconfirmed();
 }
+
+#[test]
+fn an_audit_that_finds_what_a_returning_builds_audit_found_leaves_the_folder_fresh() {
+    for (format, across) in [
+        (StorageFormat::TorrentZip, false),
+        (StorageFormat::TorrentZip, true),
+        (StorageFormat::Loose, false),
+    ] {
+        let env = Env::new();
+        env.store.copy_across_filesystems(across);
+        let bytes = place_pong(&env, format);
+        let selection = env.select(&["Combat (USA)"]);
+        let plan = env.plan(&env.folder, selection);
+        assert_eq!(env.build(&plan).state, JobState::Succeeded);
+        home(&env, "Pong (USA).zip", &bytes);
+        assert_eq!(folder_stale(&env), [], "{format:?} across: {across}");
+        env.audit(AuditEvidence::Incremental);
+        assert_eq!(folder_stale(&env), [], "{format:?} across: {across}");
+    }
+}

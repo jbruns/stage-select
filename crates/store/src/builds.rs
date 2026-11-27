@@ -3212,6 +3212,7 @@ impl Store {
                 params![id, now()],
             )?;
             tx.execute("DELETE FROM folder_temps WHERE folder_id = ?1", [folder])?;
+            crate::audits::record_content_sha256(tx)?;
             finish_running(tx, &self.meter, job, JobState::Succeeded, None)
         })
     }
