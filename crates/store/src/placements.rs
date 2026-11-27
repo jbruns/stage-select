@@ -1189,6 +1189,7 @@ pub(crate) fn moved_entries(
         "UPDATE audit_entries SET path = ?3 WHERE audit_id = ?1 AND path = ?2",
         params![audit, from, to],
     )?;
+    crate::audits::forget_content_sha256(tx, audit)?;
     let Some(now) = now else {
         tx.execute(
             "DELETE FROM payload_reads WHERE source_set_id = ?1 AND path = ?2",
@@ -1608,6 +1609,7 @@ pub(crate) fn rewritten_entries(
         )?;
     }
     insert_carried(tx, audit, &carried)?;
+    crate::audits::forget_content_sha256(tx, audit)?;
     forget_stamps(tx, audit, to.iter().map(|t| t.path))
 }
 
@@ -1737,7 +1739,8 @@ pub(crate) fn returned_entries(
             params![set, path],
         )?;
     }
-    insert_carried(tx, audit, &carried)
+    insert_carried(tx, audit, &carried)?;
+    crate::audits::forget_content_sha256(tx, audit)
 }
 
 /// Flags Game `game` of Source Set `set` as needing review, raised by Build `build`, its placed file `path` as Audits

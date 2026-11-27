@@ -648,8 +648,10 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
 
 /// What the Audit `id` found, as a SHA-256 over its DAT Revision, its Entries and its Game Statuses in a fixed order:
 /// equal for two Audits that found the same. How an Entry was verified (its evidence, and when it was read) is left
-/// out: a re-read of an unchanged file finds the same. A Header, Game Warnings and Available Elsewhere ROMs count only
-/// where there are any, so an Audit that found none hashes as Audits did before there were any.
+/// out: a re-read of an unchanged file finds the same. Also left out are where it was found, its path and member, and
+/// the Available Elsewhere ROMs, which only say where else: a Build that places, returns or converts a Game moves what
+/// was found without changing it, and an Audit from before it must hash as one after it does (#385), whichever Library
+/// Folder's Build used it. A Header and Game Warnings count only where there are any.
 pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
     let mut hasher = Sha256::new();
     let mut field = |value: Option<String>| {
@@ -668,21 +670,21 @@ pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
     )?;
     field(Some(revision.to_string()));
     let mut entries = c.prepare(
-        "SELECT path, member, finding, roms, named_game, named_rom, reason, header_bytes FROM audit_entries
-         WHERE audit_id = ?1 ORDER BY path, member, seq",
+        "SELECT finding, roms, named_game, named_rom, reason, header_bytes FROM audit_entries
+         WHERE audit_id = ?1 ORDER BY finding, roms, named_game, named_rom, reason, header_bytes",
     )?;
     let mut rows = entries.query([id])?;
     while let Some(row) = rows.next()? {
-        for i in 0..7 {
+        for i in 0..5 {
             field(row.get(i)?);
         }
-        if let Some(bytes) = row.get::<_, Option<i64>>(7)? {
+        if let Some(bytes) = row.get::<_, Option<i64>>(5)? {
             field(Some(format!("header {bytes}")));
         }
     }
     field(None);
     let mut games = c.prepare(
-        "SELECT name, status, missing_roms, claimed_roms, warnings, available_elsewhere FROM audit_games
+        "SELECT name, status, missing_roms, claimed_roms, warnings FROM audit_games
          WHERE audit_id = ?1 ORDER BY name, seq",
     )?;
     let mut rows = games.query([id])?;
@@ -693,10 +695,6 @@ pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
         let warnings: String = row.get(4)?;
         if warnings != "[]" {
             field(Some(format!("warnings {warnings}")));
-        }
-        let elsewhere: String = row.get(5)?;
-        if elsewhere != "[]" {
-            field(Some(format!("available elsewhere {elsewhere}")));
         }
     }
     Ok(stage_select_engine::hex(&hasher.finalize()))
@@ -713,6 +711,38 @@ pub(super) fn recorded_content_sha256(c: &Connection, id: i64) -> Result<String>
         Some(sha) => Ok(sha),
         None => content_sha256(c, id),
     }
+}
+
+/// Forgets Audit `audit`'s recorded content SHA-256, as a rewrite of its Entries does in the transaction that makes it
+/// (#385): until [`record_content_sha256`] records it again, [`recorded_content_sha256`] works it out from its rows.
+/// Worked out at each rewrite instead, a Build placing every Game of a large Source Set would hash its Audit once per
+/// Game.
+pub(crate) fn forget_content_sha256(tx: &Transaction, audit: i64) -> Result<()> {
+    tx.execute(
+        "UPDATE audits SET content_sha256 = NULL WHERE id = ?1",
+        [audit],
+    )?;
+    Ok(())
+}
+
+/// Records the content SHA-256 of each finished Audit whose Entries were rewritten since it was last recorded
+/// ([`forget_content_sha256`]), from its rows as they are now.
+pub(crate) fn record_content_sha256(tx: &Transaction) -> Result<()> {
+    let ids: Vec<i64> = tx
+        .prepare(
+            "SELECT id FROM audits
+             WHERE status = 'finished' AND pruned_at IS NULL AND content_sha256 IS NULL",
+        )?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    for id in ids {
+        let content = content_sha256(tx, id)?;
+        tx.execute(
+            "UPDATE audits SET content_sha256 = ?2 WHERE id = ?1",
+            params![id, content],
+        )?;
+    }
+    Ok(())
 }
 
 /// Deletes the Audits matching `condition`, with their Entries and Game Statuses.
@@ -1507,10 +1537,19 @@ mod tests {
                  (1, 1, 'B', 'missing', '[\"b.bin\"]', '[]', '[\"w\"]', '[\"e\"]');",
         )
         .unwrap();
+        let content = content_sha256(&c, 1).unwrap();
         assert_eq!(
-            content_sha256(&c, 1).unwrap(),
-            "25510e73c6aa5cb681352d16f1bf044746b4ff5302d9d1de398cdf15c2803fdd"
+            content,
+            "542238bce7fea9843cefeef223b416ee5068b16720e834a2cf8b5ea12bb70466"
         );
+
+        // Where it was found, and where else a missing ROM is, change nothing (#385).
+        c.execute_batch(
+            "UPDATE audit_entries SET path = 'placed/' || path, member = NULL;
+             UPDATE audit_games SET available_elsewhere = '[]';",
+        )
+        .unwrap();
+        assert_eq!(content_sha256(&c, 1).unwrap(), content);
     }
 
     /// A store with keep = 1 and one Source Set `Test` in a Root, bound to an imported DAT.

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::common::*;
 use stage_select_api::build::{
-    AddLibraryFolder, ItemKind, ItemState, LibraryFolder, PlaceHow, Plan, PlanItem,
+    AddLibraryFolder, ItemKind, ItemState, LibraryFolder, PlaceHow, Plan, PlanItem, Stale,
 };
 use stage_select_api::selection::{
     CoverageDrift, KeptGame, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
@@ -2051,4 +2051,149 @@ fn a_file_that_cant_be_read_again_after_a_change_of_permissions_is_not_placed() 
         "{:?}",
         plan.content.notes
     );
+}
+
+/// The Library Folder's Stale reasons.
+pub(crate) fn folder_stale(env: &Env) -> Vec<Stale> {
+    env.store.library_folder(env.folder.id).unwrap().stale
+}
+
+/// Asserts the Library Folder is Stale for its Source Set's latest Audit alone.
+fn assert_source_set_changed(env: &Env) {
+    let stale = folder_stale(env);
+    assert!(
+        matches!(stale.as_slice(), [Stale::SourceSetChanged { .. }]),
+        "{stale:?}"
+    );
+}
+
+/// A Source Set holding Pong as a TorrentZip and Combat loose, audited in full, with Single Copy on (#385).
+fn audited_both() -> Env {
+    let env = Env::new();
+    pong_zip(&env);
+    std::fs::write(env.set().join("Combat (USA).a26"), b"combat").unwrap();
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    env
+}
+
+/// Builds the folder placing Pong and Combat.
+fn place_both(env: &Env) {
+    let selection = env.select(&["Pong (USA)", "Combat (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
+    assert_eq!(item(&plan, "Combat (USA)").kind, ItemKind::Place);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 2);
+    assert_eq!(folder_stale(env), []);
+}
+
+#[test]
+fn an_audit_that_finds_what_a_placing_builds_audit_found_leaves_the_folder_fresh() {
+    let env = audited_both();
+    place_both(&env);
+    env.audit(AuditEvidence::Incremental);
+    assert_eq!(folder_stale(&env), []);
+    env.audit(AuditEvidence::Full);
+    assert_eq!(folder_stale(&env), []);
+}
+
+#[test]
+fn a_placed_file_removed_after_a_placing_build_still_makes_the_folder_stale() {
+    let env = audited_both();
+    place_both(&env);
+    std::fs::remove_file(env.library().join("Combat (USA).zip")).unwrap();
+    env.audit(AuditEvidence::Incremental);
+    assert_source_set_changed(&env);
+}
+
+#[test]
+fn an_upgraded_store_whose_builds_audit_kept_its_content_from_before_placing_reads_fresh() {
+    let db = |env: &Env| {
+        rusqlite::Connection::open(env.store.dir().join(stage_select_store::DATABASE)).unwrap()
+    };
+    let env = audited_both();
+    let before: String = db(&env)
+        .query_row("SELECT content_sha256 FROM audits", [], |r| r.get(0))
+        .unwrap();
+    place_both(&env);
+    // As 0.14.0 left it: the Audit's Entries name the placed files, its content SHA-256 the files as it found them.
+    db(&env)
+        .execute_batch(&format!(
+            "UPDATE audits SET content_sha256 = '{before}'; PRAGMA user_version = 10;"
+        ))
+        .unwrap();
+    let (env, blocked) = env.restart();
+    assert_eq!(blocked, []);
+    env.audit(AuditEvidence::Incremental);
+    assert_eq!(folder_stale(&env), []);
+}
+
+/// Places Pong in `folder`, the folder chosen to hold the Source Set's Games, with Single Copy on.
+fn place_pong_in(env: &Env, folder: &LibraryFolder) {
+    env.single_copy(StorageFormat::TorrentZip);
+    env.store.set_holding_folder(SET, Some(folder.id)).unwrap();
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(folder, selection);
+    assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 1);
+}
+
+#[test]
+fn placing_in_one_folder_leaves_another_built_from_an_earlier_audit_fresh() {
+    // Pong as a TorrentZip is placed by a rename, loose it is converted on the way.
+    for loose in [false, true] {
+        let env = Env::new();
+        if loose {
+            std::fs::write(env.set().join("Pong (USA).a26"), b"pong").unwrap();
+        } else {
+            pong_zip(&env);
+        }
+        env.audit(AuditEvidence::Full);
+        // The holding folder is added before Single Copy is on, so the first Build copies or repacks Pong into the
+        // other, leaving it in the Source Set.
+        let holding = add_folder(&env.store, "atari-holding");
+        let selection = env.select(&["Pong (USA)"]);
+        let plan = env.plan(&env.folder, selection);
+        assert_ne!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
+        assert_eq!(env.build(&plan).state, JobState::Succeeded);
+        env.audit(AuditEvidence::Incremental);
+        assert_eq!(folder_stale(&env), [], "loose: {loose}");
+
+        place_pong_in(&env, &holding);
+        assert_eq!(folder_stale(&env), [], "loose: {loose}");
+        env.audit(AuditEvidence::Incremental);
+        assert_eq!(folder_stale(&env), [], "loose: {loose}");
+    }
+}
+
+#[test]
+fn converting_a_game_whose_rom_another_game_shares_leaves_the_folder_fresh() {
+    let env = Env::with(&[
+        ("Pong (USA)", vec![rom("Pong (USA).a26", b"same")]),
+        ("Combat (USA)", vec![rom("Combat (USA).a26", b"same")]),
+    ]);
+    std::fs::write(env.set().join("Pong (USA).a26"), b"same").unwrap();
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert_eq!(folder_stale(&env), []);
+    env.audit(AuditEvidence::Incremental);
+    assert_eq!(folder_stale(&env), []);
+}
+
+#[test]
+fn a_placed_rom_whose_bytes_changed_after_a_placing_build_still_makes_the_folder_stale() {
+    let env = audited_both();
+    place_both(&env);
+    write_torrentzip(
+        &env.library().join("Combat (USA).zip"),
+        &[("Combat (USA).a26", b"cOmbat")],
+    );
+    env.audit(AuditEvidence::Incremental);
+    assert_source_set_changed(&env);
 }

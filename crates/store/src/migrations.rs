@@ -23,6 +23,7 @@ pub(super) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0008_entries_complete_in.sql"),
     include_str!("migrations/0009_placed_sha256_from_audits.sql"),
     include_str!("migrations/0010_stat_walks_unconfirmed.sql"),
+    include_str!("migrations/0011_audit_content_from_rows.sql"),
 ];
 
 /// What a store made by an earlier release is refused with.

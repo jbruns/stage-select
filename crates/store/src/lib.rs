@@ -623,6 +623,8 @@ impl Store {
         // Retention is not run here: it runs after an import or an Audit, so a blob restored by one command is
         // still there for the Audit the next command runs.
         store.discard_unfinished_audits()?;
+        // What a Build that stopped after rewriting an Audit's Entries, or migration 11, left unrecorded.
+        store.write(audits::record_content_sha256)?;
         store.collect_garbage()?;
         Ok(store)
     }
