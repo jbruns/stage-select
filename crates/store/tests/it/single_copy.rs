@@ -2058,6 +2058,15 @@ pub(crate) fn folder_stale(env: &Env) -> Vec<Stale> {
     env.store.library_folder(env.folder.id).unwrap().stale
 }
 
+/// Asserts the Library Folder is Stale for its Source Set's latest Audit alone.
+fn assert_source_set_changed(env: &Env) {
+    let stale = folder_stale(env);
+    assert!(
+        matches!(stale.as_slice(), [Stale::SourceSetChanged { .. }]),
+        "{stale:?}"
+    );
+}
+
 /// A Source Set holding Pong as a TorrentZip and Combat loose, audited in full, with Single Copy on (#385).
 fn audited_both() -> Env {
     let env = Env::new();
@@ -2095,14 +2104,7 @@ fn a_placed_file_removed_after_a_placing_build_still_makes_the_folder_stale() {
     place_both(&env);
     std::fs::remove_file(env.library().join("Combat (USA).zip")).unwrap();
     env.audit(AuditEvidence::Incremental);
-    assert!(
-        matches!(
-            folder_stale(&env).as_slice(),
-            [Stale::SourceSetChanged { .. }]
-        ),
-        "{:?}",
-        folder_stale(&env)
-    );
+    assert_source_set_changed(&env);
 }
 
 #[test]
@@ -2127,30 +2129,43 @@ fn an_upgraded_store_whose_builds_audit_kept_its_content_from_before_placing_rea
     assert_eq!(folder_stale(&env), []);
 }
 
-#[test]
-fn placing_in_one_folder_leaves_another_built_from_an_earlier_audit_fresh() {
-    let env = Env::new();
-    pong_zip(&env);
-    env.audit(AuditEvidence::Full);
-    // Folder B, the one that will hold the Source Set's Games, exists before Single Copy is on.
-    let holding = add_folder(&env.store, "atari-holding");
-    let selection = env.select(&["Pong (USA)"]);
-    let plan = env.plan(&env.folder, selection);
-    assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Copy);
-    assert_eq!(env.build(&plan).state, JobState::Succeeded);
-    env.audit(AuditEvidence::Incremental);
-    assert_eq!(folder_stale(&env), []);
-
+/// Places Pong in `folder`, the folder chosen to hold the Source Set's Games, with Single Copy on.
+fn place_pong_in(env: &Env, folder: &LibraryFolder) {
     env.single_copy(StorageFormat::TorrentZip);
-    env.store.set_holding_folder(SET, Some(holding.id)).unwrap();
+    env.store.set_holding_folder(SET, Some(folder.id)).unwrap();
     let selection = env.select(&["Pong (USA)"]);
-    let plan = env.plan(&holding, selection);
+    let plan = env.plan(folder, selection);
     assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
     assert_eq!(env.build(&plan).state, JobState::Succeeded);
     assert_eq!(env.store.placed_files(SET).unwrap().len(), 1);
-    assert_eq!(folder_stale(&env), []);
-    env.audit(AuditEvidence::Incremental);
-    assert_eq!(folder_stale(&env), []);
+}
+
+#[test]
+fn placing_in_one_folder_leaves_another_built_from_an_earlier_audit_fresh() {
+    // Pong as a TorrentZip is placed by a rename, loose it is converted on the way.
+    for loose in [false, true] {
+        let env = Env::new();
+        if loose {
+            std::fs::write(env.set().join("Pong (USA).a26"), b"pong").unwrap();
+        } else {
+            pong_zip(&env);
+        }
+        env.audit(AuditEvidence::Full);
+        // The holding folder is added before Single Copy is on, so the first Build copies or repacks Pong into the
+        // other, leaving it in the Source Set.
+        let holding = add_folder(&env.store, "atari-holding");
+        let selection = env.select(&["Pong (USA)"]);
+        let plan = env.plan(&env.folder, selection);
+        assert_ne!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
+        assert_eq!(env.build(&plan).state, JobState::Succeeded);
+        env.audit(AuditEvidence::Incremental);
+        assert_eq!(folder_stale(&env), [], "loose: {loose}");
+
+        place_pong_in(&env, &holding);
+        assert_eq!(folder_stale(&env), [], "loose: {loose}");
+        env.audit(AuditEvidence::Incremental);
+        assert_eq!(folder_stale(&env), [], "loose: {loose}");
+    }
 }
 
 #[test]
@@ -2180,12 +2195,5 @@ fn a_placed_rom_whose_bytes_changed_after_a_placing_build_still_makes_the_folder
         &[("Combat (USA).a26", b"cOmbat")],
     );
     env.audit(AuditEvidence::Incremental);
-    assert!(
-        matches!(
-            folder_stale(&env).as_slice(),
-            [Stale::SourceSetChanged { .. }]
-        ),
-        "{:?}",
-        folder_stale(&env)
-    );
+    assert_source_set_changed(&env);
 }

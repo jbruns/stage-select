@@ -648,10 +648,10 @@ fn finish_audit(tx: &Transaction, id: i64, report: &Report) -> Result<()> {
 
 /// What the Audit `id` found, as a SHA-256 over its DAT Revision, its Entries and its Game Statuses in a fixed order:
 /// equal for two Audits that found the same. How an Entry was verified (its evidence, and when it was read) is left
-/// out: a re-read of an unchanged file finds the same. So is where it was found, its path and member, and the Available
-/// Elsewhere ROMs, which only say where: a Build that places, returns or converts a Game moves what was found without
-/// changing it, and an Audit from before it must hash as one after it does (#385), whichever Library Folder's Build
-/// used it. A Header and Game Warnings count only where there are any.
+/// out: a re-read of an unchanged file finds the same. Also left out are where it was found, its path and member, and
+/// the Available Elsewhere ROMs, which only say where else: a Build that places, returns or converts a Game moves what
+/// was found without changing it, and an Audit from before it must hash as one after it does (#385), whichever Library
+/// Folder's Build used it. A Header and Game Warnings count only where there are any.
 pub(super) fn content_sha256(c: &Connection, id: i64) -> Result<String> {
     let mut hasher = Sha256::new();
     let mut field = |value: Option<String>| {
