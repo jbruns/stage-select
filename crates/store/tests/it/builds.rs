@@ -7734,10 +7734,12 @@ fn save(env: &Env, profile: &SelectionProfile) -> u32 {
         .version
 }
 
-fn profile_stale(env: &Env, folder: &LibraryFolder) -> Vec<stage_select_api::build::Stale> {
+/// Why `folder` is stale now.
+fn stale_of(env: &Env, folder: &LibraryFolder) -> Vec<stage_select_api::build::Stale> {
     env.store.library_folder(folder.id).unwrap().stale
 }
 
+/// `profile` with a choice of Pong (USA) for its game group on `system`.
 fn with_choice(mut profile: SelectionProfile, system: &str) -> SelectionProfile {
     profile.choices.entry(system.into()).or_default().insert(
         "pong (usa)".into(),
@@ -7751,23 +7753,23 @@ fn a_choice_saved_for_one_system_makes_only_that_systems_folder_stale() {
     use stage_select_api::build::Stale;
     let env = Env::new();
     let (first, second) = two_systems(&env);
-    assert!(profile_stale(&env, &first).is_empty());
-    assert!(profile_stale(&env, &second).is_empty());
+    assert!(stale_of(&env, &first).is_empty());
+    assert!(stale_of(&env, &second).is_empty());
 
     let latest = save(&env, &with_choice(SelectionProfile::default(), SET));
     assert_eq!(
-        profile_stale(&env, &first),
+        stale_of(&env, &first),
         [Stale::ProfileSaved { built: 1, latest }]
     );
     assert!(
-        profile_stale(&env, &second).is_empty(),
+        stale_of(&env, &second).is_empty(),
         "a choice for another system can't change this folder's selection: {:?}",
-        profile_stale(&env, &second)
+        stale_of(&env, &second)
     );
 }
 
 #[test]
-fn a_general_setting_saved_makes_every_folder_of_the_profile_stale() {
+fn a_general_setting_saved_makes_every_folder_of_the_stale_of() {
     use stage_select_api::build::Stale;
     let env = Env::new();
     let (first, second) = two_systems(&env);
@@ -7780,7 +7782,7 @@ fn a_general_setting_saved_makes_every_folder_of_the_profile_stale() {
     );
     for folder in [&first, &second] {
         assert_eq!(
-            profile_stale(&env, folder),
+            stale_of(&env, folder),
             [Stale::ProfileSaved { built: 1, latest }]
         );
     }
@@ -7803,35 +7805,35 @@ fn one_systems_settings_saved_leave_another_systems_folder_fresh_unless_the_gene
     );
     let added = save(&env, &own);
     assert_eq!(
-        profile_stale(&env, &first),
+        stale_of(&env, &first),
         [Stale::ProfileSaved {
             built: 1,
             latest: added
         }]
     );
     assert!(
-        profile_stale(&env, &second).is_empty(),
+        stale_of(&env, &second).is_empty(),
         "added for another system"
     );
 
     own.systems.get_mut(SET).unwrap().region_order = Some(vec!["Europe".into()]);
     let changed = save(&env, &own);
     assert_eq!(
-        profile_stale(&env, &first),
+        stale_of(&env, &first),
         [Stale::ProfileSaved {
             built: 1,
             latest: changed
         }]
     );
     assert!(
-        profile_stale(&env, &second).is_empty(),
+        stale_of(&env, &second).is_empty(),
         "changed for another system"
     );
 
     own.region_order = vec!["Europe".into()];
     let general = save(&env, &own);
     assert_eq!(
-        profile_stale(&env, &second),
+        stale_of(&env, &second),
         [Stale::ProfileSaved {
             built: 1,
             latest: general
@@ -7845,13 +7847,13 @@ fn a_choice_saved_then_reverted_leaves_its_folder_fresh_against_its_build() {
     let env = Env::new();
     let (first, second) = two_systems(&env);
     save(&env, &with_choice(SelectionProfile::default(), SET));
-    assert!(!profile_stale(&env, &first).is_empty());
+    assert!(!stale_of(&env, &first).is_empty());
     let reverted = save(&env, &SelectionProfile::default());
     assert_eq!(reverted, 3, "the revert is a version of its own");
     assert!(
-        profile_stale(&env, &first).is_empty(),
+        stale_of(&env, &first).is_empty(),
         "version 3 selects as version 1 did: {:?}",
-        profile_stale(&env, &first)
+        stale_of(&env, &first)
     );
-    assert!(profile_stale(&env, &second).is_empty());
+    assert!(stale_of(&env, &second).is_empty());
 }
