@@ -337,7 +337,7 @@ fn a_per_disc_group_whose_regions_number_the_disc_differently_resolves_with_one_
     }
     assert_eq!(chosen.summary.unresolved, 0);
 
-    // Without coverage, a choice of Europe's Arcade Disc, which Europe numbers 2, is applied and settles the group.
+    // With no Coverage, a choice of Europe's Arcade Disc, which Europe numbers 2, is applied and settles the group.
     let europe = saved([
         "Rival (Europe) (Disc 2) (Arcade Disc)",
         "Rival (USA) (Disc 2) (Evolution Disc)",

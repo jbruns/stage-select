@@ -245,7 +245,8 @@ impl Env {
         self.selection_of(titles.iter().map(|t| group(t)).collect())
     }
 
-    /// A Selection of `groups`, after the disc passes Selection runs before and after it applies your choices.
+    /// A Selection of `groups`, after the disc passes Selection runs before and after it applies the
+    /// Operator's choices.
     fn selection_of(&self, groups: Vec<SelectionGroup>) -> i64 {
         self.store
             .enqueue_selection(SET, None, PROFILE, None, "Operator", WORKERS)
@@ -519,8 +520,8 @@ fn rival() -> Vec<(&'static str, Vec<RomSpec>)> {
         .collect()
 }
 
-/// A group the clone list makes for one disc, as Selection names it: `usa` chosen, applied, and `europe` outside
-/// your coverage.
+/// A group the clone list makes for one disc, as Selection names it: the Operator's choice of `usa` applied, and `europe` outside
+/// the Source Set's Coverage.
 fn per_disc_group(name: &str, usa: &str, europe: &str) -> SelectionGroup {
     let mut g = group(usa);
     g.group = name.into();
@@ -533,7 +534,7 @@ fn per_disc_group(name: &str, usa: &str, europe: &str) -> SelectionGroup {
     g.choice = Some(GroupChoice {
         checked: [usa.to_owned()].into(),
         status: ChoiceStatus::Applied,
-        picks: vec![europe.into()],
+        picks: vec![usa.into()],
         engine_unresolved: true,
         problems: vec![],
     });

@@ -185,7 +185,7 @@ fn chosen<'a>(selected: impl IntoIterator<Item = &'a str>) -> BTreeMap<String, B
 /// Whether a group name, as Selection writes it (lowercased, for a clone list's group), carries a disc tag: the
 /// clone list made the group for one disc, so each title in it is that disc in its own release, whatever number
 /// that release gives it. Disc names are normalized as [`normalize`] does, whatever their case.
-pub fn names_one_disc(group: &str) -> bool {
+fn names_one_disc(group: &str) -> bool {
     let mut name = group.to_lowercase();
     for (key, value) in DISC_RENAME {
         let (key, value) = (key.to_lowercase(), value.to_lowercase());
@@ -608,7 +608,7 @@ mod tests {
     }
 
     /// A group the clone list makes for one disc, named as Selection names it, lowercased: USA numbers it Disc 1,
-    /// Europe, outside your coverage, Disc 2.
+    /// Europe, outside the Source Set's Coverage, Disc 2.
     fn per_disc(kept: &[&str]) -> SelectionGroup {
         let mut g = group(kept, &[]);
         g.group = "rival - united (disc 1) (arcade disc)".into();
