@@ -16,8 +16,8 @@ use stage_select_api::build::{
     Plan, PlanBuild, PlanCleanup, RETENTION, RemovalKind, STATE,
 };
 use stage_select_api::selection::{
-    CoverageDrift, KeptGame, Rule, Selection, SelectionGroup, SelectionPins, SelectionProfile,
-    SelectionSummary,
+    ChoiceStatus, CoverageDrift, GroupChoice, KeptGame, LeftOutGame, Rule, Selection,
+    SelectionGroup, SelectionPins, SelectionProfile, SelectionSummary,
 };
 use stage_select_api::storage::{DiscLayout, StorageFormat, SystemStorage};
 use stage_select_store::{Store, Workers};
@@ -242,20 +242,27 @@ impl Env {
 
     /// A Selection of `titles`.
     fn selection(&self, titles: &[&str]) -> i64 {
+        self.selection_of(titles.iter().map(|t| group(t)).collect())
+    }
+
+    /// A Selection of `groups`, after the disc passes Selection runs before and after it applies your choices.
+    fn selection_of(&self, groups: Vec<SelectionGroup>) -> i64 {
         self.store
             .enqueue_selection(SET, None, PROFILE, None, "Operator", WORKERS)
             .unwrap();
         let job = self.store.claim_job().unwrap().unwrap();
-        let selection = Selection {
+        let mut selection = Selection {
             pins: SelectionPins::default(),
             dat_sha256: self.sha256.clone(),
             system: SET.into(),
             system_settings: false,
             summary: SelectionSummary::default(),
             coverage_drift: CoverageDrift::default(),
-            groups: titles.iter().map(|t| group(t)).collect(),
+            groups,
             stale_choices: Default::default(),
         };
+        stage_select_api::discs::mark_unresolved(&mut selection);
+        stage_select_api::discs::mark_uncovered_choices(&mut selection);
         self.store
             .record_selection(job.id, &selection)
             .unwrap()
@@ -490,6 +497,71 @@ fn a_loose_build_lays_discs_out_as_es_de_reads_them_with_an_m3u_listing_each_dis
         again.content.removals.is_empty(),
         "{:?}",
         again.content.removals
+    );
+}
+
+/// Rival's discs, which its regions number differently: USA's Arcade Disc is Disc 1, Europe's Disc 2.
+const RIVAL: [&str; 4] = [
+    "Rival (USA) (Disc 1) (Arcade Disc)",
+    "Rival (USA) (Disc 2) (Evolution Disc)",
+    "Rival (Europe) (Disc 1) (Evolution Disc)",
+    "Rival (Europe) (Disc 2) (Arcade Disc)",
+];
+
+fn rival() -> Vec<(&'static str, Vec<RomSpec>)> {
+    RIVAL
+        .iter()
+        .enumerate()
+        .map(|(n, game)| {
+            let iso = leak(format!("{game}.iso"));
+            (*game, vec![rom(iso, &noise(30 + n as u64, 2048 * 50))])
+        })
+        .collect()
+}
+
+/// A group the clone list makes for one disc, as Selection names it: `usa` chosen, applied, and `europe` outside
+/// your coverage.
+fn per_disc_group(name: &str, usa: &str, europe: &str) -> SelectionGroup {
+    let mut g = group(usa);
+    g.group = name.into();
+    g.kept[0].rule = Rule::choice();
+    g.left_out = vec![LeftOutGame {
+        title: europe.into(),
+        rule: Rule::coverage(),
+        reason: "Coverage".into(),
+    }];
+    g.choice = Some(GroupChoice {
+        checked: [usa.to_owned()].into(),
+        status: ChoiceStatus::Applied,
+        picks: vec![europe.into()],
+        engine_unresolved: true,
+        problems: vec![],
+    });
+    g
+}
+
+#[test]
+fn per_disc_groups_whose_regions_number_the_disc_differently_build_each_chosen_disc_as_its_own_game()
+ {
+    let env = Env::with(StorageFormat::LooseFolder, rival);
+    let folder = env.folder();
+    let selection = env.selection_of(vec![
+        per_disc_group("rival (disc 1) (arcade disc)", RIVAL[0], RIVAL[3]),
+        per_disc_group("rival (disc 2) (evolution disc)", RIVAL[1], RIVAL[2]),
+    ]);
+
+    let plan = env.built(&folder, selection);
+    for disc in &RIVAL[..2] {
+        assert_eq!(items_of(&plan, disc).len(), 1, "{:?}", plan.content.items);
+    }
+    // Their releases differ by subtitle, so each is a game of one disc, laid out with no .m3u: one multi-disc game of
+    // both would need its discs' releases to be one.
+    assert_eq!(
+        env.files(),
+        [
+            "Rival (USA) (Disc 1) (Arcade Disc).iso",
+            "Rival (USA) (Disc 2) (Evolution Disc).iso",
+        ]
     );
 }
 

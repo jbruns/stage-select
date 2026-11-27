@@ -242,3 +242,111 @@ fn a_saved_whole_choice_is_flagged_again_when_a_newer_dat_adds_a_disc() {
             .unresolved
     );
 }
+
+/// A synthetic DAT and clone list that group Rival's discs by content, not number, as Redump's PlayStation clone list
+/// does: USA numbers the Arcade Disc 1 and the Evolution Disc 2, Europe the other way round.
+fn per_disc_groups(dir: &Path) -> PathBuf {
+    let dat = write_dat(
+        dir,
+        "rival.dat",
+        &[
+            "Rival (USA) (Disc 1) (Arcade Disc)",
+            "Rival (USA) (Disc 2) (Evolution Disc)",
+            "Rival (Europe) (Disc 1) (Evolution Disc)",
+            "Rival (Europe) (Disc 2) (Arcade Disc)",
+        ],
+    );
+    std::fs::write(
+        dir.join("data/clonelists/Stage Select - Discs.json"),
+        r#"{
+  "description": {"name": "Stage Select - Discs", "lastUpdated": "2024-01-01 00:00:00", "minimumVersion": "2.4.8"},
+  "variants": [
+    {"group": "Rival (Disc 1) (Arcade Disc)", "titles": [
+      {"searchTerm": "Rival (Disc 1) (Arcade Disc)"}, {"searchTerm": "Rival (Disc 2) (Arcade Disc)"}]},
+    {"group": "Rival (Disc 2) (Evolution Disc)", "titles": [
+      {"searchTerm": "Rival (Disc 1) (Evolution Disc)"}, {"searchTerm": "Rival (Disc 2) (Evolution Disc)"}]}
+  ]
+}
+"#,
+    )
+    .unwrap();
+    dat
+}
+
+const ARCADE: &str = "rival (disc 1) (arcade disc)";
+const EVOLUTION: &str = "rival (disc 2) (evolution disc)";
+
+#[test]
+fn a_per_disc_group_whose_regions_number_the_disc_differently_resolves_with_one_title() {
+    let work = tempfile::tempdir().unwrap();
+    let dat = per_disc_groups(work.path());
+    let usa = stage_select_selection::RunOptions {
+        coverage: Some(vec!["USA".into()]),
+        ..support::options()
+    };
+    let engine = support::engine().with_data_dir(&work.path().join("data"));
+
+    let selection = engine
+        .select(&dat, &SelectionProfile::default(), &usa)
+        .unwrap();
+    for (name, title) in [
+        (ARCADE, "Rival (USA) (Disc 1) (Arcade Disc)"),
+        (EVOLUTION, "Rival (USA) (Disc 2) (Evolution Disc)"),
+    ] {
+        let g = selection
+            .groups
+            .iter()
+            .find(|g| g.group == name)
+            .unwrap_or_else(|| panic!("{:#?}", selection.groups));
+        assert_eq!(
+            titles(g.kept.iter().map(|w| &w.title)),
+            BTreeSet::from([title])
+        );
+        assert!(g.left_out.iter().all(|e| e.rule.is_coverage()), "{g:#?}");
+        assert!(!g.unresolved, "{g:#?}");
+        assert_eq!(discs::unresolved_reason(g), None);
+        assert!(discs::missing(g).is_empty());
+    }
+
+    // A choice of the USA title in each, saved while the groups were unresolved, now matches the engine's pick.
+    let saved = |checked: [&str; 2]| {
+        let mut profile = SelectionProfile::default();
+        profile.choices.insert(
+            selection.system.clone(),
+            [ARCADE, EVOLUTION]
+                .into_iter()
+                .zip(checked)
+                .map(|(name, title)| (name.to_owned(), BTreeSet::from([title.to_owned()])))
+                .collect(),
+        );
+        profile
+    };
+    let usa_titles = [
+        "Rival (USA) (Disc 1) (Arcade Disc)",
+        "Rival (USA) (Disc 2) (Evolution Disc)",
+    ];
+    let chosen = engine.select(&dat, &saved(usa_titles), &usa).unwrap();
+    for name in [ARCADE, EVOLUTION] {
+        let g = chosen.groups.iter().find(|g| g.group == name).unwrap();
+        assert_eq!(
+            g.choice.as_ref().unwrap().status,
+            ChoiceStatus::MatchesDefault
+        );
+        assert!(!g.unresolved, "{g:#?}");
+        assert_eq!(discs::unresolved_reason(g), None);
+    }
+    assert_eq!(chosen.summary.unresolved, 0);
+
+    // Without coverage, a choice of Europe's Arcade Disc, which Europe numbers 2, is applied and settles the group.
+    let europe = saved([
+        "Rival (Europe) (Disc 2) (Arcade Disc)",
+        "Rival (USA) (Disc 2) (Evolution Disc)",
+    ]);
+    let chosen = engine.select(&dat, &europe, &support::options()).unwrap();
+    let g = chosen.groups.iter().find(|g| g.group == ARCADE).unwrap();
+    assert_eq!(g.choice.as_ref().unwrap().status, ChoiceStatus::Applied);
+    assert!(!g.unresolved, "{g:#?}");
+    assert_eq!(discs::unresolved_reason(g), None);
+    assert!(discs::missing(g).is_empty());
+    assert_eq!(chosen.summary.unresolved, 0, "{:#?}", chosen.groups);
+}
