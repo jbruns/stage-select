@@ -108,8 +108,9 @@ pub enum Stale {
     SourceSetChanged { built: i64, latest: i64 },
     /// The folder was rebound to another Profile; `built` is the one its current Build's Selection used.
     ProfileRebound { built: String },
-    /// The Profile was saved since: `latest` is its newest version, `built` the one the current Build's Selection
-    /// used.
+    /// The Profile was saved since, and its newest version could select otherwise for the current Build's system:
+    /// a part of the Profile a Selection of that system reads differs between the two (`applying_to`). `latest` is
+    /// the newest version, `built` the one the current Build's Selection used. Versions in between don't count.
     ProfileSaved { built: u32, latest: u32 },
     /// The Source Set's Coverage changed: `latest` is its Coverage now, `built` the one the current Build's Selection
     /// was made under; `None` covers every Game.

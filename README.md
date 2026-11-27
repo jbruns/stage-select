@@ -2146,6 +2146,10 @@ Instead of unregistering in place, you can:
 - **Change what a library folder builds**: bind it to another selection profile, or to another source set of the
   same system. It is stale until its next build.
 
+A library folder is also stale when you save its selection profile in a way that could change what it builds: its
+general settings, or its settings or choices for the folder's system. Saving a choice or settings for another system
+leaves it as it was, and so does saving a change you then undo.
+
 You can also retire a selection profile no library folder uses. It is no longer offered for new selections or library
 folders, and its versions stay for the selections that used them. Restore it to offer it again.
 
@@ -2248,7 +2252,7 @@ What these versions promise you:
 | `GET /api/v1/selections/{id}/releases`             | games, paged, with availability; `?outcome=`, `?group=`      |
 | `GET /api/v1/selections/{id}/availability`         | game statuses of the latest audit against its DAT revision   |
 | `GET /api/v1/selections/{id}/diff`                 | what changed from the previous selection, or `null` for the first; `?against=` |
-| `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, for a MAME ListXML's folder `built_for`, the MAME version its build was selected for, and `disk_folders`, the folders it holds disks in, `removed`, the games you removed from it, each `{"name", "removed_at", "action", "plan"}`, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}`, or `{"kind": "coverage_changed", "built", "latest"}`, each a list of regions or `null` for every game, or `{"kind": "dat_changed", "built"}`, the DAT its current build's selection was of, after its source set was bound to another DAT |
+| `GET /api/v1/libraries`                            | the library folders, each with its current build, `plan_open` while its latest plan awaits approval, for a MAME ListXML's folder `built_for`, the MAME version its build was selected for, and `disk_folders`, the folders it holds disks in, `removed`, the games you removed from it, each `{"name", "removed_at", "action", "plan"}`, and `stale`: why its current build is behind, each `{"kind": "source_set_rebound" \| "profile_rebound", "built"}` or `{"kind": "source_set_changed" \| "profile_saved", "built", "latest"}`, `profile_saved` only when version `latest` of its selection profile could select otherwise for its system than version `built`: its general settings, or its settings or choices for that system, differ, so a choice or settings for another system never make it stale, or `{"kind": "coverage_changed", "built", "latest"}`, each a list of regions or `null` for every game, or `{"kind": "dat_changed", "built"}`, the DAT its current build's selection was of, after its source set was bound to another DAT |
 | `POST /api/v1/libraries`                           | register one: `{"root", "path"?, "template"?, "source_set", "profile"}`; `201` |
 | `GET /api/v1/libraries/{id}`                       | one library folder                                           |
 | `PATCH /api/v1/libraries/{id}`                     | rebind it: `{"source_set"?, "profile"?}`                     |

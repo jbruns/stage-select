@@ -170,7 +170,10 @@ pub fn stale_label(stale: &Stale) -> String {
             format!("You bound it to another selection profile; its build used {built}.")
         }
         Stale::ProfileSaved { built, latest } => {
-            format!("Its selection profile is at version {latest}; its build used version {built}.")
+            format!(
+                "Its selection profile changed for its system: version {latest} may select other games than \
+                 version {built}, which its build used."
+            )
         }
         Stale::CoverageChanged { built, latest } => format!(
             "Coverage changed: its source set covers {} now; its build was selected under {}.",

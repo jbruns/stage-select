@@ -7665,3 +7665,193 @@ fn a_library_folders_permissions_differing_are_restored_and_never_drift_or_confl
         0
     );
 }
+
+/// The system of the second Source Set [`two_systems`] makes, as its DAT header names it.
+const OTHER_SYSTEM: &str = "Other - System";
+
+/// Two Library Folders sharing the Profile, each built with version 1: `atari2600` on [`SET`], its Selection of
+/// system [`SET`], and `other` on a second Source Set, its Selection of system [`OTHER_SYSTEM`]. Returns them in that
+/// order.
+fn two_systems(env: &Env) -> (LibraryFolder, LibraryFolder) {
+    env.audit();
+    let id = env.record(&everything(&env.sha256));
+    let first = env.folder("atari2600");
+    env.build(&env.plan(&first, id));
+
+    let dat = write_dat_as(
+        &env.tmp.path().join("in"),
+        &Dat {
+            file: "Other - System (1).dat",
+            name: OTHER_SYSTEM,
+            ..Dat::default()
+        },
+        &[("Pong (USA)", vec![rom("Pong (USA).a26", b"pong")])],
+    );
+    let (revision, _) = env.store.import_dat(&dat, None).unwrap();
+    std::fs::create_dir_all(env.tmp.path().join("roots/sets/Other")).unwrap();
+    env.store
+        .add_source_set("sets", "Other", &format!("No-Intro/{OTHER_SYSTEM}"))
+        .unwrap();
+    env.store
+        .audit_source_set(
+            "Other",
+            None,
+            stage_select_engine::AuditEvidence::Incremental,
+        )
+        .unwrap();
+    env.store
+        .enqueue_selection("Other", None, PROFILE, None, "Operator", WORKERS)
+        .unwrap();
+    let job = env.store.claim_job().unwrap().unwrap();
+    let other_selection = Selection {
+        system: OTHER_SYSTEM.into(),
+        ..selection(&revision.sha256, Vec::new())
+    };
+    let other_id = env
+        .store
+        .record_selection(job.id, &other_selection)
+        .unwrap()
+        .selection
+        .unwrap();
+    let second = env
+        .store
+        .add_library_folder(&AddLibraryFolder {
+            source_set: "Other".into(),
+            ..add("other")
+        })
+        .unwrap();
+    env.build(&env.plan(&second, other_id));
+    (first, second)
+}
+
+/// Saves `profile` as the Profile's next version.
+fn save(env: &Env, profile: &SelectionProfile) -> u32 {
+    let base = env.store.profile_versions(PROFILE).unwrap().len() as u32;
+    env.store
+        .save_profile(PROFILE, profile, Some(base), "Operator", &[], WORKERS)
+        .unwrap()
+        .version
+        .version
+}
+
+fn profile_stale(env: &Env, folder: &LibraryFolder) -> Vec<stage_select_api::build::Stale> {
+    env.store.library_folder(folder.id).unwrap().stale
+}
+
+fn with_choice(mut profile: SelectionProfile, system: &str) -> SelectionProfile {
+    profile.choices.entry(system.into()).or_default().insert(
+        "pong (usa)".into(),
+        BTreeSet::from(["Pong (USA)".to_owned()]),
+    );
+    profile
+}
+
+#[test]
+fn a_choice_saved_for_one_system_makes_only_that_systems_folder_stale() {
+    use stage_select_api::build::Stale;
+    let env = Env::new();
+    let (first, second) = two_systems(&env);
+    assert!(profile_stale(&env, &first).is_empty());
+    assert!(profile_stale(&env, &second).is_empty());
+
+    let latest = save(&env, &with_choice(SelectionProfile::default(), SET));
+    assert_eq!(
+        profile_stale(&env, &first),
+        [Stale::ProfileSaved { built: 1, latest }]
+    );
+    assert!(
+        profile_stale(&env, &second).is_empty(),
+        "a choice for another system can't change this folder's selection: {:?}",
+        profile_stale(&env, &second)
+    );
+}
+
+#[test]
+fn a_general_setting_saved_makes_every_folder_of_the_profile_stale() {
+    use stage_select_api::build::Stale;
+    let env = Env::new();
+    let (first, second) = two_systems(&env);
+    let latest = save(
+        &env,
+        &SelectionProfile {
+            region_order: vec!["Japan".into(), "USA".into()],
+            ..Default::default()
+        },
+    );
+    for folder in [&first, &second] {
+        assert_eq!(
+            profile_stale(&env, folder),
+            [Stale::ProfileSaved { built: 1, latest }]
+        );
+    }
+}
+
+#[test]
+fn one_systems_settings_saved_leave_another_systems_folder_fresh_unless_the_general_ones_changed_too()
+ {
+    use stage_select_api::build::Stale;
+    use stage_select_api::selection::SystemSettings;
+    let env = Env::new();
+    let (first, second) = two_systems(&env);
+    let mut own = SelectionProfile::default();
+    own.systems.insert(
+        SET.into(),
+        SystemSettings {
+            region_order: Some(vec!["Japan".into()]),
+            ..Default::default()
+        },
+    );
+    let added = save(&env, &own);
+    assert_eq!(
+        profile_stale(&env, &first),
+        [Stale::ProfileSaved {
+            built: 1,
+            latest: added
+        }]
+    );
+    assert!(
+        profile_stale(&env, &second).is_empty(),
+        "added for another system"
+    );
+
+    own.systems.get_mut(SET).unwrap().region_order = Some(vec!["Europe".into()]);
+    let changed = save(&env, &own);
+    assert_eq!(
+        profile_stale(&env, &first),
+        [Stale::ProfileSaved {
+            built: 1,
+            latest: changed
+        }]
+    );
+    assert!(
+        profile_stale(&env, &second).is_empty(),
+        "changed for another system"
+    );
+
+    own.region_order = vec!["Europe".into()];
+    let general = save(&env, &own);
+    assert_eq!(
+        profile_stale(&env, &second),
+        [Stale::ProfileSaved {
+            built: 1,
+            latest: general
+        }],
+        "no settings of its own, so the general ones apply to it"
+    );
+}
+
+#[test]
+fn a_choice_saved_then_reverted_leaves_its_folder_fresh_against_its_build() {
+    let env = Env::new();
+    let (first, second) = two_systems(&env);
+    save(&env, &with_choice(SelectionProfile::default(), SET));
+    assert!(!profile_stale(&env, &first).is_empty());
+    let reverted = save(&env, &SelectionProfile::default());
+    assert_eq!(reverted, 3, "the revert is a version of its own");
+    assert!(
+        profile_stale(&env, &first).is_empty(),
+        "version 3 selects as version 1 did: {:?}",
+        profile_stale(&env, &first)
+    );
+    assert!(profile_stale(&env, &second).is_empty());
+}
