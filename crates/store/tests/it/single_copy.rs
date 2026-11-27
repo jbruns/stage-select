@@ -2126,3 +2126,66 @@ fn an_upgraded_store_whose_builds_audit_kept_its_content_from_before_placing_rea
     env.audit(AuditEvidence::Incremental);
     assert_eq!(folder_stale(&env), []);
 }
+
+#[test]
+fn placing_in_one_folder_leaves_another_built_from_an_earlier_audit_fresh() {
+    let env = Env::new();
+    pong_zip(&env);
+    env.audit(AuditEvidence::Full);
+    // Folder B, the one that will hold the Source Set's Games, exists before Single Copy is on.
+    let holding = add_folder(&env.store, "atari-holding");
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Copy);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    env.audit(AuditEvidence::Incremental);
+    assert_eq!(folder_stale(&env), []);
+
+    env.single_copy(StorageFormat::TorrentZip);
+    env.store.set_holding_folder(SET, Some(holding.id)).unwrap();
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&holding, selection);
+    assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert_eq!(env.store.placed_files(SET).unwrap().len(), 1);
+    assert_eq!(folder_stale(&env), []);
+    env.audit(AuditEvidence::Incremental);
+    assert_eq!(folder_stale(&env), []);
+}
+
+#[test]
+fn converting_a_game_whose_rom_another_game_shares_leaves_the_folder_fresh() {
+    let env = Env::with(&[
+        ("Pong (USA)", vec![rom("Pong (USA).a26", b"same")]),
+        ("Combat (USA)", vec![rom("Combat (USA).a26", b"same")]),
+    ]);
+    std::fs::write(env.set().join("Pong (USA).a26"), b"same").unwrap();
+    env.audit(AuditEvidence::Full);
+    env.single_copy(StorageFormat::TorrentZip);
+    let selection = env.select(&["Pong (USA)"]);
+    let plan = env.plan(&env.folder, selection);
+    assert_eq!(item(&plan, "Pong (USA)").kind, ItemKind::Place);
+    assert_eq!(env.build(&plan).state, JobState::Succeeded);
+    assert_eq!(folder_stale(&env), []);
+    env.audit(AuditEvidence::Incremental);
+    assert_eq!(folder_stale(&env), []);
+}
+
+#[test]
+fn a_placed_rom_whose_bytes_changed_after_a_placing_build_still_makes_the_folder_stale() {
+    let env = audited_both();
+    place_both(&env);
+    write_torrentzip(
+        &env.library().join("Combat (USA).zip"),
+        &[("Combat (USA).a26", b"cOmbat")],
+    );
+    env.audit(AuditEvidence::Incremental);
+    assert!(
+        matches!(
+            folder_stale(&env).as_slice(),
+            [Stale::SourceSetChanged { .. }]
+        ),
+        "{:?}",
+        folder_stale(&env)
+    );
+}
