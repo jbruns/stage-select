@@ -91,6 +91,18 @@ impl SelectionProfile {
             .unwrap_or_default()
     }
 
+    /// The parts of the Profile a Selection of `system` reads, so that two versions select alike for `system` when
+    /// these are equal: every general setting, with `systems` and `choices` cut to `system`'s entries. A Selection
+    /// keys both by the system its DAT names, `Selection::system`; a Build reads `system`'s `additions` from its
+    /// entry too. A setting this does not cut counts for every system, so a field added to the Profile does until it
+    /// is cut here.
+    pub fn applying_to(&self, system: &str) -> SelectionProfile {
+        let mut profile = self.clone();
+        profile.systems.retain(|name, _| name == system);
+        profile.choices.retain(|name, _| name == system);
+        profile
+    }
+
     /// Removes every choice in the Profile.
     pub fn reset_all_choices(&mut self) {
         self.choices.clear();

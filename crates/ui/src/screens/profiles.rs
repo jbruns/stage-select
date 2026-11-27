@@ -463,7 +463,7 @@ fn folder_detail(row: FolderRow) -> AnyView {
                 .to_string()
         }
         (Some(v), Some(n)) if v < n => format!(
-            "Built with version {v}. Version {n} is newer: plan a build from the folder to build with it."
+            "Built with version {v}. Version {n} is newer: the folder says whether it changes its games, and you can plan a build from there."
         ),
         (Some(v), _) => format!("Built with version {v}, the newest."),
     };

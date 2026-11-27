@@ -14,6 +14,7 @@ use stage_select_api::build::{
 };
 use stage_select_api::discs;
 use stage_select_api::paths::{PathTemplate, TokenValues};
+use stage_select_api::selection::SelectionProfile;
 
 use super::audits::recorded_content_sha256;
 use super::beneath::{resolve_beneath, resolved};
@@ -250,14 +251,25 @@ fn plan_open(c: &Connection, row: &FolderRow) -> Result<bool> {
 
 /// What changed since the folder's current Build: a rebinding to another Source Set or Profile, or else its Source
 /// Set's binding to another DAT, a newer Audit of its Source Set that found something other than the Build's did, a Coverage of its Source Set other than
-/// the one the Build's Selection was made under, or a version of its Profile newer than the Build's Selection's.
+/// the one the Build's Selection was made under, or a newest version of its Profile that could select otherwise for
+/// the Build's system than the version its Selection used.
 fn stale(c: &Connection, row: &FolderRow) -> Result<Vec<Stale>> {
     let Some(build) = row.current_build else {
         return Ok(Vec::new());
     };
-    type Built = (i64, String, i64, String, u32, i64, Option<Vec<String>>);
-    let (set_id, set, profile_id, profile, version, audit, built_coverage): Built = c.query_row(
-        "SELECT s.source_set_id, ss.name, v.profile_id, p.name, v.version, b.audit_id, s.coverage
+    type Built = (
+        i64,
+        String,
+        i64,
+        String,
+        u32,
+        i64,
+        Option<Vec<String>>,
+        String,
+        String,
+    );
+    let (set_id, set, profile_id, profile, version, audit, built_coverage, system, built_json): Built = c.query_row(
+        "SELECT s.source_set_id, ss.name, v.profile_id, p.name, v.version, b.audit_id, s.coverage, s.system, v.json
              FROM builds b
              JOIN selections s ON s.id = b.selection_id
              JOIN source_sets ss ON ss.id = s.source_set_id
@@ -274,6 +286,8 @@ fn stale(c: &Connection, row: &FolderRow) -> Result<Vec<Stale>> {
                 r.get(4)?,
                 r.get(5)?,
                 coverage_from_row(r, 6)?,
+                r.get(7)?,
+                r.get(8)?,
             ))
         },
     )?;
@@ -319,12 +333,12 @@ fn stale(c: &Connection, row: &FolderRow) -> Result<Vec<Stale>> {
     if profile_id != row.profile_id {
         stale.push(Stale::ProfileRebound { built: profile });
     } else {
-        let latest: u32 = c.query_row(
-            "SELECT max(version) FROM profile_versions WHERE profile_id = ?1",
+        let (latest, latest_json): (u32, String) = c.query_row(
+            "SELECT version, json FROM profile_versions WHERE profile_id = ?1 ORDER BY version DESC LIMIT 1",
             [profile_id],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        if latest > version {
+        if latest > version && !selects_alike(&built_json, &latest_json, &system) {
             stale.push(Stale::ProfileSaved {
                 built: version,
                 latest,
@@ -332,6 +346,17 @@ fn stale(c: &Connection, row: &FolderRow) -> Result<Vec<Stale>> {
         }
     }
     Ok(stale)
+}
+
+/// Whether the Profile versions `built` and `latest`, as their JSON, select alike for `system`: the parts of each a
+/// Selection of `system` reads are equal. Versions in between don't matter: a change saved and then undone leaves
+/// the Selection as it was. A version that doesn't read as a Profile selects unlike any other.
+fn selects_alike(built: &str, latest: &str, system: &str) -> bool {
+    let read = |json| serde_json::from_str::<SelectionProfile>(json).ok();
+    match (read(built), read(latest)) {
+        (Some(built), Some(latest)) => built.applying_to(system) == latest.applying_to(system),
+        _ => false,
+    }
 }
 
 /// The Source Set `set_id`'s Coverage now.
